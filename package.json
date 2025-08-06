@@ -1,0 +1,38 @@
+{
+  "name": "esp32-asset-monitor",
+  "version": "1.0.0",
+  "description": "Industrial asset monitoring dashboard for ESP32 devices",
+  "main": "src/backend/server.js",
+  "scripts": {
+    "start": "node src/backend/server.js",
+    "dev": "nodemon src/backend/server.js",
+    "client": "cd src/frontend && npm start",
+    "dev:full": "concurrently \"npm run dev\" \"npm run client\"",
+    "install:all": "npm install && cd src/frontend && npm install",
+    "build": "cd src/frontend && npm run build"
+  },
+  "keywords": [
+    "esp32",
+    "iot",
+    "dashboard",
+    "monitoring",
+    "industrial"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "json2csv": "^6.0.0-alpha.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^7.5.0",
+    "nodemailer": "^6.9.5",
+    "socket.io": "^4.7.2"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.1",
+    "nodemon": "^3.0.1"
+  }
+}
