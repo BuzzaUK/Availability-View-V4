@@ -23,6 +23,7 @@ import ConfigPage from './components/config/ConfigPage';
 import { AuthProvider } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
 import { AlertProvider } from './context/AlertContext';
+import { SettingsProvider } from './context/SettingsContext';
 
 // Routes
 import PrivateRoute from './components/routing/PrivateRoute';
@@ -119,8 +120,9 @@ function App() {
       <CssBaseline />
       <AlertProvider>
         <AuthProvider>
-          <SocketProvider>
-            <Router>
+          <SettingsProvider>
+            <SocketProvider>
+              <Router>
               <Routes>
                 {/* Auth Routes */}
                 <Route path="/login" element={<Login />} />
@@ -144,9 +146,10 @@ function App() {
               </Routes>
             </Router>
           </SocketProvider>
-        </AuthProvider>
-      </AlertProvider>
-    </ThemeProvider>
+        </SettingsProvider>
+      </AuthProvider>
+    </AlertProvider>
+  </ThemeProvider>
   );
 }
 

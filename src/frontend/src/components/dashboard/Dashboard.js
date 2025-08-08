@@ -6,18 +6,25 @@ import {
   Paper,
   Box,
   Button,
-
   Card,
   CardContent,
   Chip,
-  LinearProgress
+  LinearProgress,
+  Alert,
+  CircularProgress
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
   TrendingUp as TrendingUpIcon,
-  TrendingDown as TrendingDownIcon
+  TrendingDown as TrendingDownIcon,
+  CheckCircle as CheckCircleIcon,
+  Error as ErrorIcon,
+  Warning as WarningIcon,
+  Schedule as ScheduleIcon
 } from '@mui/icons-material';
 import SocketContext from '../../context/SocketContext';
+import SettingsContext from '../../context/SettingsContext';
+import AuthContext from '../../context/AuthContext';
 
 
 
@@ -33,33 +40,22 @@ const MetricCard = styled(Card)(({ theme }) => ({
 }));
 
 const Dashboard = () => {
-  const { assets, socket } = useContext(SocketContext);
-  const [autoRefresh] = useState(true);
+  const { assets, events, fetchAllData, loading } = useContext(SocketContext);
+  const [showRefreshNotice, setShowRefreshNotice] = useState(false);
+  const { settings } = useContext(SettingsContext);
+  const { isAuthenticated, token, user } = useContext(AuthContext);
   const [refreshCountdown, setRefreshCountdown] = useState(30);
+  const [showDebug, setShowDebug] = useState(false);
   const [assetStates, setAssetStates] = useState({});
 
+
+
   // Listen for ESP32 asset state changes
+  // Note: Socket functionality will be implemented when needed
   useEffect(() => {
-    if (socket) {
-      const handleAssetStateChange = (data) => {
-        console.log('Received asset state change:', data);
-        setAssetStates(prev => ({
-          ...prev,
-          [data.asset_name]: {
-            state: data.state,
-            timestamp: data.timestamp,
-            pin_number: data.pin_number
-          }
-        }));
-      };
-
-      socket.on('asset_state_change', handleAssetStateChange);
-
-      return () => {
-        socket.off('asset_state_change', handleAssetStateChange);
-      };
-    }
-  }, [socket]);
+    // Socket connection will be handled by SocketContext
+    // This useEffect is reserved for future socket implementation
+  }, []);
 
   // Calculate metrics from real asset data
   const calculateMetrics = useCallback(() => {
@@ -138,22 +134,52 @@ const Dashboard = () => {
     }
   };
 
+  // Update countdown when settings change
+  useEffect(() => {
+    if (settings?.refreshInterval) {
+      setRefreshCountdown(settings.refreshInterval);
+    }
+  }, [settings?.refreshInterval, settings?.autoRefresh]);
+
+
+
   // Auto-refresh countdown
   useEffect(() => {
-    if (autoRefresh) {
+    console.log('🔍 DASHBOARD SETTINGS CHANGED:', {
+      autoRefresh: settings?.autoRefresh,
+      refreshInterval: settings?.refreshInterval,
+      fullSettings: settings
+    });
+    if (settings?.autoRefresh) {
       const interval = setInterval(() => {
         setRefreshCountdown(prev => {
-          if (prev <= 1) {
-            // Metrics are now calculated in real-time, no need to fetch
-            return 30;
+          const newValue = prev - 1;
+          
+          if (newValue <= 0) {
+            // Call fetchAllData directly to avoid dependency loops
+            fetchAllData().then(() => {
+              console.log('✅ Auto-refresh completed successfully', new Date().toISOString());
+            }).catch(error => {
+              console.error('❌ Auto-refresh failed:', error, new Date().toISOString());
+            });
+            setShowRefreshNotice(true);
+            setTimeout(() => setShowRefreshNotice(false), 2000);
+            const nextInterval = settings?.refreshInterval || 30;
+            return nextInterval;
           }
-          return prev - 1;
+          
+          return newValue;
         });
       }, 1000);
 
-      return () => clearInterval(interval);
+      return () => {
+        clearInterval(interval);
+      };
+    } else {
+      // Reset countdown when auto-refresh is disabled
+      setRefreshCountdown(settings?.refreshInterval || 30);
     }
-  }, [autoRefresh]);
+  }, [settings?.autoRefresh, settings?.refreshInterval, fetchAllData]);
 
   const formatTime = (timeString) => {
     return timeString || '00:00:00';
@@ -161,26 +187,57 @@ const Dashboard = () => {
 
   return (
     <Box sx={{ flexGrow: 1 }}>
+      {/* Debug Panel */}
+      {showRefreshNotice && (
+        <Alert severity="success" sx={{ mb: 2 }}>
+          Auto-refresh triggered!
+        </Alert>
+      )}
+      {showDebug && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          <Typography variant="h6">Debug Information</Typography>
+          <Typography variant="body2">
+            <strong>Authentication:</strong> {isAuthenticated ? 'Authenticated' : 'Not Authenticated'}<br/>
+            <strong>Token:</strong> {token ? 'Present' : 'Missing'}<br/>
+            <strong>User:</strong> {user?.email || 'None'}<br/>
+            <strong>Settings Auto-Refresh:</strong> {settings?.autoRefresh ? 'Enabled' : 'Disabled'}<br/>
+            <strong>Settings Refresh Interval:</strong> {settings?.refreshInterval || 'Not Set'}<br/>
+            <strong>Current Countdown:</strong> {refreshCountdown}s
+          </Typography>
+        </Alert>
+      )}
+
       {/* System Overview Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4" component="h1" sx={{ fontWeight: 600, color: '#1e293b' }}>
           System Overview
         </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Chip 
-            icon={<RefreshIcon />}
-            label={`Auto-refresh in: ${refreshCountdown}s`}
-            variant="outlined"
-            color="primary"
+          <Button
+            variant="text"
             size="small"
-          />
+            onClick={() => setShowDebug(!showDebug)}
+          >
+            {showDebug ? 'Hide Debug' : 'Show Debug'}
+          </Button>
+          {settings?.autoRefresh && (
+            <Chip 
+              icon={<RefreshIcon />}
+              label={`Auto-refresh in: ${refreshCountdown}s`}
+              variant="outlined"
+              color="primary"
+              size="small"
+            />
+          )}
           <Button
             variant="outlined"
             startIcon={<RefreshIcon />}
             onClick={() => {
-              // Force re-render by resetting countdown
-              setRefreshCountdown(30);
-              console.log('Dashboard refreshed - showing real-time data');
+              // Force refresh by fetching fresh data and resetting countdown
+              fetchAllData();
+            setShowRefreshNotice(true);
+            setTimeout(() => setShowRefreshNotice(false), 2000);
+            setRefreshCountdown(settings?.refreshInterval || 30);
             }}
             disabled={false}
           >

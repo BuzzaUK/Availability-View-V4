@@ -1,208 +1,173 @@
 # ESP32 Asset Logger Setup Guide
 
 ## Overview
-This guide will help you set up the ESP32 to work with your Asset Availability Dashboard. The ESP32 will monitor asset states and send real-time updates to your dashboard.
+This guide will help you set up the ESP32 Asset Logger to work with the Asset Availability Dashboard. The ESP32 will monitor digital inputs and send real-time asset state updates to the web dashboard.
 
 ## Prerequisites
 - ESP32 development board
 - Arduino IDE with ESP32 board support
-- ArduinoJson library installed
-- Your Asset Availability Dashboard backend running
+- WiFi network access
+- Asset Availability Dashboard running on your computer
 
 ## Required Libraries
-Install these libraries in Arduino IDE:
-1. **ArduinoJson** by Benoit Blanchon (version 6.x)
-2. **WiFi** (built-in with ESP32)
-3. **HTTPClient** (built-in with ESP32)
+Install these libraries through Arduino IDE Library Manager:
+1. **WiFi** (built-in with ESP32)
+2. **HTTPClient** (built-in with ESP32)
+3. **ArduinoJson** by Benoit Blanchon (version 6.x)
 
 ## Hardware Setup
 
-### Pin Configuration
-The code is configured for these assets and pins:
-- **Production Line A**: GPIO Pin 2
-- **Production Line B**: GPIO Pin 4  
-- **Packaging Unit**: GPIO Pin 5
+### Basic Wiring
+Connect your asset sensors to the ESP32 digital pins:
+- **Pin 2**: Conveyor Belt sensor
+- **Pin 4**: Packaging Machine sensor  
+- **Pin 5**: Quality Station sensor
+- **GND**: Common ground for all sensors
+- **3.3V**: Power for active sensors (if needed)
 
-### Sensor Connections
-```
-ESP32 Pin    Asset Sensor    Connection
-GPIO 2   →   Prod Line A  →  Sensor Output + Pull-up resistor
-GPIO 4   →   Prod Line B  →  Sensor Output + Pull-up resistor
-GPIO 5   →   Packaging    →  Sensor Output + Pull-up resistor
-GND      →   All Sensors  →  Common Ground
-3.3V     →   Sensors      →  Power (if needed)
-```
-
-### Sensor Logic
-- **HIGH (3.3V)**: Asset is RUNNING
-- **LOW (0V)**: Asset is STOPPED
-- Built-in pull-up resistors are enabled
+### Sensor Types
+- **Active High**: Sensor outputs HIGH when asset is running
+- **Active Low**: Sensor outputs LOW when asset is running (use INPUT_PULLUP)
+- **Dry Contacts**: Use INPUT_PULLUP mode
 
 ## Software Configuration
 
-### 1. Update WiFi Credentials
+### 1. Update WiFi Settings
 ```cpp
-const char* WIFI_SSID = "YOUR_WIFI_NETWORK_NAME";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+const char* WIFI_SSID = "YourWiFiNetwork";
+const char* WIFI_PASSWORD = "YourWiFiPassword";
 ```
 
 ### 2. Update Backend URL
 Find your computer's IP address and update:
 ```cpp
-const char* WEB_APP_URL = "http://YOUR_COMPUTER_IP:5000";
-```
-
-#### Finding Your Computer's IP Address:
-**Windows:**
-```cmd
-ipconfig
-```
-Look for "IPv4 Address" under your active network adapter.
-
-**Example:**
-```cpp
 const char* WEB_APP_URL = "http://192.168.1.100:5000";
 ```
 
-### 3. Customize Assets (Optional)
-Modify the assets array to match your setup:
+**To find your IP address:**
+- Windows: Open Command Prompt, type `ipconfig`
+- Mac/Linux: Open Terminal, type `ifconfig`
+
+### 3. Configure Logger Identity
+```cpp
+const char* LOGGER_ID = "ESP32_001";        // Unique ID for this ESP32
+const char* LOGGER_NAME = "Production Floor Logger";  // Descriptive name
+```
+
+### 4. Configure Assets
+Update the assets array to match your setup:
 ```cpp
 Asset assets[] = {
-  {"Your Asset Name", GPIO_PIN, false, 0, 0, 0, 0},
-  // Add more assets as needed
+  {"Conveyor Belt", 2, false, 0, 0, 0, 0},      // Pin 2
+  {"Packaging Machine", 4, false, 0, 0, 0, 0},  // Pin 4
+  {"Quality Station", 5, false, 0, 0, 0, 0}     // Pin 5
 };
 ```
 
-## Installation Steps
+## Dashboard Setup
 
-1. **Open Arduino IDE**
-2. **Install ESP32 Board Support** (if not already done)
-   - File → Preferences
-   - Add to Additional Board Manager URLs: 
-     `https://dl.espressif.com/dl/package_esp32_index.json`
-   - Tools → Board → Boards Manager → Search "ESP32" → Install
+### 1. Register the Logger
+1. Open the Asset Availability Dashboard in your web browser
+2. Log in with admin credentials (admin@example.com / admin123)
+3. Go to **Config** → **Logger Management**
+4. The ESP32 will attempt to auto-register, or you can manually add:
+   - **Logger ID**: ESP32_001
+   - **Logger Name**: Production Floor Logger
 
-3. **Install Required Libraries**
-   - Tools → Manage Libraries
-   - Search and install "ArduinoJson" by Benoit Blanchon
+### 2. Create Assets
+1. Go to **Config** → **Asset Management**
+2. For each asset, create an entry with:
+   - **Asset Name**: (e.g., "Conveyor Belt")
+   - **Pin Number**: (e.g., 2)
+   - **Logger**: Select your registered logger
+   - **Description**: Optional description
 
-4. **Load the Code**
-   - Open `ESP32_AssetLogger_Patched.ino`
-   - Update WiFi credentials and backend URL
-   - Select your ESP32 board: Tools → Board → ESP32 Dev Module
-   - Select correct COM port: Tools → Port
+### 3. Configure Thresholds
+Set appropriate stop thresholds for each asset:
+- **Short Stop Threshold**: 5-30 seconds (brief interruptions)
+- **Long Stop Threshold**: 300+ seconds (significant downtime)
 
-5. **Upload and Test**
-   - Click Upload button
-   - Open Serial Monitor (115200 baud)
-   - Watch for connection messages
+## Upload and Test
 
-## Expected Serial Output
+### 1. Upload Code
+1. Connect ESP32 to your computer via USB
+2. Select the correct board and port in Arduino IDE
+3. Upload the code
 
+### 2. Monitor Serial Output
+Open Serial Monitor (115200 baud) to see:
 ```
-ESP32 Asset Logger for Asset Availability Dashboard Starting...
-Asset Production Line A initialized on pin 2
-Asset Production Line B initialized on pin 4
-Asset Packaging Unit initialized on pin 5
-Connecting to WiFi.....
+Asset Logger Starting...
+Logger ID: ESP32_001
+Firmware Version: 1.2.0
+Initialized Conveyor Belt on pin 2
+Initialized Packaging Machine on pin 4
+Initialized Quality Station on pin 5
+Connecting to WiFi...
 WiFi Connected!
 IP address: 192.168.1.150
-Testing Asset Availability Dashboard connection...
 ✓ Dashboard connection successful (HTTP 200)
-Response: {"status":"ok","message":"Server is running"}
-Sending initial asset states...
-✓ Sent state update for Production Line A (HTTP 200)
-✓ Sent state update for Production Line B (HTTP 200)
-✓ Sent state update for Packaging Unit (HTTP 200)
-✓ Heartbeat successful (HTTP 200)
+✓ Logger registered successfully (HTTP 201)
+✓ Sent state update for Conveyor Belt: STOPPED (HTTP 200)
+Setup complete. Starting monitoring...
 ```
 
-## Dashboard Integration
-
-### Real-time Updates
-The ESP32 sends data to your dashboard via:
-- **State Changes**: Immediate updates when assets start/stop
-- **Periodic Updates**: Status every 5 seconds with runtime data
-- **Heartbeat**: Health check every 30 seconds
-
-### Data Sent to Dashboard
-```json
-{
-  "asset_name": "Production Line A",
-  "pin_number": 2,
-  "is_running": true,
-  "timestamp": "12345678",
-  "total_runtime": 150000,
-  "total_downtime": 50000,
-  "wifi_rssi": -45,
-  "free_heap": 200000,
-  "uptime": 300000
-}
-```
+### 3. Verify Dashboard
+1. Check the **Dashboard** page for real-time asset status
+2. Verify **Events** page shows state changes
+3. Monitor **Analytics** for performance metrics
 
 ## Troubleshooting
 
-### WiFi Connection Issues
-- Verify SSID and password are correct
-- Check if WiFi network is 2.4GHz (ESP32 doesn't support 5GHz)
-- Ensure network allows new device connections
+### Connection Issues
+- **WiFi connection failed**: Check SSID and password
+- **Dashboard connection failed**: Verify IP address and port 5000
+- **Logger registration failed**: Check if dashboard is running and accessible
 
-### Backend Connection Issues
-- Verify backend server is running on port 5000
-- Check computer's IP address hasn't changed
-- Ensure Windows Firewall allows connections on port 5000
-- Try accessing `http://YOUR_IP:5000/api/health` in browser
+### Authentication Issues
+- **401 Unauthorized**: Make sure you're logged into the dashboard
+- **Logger not registered**: Manually register in Logger Management
 
-### Dashboard Not Updating
-- Check Serial Monitor for HTTP response codes
-- Verify asset names match between ESP32 and dashboard
-- Ensure backend server is receiving requests (check backend logs)
+### Asset Issues
+- **Asset not found**: Verify pin numbers match between ESP32 code and dashboard
+- **No state changes**: Check sensor wiring and pin configuration
+- **Wrong state readings**: Verify sensor type (active high/low)
 
-### Adding Firewall Exception (Windows)
-1. Windows Security → Firewall & network protection
-2. Allow an app through firewall
-3. Add Node.js or allow port 5000
-
-## Monitoring and Debugging
-
-### Serial Monitor Commands
-The ESP32 provides detailed logging:
-- Connection status
-- Asset state changes
-- HTTP response codes
-- Runtime statistics
-
-### Dashboard Verification
-Check your dashboard at `http://localhost:3000` to see:
-- Real-time asset status updates
-- Asset state changes reflected immediately
-- System metrics updating based on ESP32 data
+### Serial Monitor Messages
+- **✓ Sent state update**: Normal operation
+- **✗ Failed to send state update**: Check network and dashboard
+- **✗ Logger not registered**: Registration failed, check dashboard
+- **✗ WiFi not connected**: Network connectivity issue
 
 ## Advanced Configuration
 
-### Adding More Assets
-1. Add new entry to assets array
-2. Configure GPIO pin
-3. Update pin configuration in setup()
-4. Ensure dashboard recognizes the new asset name
+### Multiple ESP32s
+For multiple ESP32 devices:
+1. Use unique LOGGER_ID for each device (ESP32_001, ESP32_002, etc.)
+2. Register each logger separately in the dashboard
+3. Assign different assets to each logger
 
-### Adjusting Update Intervals
+### Custom Timing
+Adjust update intervals:
 ```cpp
-const unsigned long HEARTBEAT_INTERVAL = 30000;      // 30 seconds
-const unsigned long STATUS_UPDATE_INTERVAL = 5000;   // 5 seconds
+const unsigned long HEARTBEAT_INTERVAL = 30000;     // 30 seconds
+const unsigned long STATUS_UPDATE_INTERVAL = 60000; // 1 minute
 ```
 
-### Custom Sensor Logic
-Modify the sensor reading logic if using different sensor types:
+### Sensor Debouncing
+For noisy sensors, add debouncing in the main loop:
 ```cpp
-bool currentState = digitalRead(assets[i].pin) == HIGH; // Active high
-// or
-bool currentState = digitalRead(assets[i].pin) == LOW;  // Active low
+// Add delay or implement proper debouncing logic
+if(currentTime - assets[i].lastChangeTime > 1000) { // 1 second debounce
+  // Process state change
+}
 ```
 
 ## Support
 If you encounter issues:
-1. Check Serial Monitor output
-2. Verify all connections
-3. Test backend connectivity manually
-4. Check dashboard logs for incoming data
+1. Check the Serial Monitor output for error messages
+2. Verify all network settings and connections
+3. Ensure the dashboard is running and accessible
+4. Check that assets are properly configured in the dashboard
+
+The ESP32 will automatically reconnect to WiFi and re-register with the dashboard if connections are lost.

@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
 import io from 'socket.io-client';
 import axios from 'axios';
 import AuthContext from './AuthContext';
@@ -13,8 +13,42 @@ export const SocketProvider = ({ children }) => {
   const [currentShift, setCurrentShift] = useState(null);
   const { isAuthenticated, token } = useContext(AuthContext);
 
+  // Fetch dashboard data (assets only - events are managed by individual pages)
+  const fetchAllData = useCallback(async () => {
+    console.log('🔄 SocketContext: fetchAllData called at:', new Date().toISOString());
+    
+    try {
+      const headers = {};
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+      
+      // Only fetch assets - events are managed by EventsPage with pagination
+      const assetsResponse = await axios.get('/api/assets', { headers });
+      
+      // Update assets
+      if (assetsResponse.data.success) {
+        const newAssets = assetsResponse.data.assets || [];
+        console.log('✅ SocketContext: Assets fetched via HTTP API:', newAssets.length, 'assets');
+        setAssets(newAssets);
+      }
+      
+    } catch (error) {
+      console.error('❌ SocketContext: Error fetching assets:', {
+        message: error.message,
+        response: error.response ? {
+          status: error.response.status,
+          data: error.response.data
+        } : null
+      });
+      setAssets([]);
+    }
+  }, [token]);
+
+
+
   // Fetch assets via HTTP API as fallback
-  const fetchAssets = async () => {
+  const fetchAssets = useCallback(async () => {
     try {
       const headers = {};
       if (token) {
@@ -30,7 +64,26 @@ export const SocketProvider = ({ children }) => {
       console.error('Error fetching assets:', error);
       setAssets([]);
     }
-  };
+  }, [token]);
+
+  // Fetch events via HTTP API
+  const fetchEvents = useCallback(async () => {
+    try {
+      const headers = {};
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+      
+      const response = await axios.get('/api/events', { headers });
+      if (response.data.success) {
+        setEvents(response.data.events || []);
+        console.log('Events fetched via HTTP API:', response.data.events);
+      }
+    } catch (error) {
+      console.error('Error fetching events:', error);
+      setEvents([]);
+    }
+  }, [token]);
 
   // Initialize socket connection when authenticated
   useEffect(() => {
@@ -64,8 +117,8 @@ export const SocketProvider = ({ children }) => {
         setConnected(false);
       });
 
-      // Asset state updates
-      socketInstance.on('asset_update', (updatedAsset) => {
+      // Asset configuration updates (only for asset management changes, not state changes)
+      socketInstance.on('asset_config_update', (updatedAsset) => {
         setAssets(prevAssets => {
           const index = prevAssets.findIndex(asset => asset._id === updatedAsset._id);
           if (index !== -1) {
@@ -78,9 +131,12 @@ export const SocketProvider = ({ children }) => {
         });
       });
 
-      // New event received
+      // New event received (for real-time notifications only)
       socketInstance.on('new_event', (newEvent) => {
-        setEvents(prevEvents => [newEvent, ...prevEvents]);
+        console.log('🔔 SocketContext: New event received via socket:', newEvent._id);
+        // Only update events if we're on dashboard or other pages that need real-time events
+        // EventsPage manages its own events with pagination
+        setEvents(prevEvents => [newEvent, ...prevEvents.slice(0, 49)]); // Keep only latest 50 for dashboard
       });
 
       // Shift updates
@@ -112,21 +168,22 @@ export const SocketProvider = ({ children }) => {
     };
   }, [isAuthenticated, token]);
 
-  // Request initial data when connected and fetch assets via HTTP as fallback
+  // Fetch initial data when socket connects
   useEffect(() => {
     if (socket && connected) {
-      socket.emit('get_initial_data');
-      // Fallback: fetch assets via HTTP API since backend doesn't handle get_initial_data
-      fetchAssets();
+      console.log('🔌 Socket connected, fetching initial data... (connected:', connected, ')');
+      // Fetch all data via HTTP API when socket connects
+      fetchAllData();
     }
-  }, [socket, connected]);
+  }, [socket, connected, fetchAllData]);
 
-  // Also fetch assets when authenticated (even without socket)
+  // Fetch data when user is authenticated
   useEffect(() => {
     if (isAuthenticated) {
-      fetchAssets();
+      console.log('🔐 User authenticated, fetching data... (isAuthenticated:', isAuthenticated, ', token exists:', !!token, ')');
+      fetchAllData();
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, fetchAllData]);
 
   return (
     <SocketContext.Provider
@@ -138,7 +195,10 @@ export const SocketProvider = ({ children }) => {
         currentShift,
         setAssets,
         setEvents,
-        setCurrentShift
+        setCurrentShift,
+        fetchAssets,
+        fetchEvents,
+        fetchAllData
       }}
     >
       {children}

@@ -23,14 +23,22 @@ exports.authenticateJWT = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret');
     
     // Get user from token
-    req.user = await memoryDB.findUserById(decoded.id);
+    const user = await memoryDB.findUserById(decoded.id);
     
-    if (!req.user) {
+    if (!user) {
       return res.status(401).json({
         success: false,
         message: 'User not found'
       });
     }
+    
+    // Set req.user with both the decoded token data and full user object
+    req.user = {
+      id: decoded.id,  // This ensures req.user.id works
+      _id: user._id,   // This maintains compatibility with existing code
+      role: decoded.role,
+      ...user
+    };
     
     next();
   } catch (error) {

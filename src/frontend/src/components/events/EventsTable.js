@@ -1,4 +1,4 @@
-import React, { useContext } from 'react';
+import React, { useContext, useEffect } from 'react';
 import { styled } from '@mui/material/styles';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
@@ -43,30 +43,22 @@ const EventsTable = ({
 }) => {
   const { assets } = useContext(SocketContext);
 
+
+
   // Helper function to get asset name by ID
   const getAssetName = (assetId) => {
     const asset = assets.find(a => a._id === assetId);
     return asset ? asset.name : 'Unknown Asset';
   };
 
-  // Helper function to format duration
-  const formatDuration = (milliseconds) => {
-    if (!milliseconds) return 'N/A';
-    
-    const seconds = Math.floor(milliseconds / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-    
-    if (days > 0) {
-      return `${days}d ${hours % 24}h ${minutes % 60}m`;
-    } else if (hours > 0) {
-      return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
-    } else if (minutes > 0) {
-      return `${minutes}m ${seconds % 60}s`;
-    } else {
-      return `${seconds}s`;
-    }
+  // Helper function to format duration in HH:MM:SS
+  const formatDuration = (seconds) => {
+    if (!seconds) return '00:00:00';
+    const totalSeconds = Math.floor(seconds);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const remainingSeconds = totalSeconds % 60;
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
   };
 
   // Helper function to get color for event type
@@ -131,6 +123,7 @@ const EventsTable = ({
     );
   }
 
+
   return (
     <>
       <TableContainer component={Paper}>
@@ -152,11 +145,11 @@ const EventsTable = ({
                 <TableCell component="th" scope="row">
                   {format(new Date(event.timestamp), 'yyyy-MM-dd HH:mm:ss')}
                 </TableCell>
-                <TableCell>{getAssetName(event.assetId)}</TableCell>
+                <TableCell>{event.asset_name || getAssetName(event.asset)}</TableCell>
                 <TableCell>
                   <Chip 
-                    label={formatEventType(event.eventType)} 
-                    color={getEventTypeColor(event.eventType)}
+                    label={formatEventType(event.event_type)} 
+                    color={getEventTypeColor(event.event_type)}
                     size="small"
                   />
                 </TableCell>
@@ -182,7 +175,7 @@ const EventsTable = ({
                       textOverflow: 'ellipsis'
                     }}
                   >
-                    {event.notes || 'N/A'}
+                    {event.note || 'N/A'}
                   </Typography>
                 </TableCell>
                 <TableCell align="center">
@@ -206,6 +199,7 @@ const EventsTable = ({
         onPageChange={handleChangePage}
         onRowsPerPageChange={handleChangeRowsPerPage}
       />
+
     </>
   );
 };

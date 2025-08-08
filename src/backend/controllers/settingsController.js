@@ -11,6 +11,11 @@ let generalSettings = {
   autoRefresh: true,
   refreshInterval: 30,
   enableNotifications: true,
+  enableEmailAlerts: false,
+  enableSmsAlerts: false,
+  dataRetentionDays: 90,
+  autoBackup: true,
+  autoBackupFrequency: 'daily',
   enableAuditing: true,
   sessionTimeout: 60,
   maxLoginAttempts: 5,
@@ -72,6 +77,7 @@ let backupSettings = {
 // Get general settings
 const getGeneralSettings = async (req, res) => {
   try {
+    console.log('🔍 BACKEND SENDING SETTINGS:', generalSettings);
     res.json(generalSettings);
   } catch (error) {
     console.error('Error fetching general settings:', error);
@@ -82,7 +88,9 @@ const getGeneralSettings = async (req, res) => {
 // Update general settings
 const updateGeneralSettings = async (req, res) => {
   try {
+    console.log('🔍 BACKEND RECEIVED SETTINGS UPDATE:', req.body);
     generalSettings = { ...generalSettings, ...req.body };
+    console.log('🔍 BACKEND UPDATED SETTINGS TO:', generalSettings);
     res.json({ success: true, data: generalSettings });
   } catch (error) {
     console.error('Error updating general settings:', error);

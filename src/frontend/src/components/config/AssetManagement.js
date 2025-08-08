@@ -39,6 +39,7 @@ import axios from 'axios';
 // Context
 import AlertContext from '../../context/AlertContext';
 import SocketContext from '../../context/SocketContext';
+import AuthContext from '../../context/AuthContext';
 
 // Styled components
 const StyledTableRow = styled(TableRow)(({ theme }) => ({
@@ -75,11 +76,15 @@ function TabPanel(props) {
 const AssetManagement = () => {
   const { error, success } = useContext(AlertContext);
   const { socket } = useContext(SocketContext);
+  const { token } = useContext(AuthContext);
   
   // State for assets data
   const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(false);
   const [totalAssets, setTotalAssets] = useState(0);
+  
+  // State for loggers data
+  const [loggers, setLoggers] = useState([]);
   
   // State for pagination
   const [page, setPage] = useState(0);
@@ -97,6 +102,10 @@ const AssetManagement = () => {
     description: '',
     type: 'machine',
     pin_number: '',
+    logger_id: '',
+    short_stop_threshold: 5,
+    long_stop_threshold: 30,
+    downtime_reasons: 'Maintenance,Breakdown,Setup,Material shortage,Quality issue',
     thresholds: {
       availability: 85,
       performance: 85,
@@ -137,7 +146,12 @@ const AssetManagement = () => {
         ...(searchQuery && { search: searchQuery }),
       };
       
-      const response = await axios.get('/api/assets', { params });
+      const headers = {};
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+      
+      const response = await axios.get('/api/assets', { params, headers });
       
       setAssets(response.data.assets);
       setTotalAssets(response.data.total);
@@ -148,10 +162,28 @@ const AssetManagement = () => {
     }
   };
 
+  // Fetch loggers
+  const fetchLoggers = async () => {
+    try {
+      const headers = {};
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+      const response = await axios.get('/api/loggers', { headers });
+      setLoggers(response.data);
+    } catch (err) {
+      error('Failed to fetch loggers: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
   // Add asset
   const addAsset = async () => {
-    try {      
-      await axios.post('/api/assets', assetForm);
+    try {
+      const headers = {};
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+      await axios.post('/api/assets', assetForm, { headers });
       
       success('Asset added successfully');
       handleCloseDialog();
@@ -163,8 +195,12 @@ const AssetManagement = () => {
 
   // Update asset
   const updateAsset = async () => {
-    try {      
-      await axios.put(`/api/assets/${selectedAsset._id}`, assetForm);
+    try {
+      const headers = {};
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+      await axios.put(`/api/assets/${selectedAsset._id}`, assetForm, { headers });
       
       success('Asset updated successfully');
       handleCloseDialog();
@@ -177,7 +213,11 @@ const AssetManagement = () => {
   // Delete asset
   const deleteAsset = async () => {
     try {
-      await axios.delete(`/api/assets/${selectedAsset._id}`);
+      const headers = {};
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+      await axios.delete(`/api/assets/${selectedAsset._id}`, { headers });
       
       success('Asset deleted successfully');
       setOpenDeleteDialog(false);
@@ -229,6 +269,10 @@ const AssetManagement = () => {
       description: '',
       type: 'machine',
       pin_number: '',
+      logger_id: '',
+      short_stop_threshold: 5,
+      long_stop_threshold: 30,
+      downtime_reasons: 'Maintenance,Breakdown,Setup,Material shortage,Quality issue',
       thresholds: {
         availability: 85,
         performance: 85,
@@ -254,6 +298,10 @@ const AssetManagement = () => {
       description: asset.description || '',
       type: asset.type,
       pin_number: asset.pin_number || '',
+      logger_id: asset.logger_id || '',
+      short_stop_threshold: asset.short_stop_threshold || 5,
+      long_stop_threshold: asset.long_stop_threshold || 30,
+      downtime_reasons: asset.downtime_reasons || 'Maintenance,Breakdown,Setup,Material shortage,Quality issue',
       thresholds: {
         availability: asset.thresholds?.availability || 85,
         performance: asset.thresholds?.performance || 85,
@@ -317,6 +365,7 @@ const AssetManagement = () => {
   // Fetch assets when component mounts or when page, rowsPerPage changes
   useEffect(() => {
     fetchAssets();
+    fetchLoggers();
   }, [page, rowsPerPage]);
 
   // Subscribe to asset updates via socket
@@ -399,7 +448,7 @@ const AssetManagement = () => {
             <TableRow>
               <TableCell>Name</TableCell>
               <TableCell>Type</TableCell>
-              <TableCell>Status</TableCell>
+              <TableCell>Logger</TableCell>
               <TableCell>Pin Number</TableCell>
               <TableCell>Current State</TableCell>
               <TableCell>Created</TableCell>
@@ -432,11 +481,27 @@ const AssetManagement = () => {
                     />
                   </TableCell>
                   <TableCell>
-                    <Chip 
-                      label="Active"
-                      color="success"
-                      size="small"
-                    />
+                    {asset.logger ? (
+                      <Box>
+                        <Typography variant="body2" fontWeight="bold">
+                          {asset.logger.name}
+                        </Typography>
+                        <Chip 
+                          label={asset.logger.status || 'unknown'}
+                          color={
+                            asset.logger.status === 'online' ? 'success' :
+                            asset.logger.status === 'offline' ? 'error' : 'warning'
+                          }
+                          size="small"
+                        />
+                      </Box>
+                    ) : (
+                      <Chip 
+                        label="No Logger"
+                        color="default"
+                        size="small"
+                      />
+                    )}
                   </TableCell>
                   <TableCell>{asset.pin_number || 'N/A'}</TableCell>
                   <TableCell>
@@ -556,6 +621,67 @@ const AssetManagement = () => {
                   value={assetForm.pin_number}
                   onChange={handleFormChange}
                   helperText="Optional: Hardware pin number or identifier"
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  select
+                  name="logger_id"
+                  label="Associated Logger"
+                  fullWidth
+                  variant="outlined"
+                  value={assetForm.logger_id}
+                  onChange={handleFormChange}
+                  helperText="Select the ESP32 logger that monitors this asset"
+                >
+                  <MenuItem value="">
+                    <em>No Logger</em>
+                  </MenuItem>
+                  {loggers.map((logger) => (
+                    <MenuItem key={logger._id} value={logger.logger_id}>
+                      {logger.name} ({logger.logger_id}) - {logger.status}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+              <Grid item xs={6}>
+                <TextField
+                  name="short_stop_threshold"
+                  label="Short Stop Threshold (minutes)"
+                  type="number"
+                  fullWidth
+                  variant="outlined"
+                  value={assetForm.short_stop_threshold}
+                  onChange={handleFormChange}
+                  InputProps={{ inputProps: { min: 1 } }}
+                  helperText="Duration to classify as short stop"
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField
+                  name="long_stop_threshold"
+                  label="Long Stop Threshold (minutes)"
+                  type="number"
+                  fullWidth
+                  variant="outlined"
+                  value={assetForm.long_stop_threshold}
+                  onChange={handleFormChange}
+                  InputProps={{ inputProps: { min: 1 } }}
+                  helperText="Duration to classify as long stop"
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  name="downtime_reasons"
+                  label="Downtime Reasons"
+                  type="text"
+                  fullWidth
+                  variant="outlined"
+                  value={assetForm.downtime_reasons}
+                  onChange={handleFormChange}
+                  multiline
+                  rows={2}
+                  helperText="Comma-separated list of possible downtime reasons"
                 />
               </Grid>
             </Grid>

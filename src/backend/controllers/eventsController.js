@@ -4,6 +4,7 @@ const memoryDB = require('../utils/memoryDB');
 // @route   GET /api/events
 // @access  Private
 exports.getEvents = async (req, res) => {
+  console.log('🔍 API /api/events called by user:', req.user ? req.user.email : 'unknown');
   try {
     const {
       page = 1,
@@ -16,8 +17,13 @@ exports.getEvents = async (req, res) => {
       search
     } = req.query;
 
-    // Get all events from memory database
-    let events = memoryDB.getAllEvents();
+    // Get events based on user role
+    let events;
+    if (req.user.role === 'admin') {
+      events = memoryDB.getAllEvents();
+    } else {
+      events = memoryDB.getEventsByUserId(req.user.id);
+    }
     
     // Apply filters
     if (asset) {
@@ -107,8 +113,13 @@ exports.exportEvents = async (req, res) => {
       search
     } = req.query;
 
-    // Get all events from memory database
-    let events = memoryDB.getAllEvents();
+    // Get events based on user role
+    let events;
+    if (req.user.role === 'admin') {
+      events = memoryDB.getAllEvents();
+    } else {
+      events = memoryDB.getEventsByUserId(req.user.id);
+    }
     
     // Apply filters
     if (asset) {
@@ -181,7 +192,13 @@ exports.exportEvents = async (req, res) => {
 // @access  Private
 exports.getEvent = async (req, res) => {
   try {
-    const events = memoryDB.getAllEvents();
+    // Get events based on user role
+    let events;
+    if (req.user.role === 'admin') {
+      events = memoryDB.getAllEvents();
+    } else {
+      events = memoryDB.getEventsByUserId(req.user.id);
+    }
     const event = events.find(e => e._id == req.params.id);
 
     if (!event) {

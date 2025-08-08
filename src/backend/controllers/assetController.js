@@ -5,15 +5,51 @@ const memoryDB = require('../utils/memoryDB');
 // @access  Public
 exports.getAssets = async (req, res) => {
   try {
-    const assets = memoryDB.getAllAssets();
+    let assets;
+    
+    // If user is authenticated
+    if (req.user && req.user.id) {
+      // Admin users can see all assets
+      if (req.user.role === 'admin') {
+        assets = memoryDB.getAllAssets();
+      } else {
+        // Regular users see only their assets
+        assets = memoryDB.getAssetsByUserId(req.user.id);
+      }
+    } else {
+      // For public access, get all assets (backward compatibility)
+      assets = memoryDB.getAllAssets();
+    }
+    
+    // Enhance assets with logger information
+    const enhancedAssets = assets.map(asset => {
+      const logger = asset.logger_id ? memoryDB.findLoggerById(asset.logger_id) : null;
+      return {
+        ...asset,
+        logger_info: logger ? {
+          logger_id: logger.logger_id,
+          logger_name: logger.logger_name,
+          status: logger.status,
+          last_seen: logger.last_seen
+        } : null
+      };
+    });
     
     // Sort assets by name
-    assets.sort((a, b) => a.name.localeCompare(b.name));
+    enhancedAssets.sort((a, b) => a.name.localeCompare(b.name));
+    
+    console.log('🔍 API /api/assets returning data:', enhancedAssets.map(a => ({
+      name: a.name,
+      runtime: a.runtime,
+      downtime: a.downtime,
+      total_stops: a.total_stops,
+      current_state: a.current_state
+    })));
     
     res.status(200).json({
       success: true,
-      total: assets.length,
-      assets: assets
+      total: enhancedAssets.length,
+      assets: enhancedAssets
     });
   } catch (error) {
     res.status(500).json({
@@ -56,7 +92,15 @@ exports.getAssetById = async (req, res) => {
 // @access  Private (Admin, Manager)
 exports.createAsset = async (req, res) => {
   try {
-    const { name, pin_number, description } = req.body;
+    const { 
+      name, 
+      pin_number, 
+      description, 
+      logger_id,
+      short_stop_threshold,
+      long_stop_threshold,
+      downtime_reasons
+    } = req.body;
     
     // Check if asset with same name already exists
     const existingAsset = memoryDB.findAssetByName(name);
@@ -67,11 +111,34 @@ exports.createAsset = async (req, res) => {
         message: 'Asset with this name already exists'
       });
     }
+
+    // Validate logger if provided
+    if (logger_id) {
+      const logger = memoryDB.findLoggerById(logger_id);
+      if (!logger) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid logger ID'
+        });
+      }
+
+      // Check if user has access to this logger
+      if (req.user && logger.user_account_id != req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied to this logger'
+        });
+      }
+    }
     
     const asset = memoryDB.createAsset({
       name,
       pin_number,
       description,
+      logger_id,
+      short_stop_threshold,
+      long_stop_threshold,
+      downtime_reasons,
       current_state: 'STOPPED',
       availability_percentage: 0,
       runtime: 0,
@@ -84,6 +151,7 @@ exports.createAsset = async (req, res) => {
     memoryDB.createEvent({
       asset: asset._id,
       asset_name: asset.name,
+      logger_id: asset.logger_id,
       event_type: 'SHIFT',
       state: 'STOPPED',
       availability: 0,
@@ -113,7 +181,15 @@ exports.createAsset = async (req, res) => {
 // @access  Private (Admin, Manager)
 exports.updateAsset = async (req, res) => {
   try {
-    const { name, pin_number, description } = req.body;
+    const { 
+      name, 
+      pin_number, 
+      description, 
+      logger_id,
+      short_stop_threshold,
+      long_stop_threshold,
+      downtime_reasons
+    } = req.body;
     
     let asset = memoryDB.findAssetById(req.params.id);
     
@@ -122,6 +198,17 @@ exports.updateAsset = async (req, res) => {
         success: false,
         message: 'Asset not found'
       });
+    }
+
+    // Check user access to the asset
+    if (req.user && asset.logger_id) {
+      const logger = memoryDB.findLoggerById(asset.logger_id);
+      if (logger && logger.user_account_id != req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied to this asset'
+        });
+      }
     }
     
     // Check if new name already exists (if name is being changed)
@@ -135,8 +222,35 @@ exports.updateAsset = async (req, res) => {
         });
       }
     }
+
+    // Validate new logger if provided
+    if (logger_id && logger_id !== asset.logger_id) {
+      const logger = memoryDB.findLoggerById(logger_id);
+      if (!logger) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid logger ID'
+        });
+      }
+
+      // Check if user has access to this logger
+      if (req.user && logger.user_account_id != req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied to this logger'
+        });
+      }
+    }
     
-    asset = memoryDB.updateAsset(req.params.id, { name, pin_number, description });
+    asset = memoryDB.updateAsset(req.params.id, { 
+      name, 
+      pin_number, 
+      description,
+      logger_id,
+      short_stop_threshold,
+      long_stop_threshold,
+      downtime_reasons
+    });
     
     res.status(200).json({
       success: true,

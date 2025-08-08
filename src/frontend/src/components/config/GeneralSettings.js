@@ -12,10 +12,10 @@ import MenuItem from '@mui/material/MenuItem';
 import Divider from '@mui/material/Divider';
 import CircularProgress from '@mui/material/CircularProgress';
 import SaveIcon from '@mui/icons-material/Save';
-import axios from 'axios';
 
 // Context
 import AlertContext from '../../context/AlertContext';
+import SettingsContext from '../../context/SettingsContext';
 
 // Styled components
 const SettingsSection = styled(Paper)(({ theme }) => ({
@@ -25,25 +25,16 @@ const SettingsSection = styled(Paper)(({ theme }) => ({
 
 const GeneralSettings = () => {
   const { error, success } = useContext(AlertContext);
+  const { settings, loading, updateSettings } = useContext(SettingsContext);
   
-  // State for settings
-  const [settings, setSettings] = useState({
-    companyName: '',
-    timezone: 'UTC',
-    dateFormat: 'YYYY-MM-DD',
-    timeFormat: '24h',
-    language: 'en',
-    enableNotifications: true,
-    enableEmailAlerts: false,
-    enableSmsAlerts: false,
-    dataRetentionDays: 90,
-    autoBackup: true,
-    autoBackupFrequency: 'daily',
-    theme: 'light',
-  });
-  
-  const [loading, setLoading] = useState(false);
+  // Local state for form
+  const [formSettings, setFormSettings] = useState(settings);
   const [saving, setSaving] = useState(false);
+
+  // Update form when settings change
+  useEffect(() => {
+    setFormSettings(settings);
+  }, [settings]);
   
   // Timezone options
   const timezones = [
@@ -95,27 +86,30 @@ const GeneralSettings = () => {
     { value: 'system', label: 'System Default' },
   ];
 
-  // Fetch settings
-  const fetchSettings = async () => {
-    try {
-      setLoading(true);
-      const response = await axios.get('/api/settings');
-      setSettings(response.data);
-    } catch (err) {
-      error('Failed to fetch settings: ' + (err.response?.data?.message || err.message));
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Refresh interval options (in seconds)
+  const refreshIntervals = [
+    { value: 10, label: '10 seconds' },
+    { value: 15, label: '15 seconds' },
+    { value: 30, label: '30 seconds' },
+    { value: 60, label: '1 minute' },
+    { value: 120, label: '2 minutes' },
+    { value: 300, label: '5 minutes' },
+    { value: 600, label: '10 minutes' },
+  ];
 
   // Save settings
   const saveSettings = async () => {
     try {
       setSaving(true);
-      await axios.put('/api/settings', settings);
-      success('Settings saved successfully');
+      console.log('🔍 SUBMITTING FORM SETTINGS:', formSettings);
+      const result = await updateSettings(formSettings);
+      if (result.success) {
+        success('Settings saved successfully');
+      } else {
+        error('Failed to save settings: ' + result.error);
+      }
     } catch (err) {
-      error('Failed to save settings: ' + (err.response?.data?.message || err.message));
+      error('Failed to save settings: ' + err.message);
     } finally {
       setSaving(false);
     }
@@ -124,7 +118,7 @@ const GeneralSettings = () => {
   // Handle input change
   const handleChange = (event) => {
     const { name, value, checked } = event.target;
-    setSettings(prev => ({
+    setFormSettings(prev => ({
       ...prev,
       [name]: event.target.type === 'checkbox' ? checked : value,
     }));
@@ -135,11 +129,6 @@ const GeneralSettings = () => {
     event.preventDefault();
     saveSettings();
   };
-
-  // Fetch settings on component mount
-  useEffect(() => {
-    fetchSettings();
-  }, []);
 
   // Render loading state
   if (loading) {
@@ -163,7 +152,7 @@ const GeneralSettings = () => {
               fullWidth
               label="Company Name"
               name="companyName"
-              value={settings.companyName}
+              value={formSettings.companyName || ''}
               onChange={handleChange}
               variant="outlined"
               margin="normal"
@@ -184,7 +173,7 @@ const GeneralSettings = () => {
               fullWidth
               label="Timezone"
               name="timezone"
-              value={settings.timezone}
+              value={formSettings.timezone || 'UTC'}
               onChange={handleChange}
               variant="outlined"
               margin="normal"
@@ -203,7 +192,7 @@ const GeneralSettings = () => {
               fullWidth
               label="Language"
               name="language"
-              value={settings.language}
+              value={formSettings.language || 'en'}
               onChange={handleChange}
               variant="outlined"
               margin="normal"
@@ -222,7 +211,7 @@ const GeneralSettings = () => {
               fullWidth
               label="Date Format"
               name="dateFormat"
-              value={settings.dateFormat}
+              value={formSettings.dateFormat || 'YYYY-MM-DD'}
               onChange={handleChange}
               variant="outlined"
               margin="normal"
@@ -241,7 +230,7 @@ const GeneralSettings = () => {
               fullWidth
               label="Time Format"
               name="timeFormat"
-              value={settings.timeFormat}
+              value={formSettings.timeFormat || '24h'}
               onChange={handleChange}
               variant="outlined"
               margin="normal"
@@ -266,7 +255,7 @@ const GeneralSettings = () => {
             <FormControlLabel
               control={
                 <Switch
-                  checked={settings.enableNotifications}
+                  checked={formSettings.enableNotifications || false}
                   onChange={handleChange}
                   name="enableNotifications"
                   color="primary"
@@ -280,7 +269,7 @@ const GeneralSettings = () => {
             <FormControlLabel
               control={
                 <Switch
-                  checked={settings.enableEmailAlerts}
+                  checked={formSettings.enableEmailAlerts || false}
                   onChange={handleChange}
                   name="enableEmailAlerts"
                   color="primary"
@@ -294,7 +283,7 @@ const GeneralSettings = () => {
             <FormControlLabel
               control={
                 <Switch
-                  checked={settings.enableSmsAlerts}
+                  checked={formSettings.enableSmsAlerts || false}
                   onChange={handleChange}
                   name="enableSmsAlerts"
                   color="primary"
@@ -318,7 +307,7 @@ const GeneralSettings = () => {
               type="number"
               label="Data Retention (days)"
               name="dataRetentionDays"
-              value={settings.dataRetentionDays}
+              value={formSettings.dataRetentionDays || 90}
               onChange={handleChange}
               variant="outlined"
               margin="normal"
@@ -331,7 +320,7 @@ const GeneralSettings = () => {
             <FormControlLabel
               control={
                 <Switch
-                  checked={settings.autoBackup}
+                  checked={formSettings.autoBackup || false}
                   onChange={handleChange}
                   name="autoBackup"
                   color="primary"
@@ -341,14 +330,14 @@ const GeneralSettings = () => {
             />
           </Grid>
           
-          {settings.autoBackup && (
+          {formSettings.autoBackup && (
             <Grid item xs={12} md={6}>
               <TextField
                 select
                 fullWidth
                 label="Backup Frequency"
                 name="autoBackupFrequency"
-                value={settings.autoBackupFrequency}
+                value={formSettings.autoBackupFrequency || 'daily'}
                 onChange={handleChange}
                 variant="outlined"
                 margin="normal"
@@ -364,6 +353,50 @@ const GeneralSettings = () => {
         </Grid>
       </SettingsSection>
       
+      {/* Dashboard Auto-Refresh */}
+      <SettingsSection>
+        <Typography variant="h6" gutterBottom>
+          Dashboard Auto-Refresh
+        </Typography>
+        <Grid container spacing={3}>
+          <Grid item xs={12}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={formSettings.autoRefresh || false}
+                  onChange={handleChange}
+                  name="autoRefresh"
+                  color="primary"
+                />
+              }
+              label="Enable Auto-Refresh"
+            />
+          </Grid>
+          
+          {formSettings.autoRefresh && (
+            <Grid item xs={12} md={6}>
+              <TextField
+                select
+                fullWidth
+                label="Refresh Interval"
+                name="refreshInterval"
+                value={formSettings.refreshInterval || 30}
+                onChange={handleChange}
+                variant="outlined"
+                margin="normal"
+                helperText="How often the dashboard should automatically refresh"
+              >
+                {refreshIntervals.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+          )}
+        </Grid>
+      </SettingsSection>
+
       {/* Appearance */}
       <SettingsSection>
         <Typography variant="h6" gutterBottom>
@@ -376,7 +409,7 @@ const GeneralSettings = () => {
               fullWidth
               label="Theme"
               name="theme"
-              value={settings.theme}
+              value={formSettings.theme || 'light'}
               onChange={handleChange}
               variant="outlined"
               margin="normal"
@@ -392,7 +425,16 @@ const GeneralSettings = () => {
       </SettingsSection>
       
       {/* Submit Button */}
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2, mt: 3 }}>
+        <Button
+          variant="outlined"
+          onClick={() => {
+            console.log('🔍 CURRENT FORM SETTINGS:', formSettings);
+            console.log('🔍 CURRENT CONTEXT SETTINGS:', settings);
+          }}
+        >
+          Debug Settings
+        </Button>
         <Button
           type="submit"
           variant="contained"

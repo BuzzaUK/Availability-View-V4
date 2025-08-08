@@ -10,11 +10,13 @@ import PeopleIcon from '@mui/icons-material/People';
 import DevicesIcon from '@mui/icons-material/Devices';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import BackupIcon from '@mui/icons-material/Backup';
+import RouterIcon from '@mui/icons-material/Router';
 
 // Components
 import GeneralSettings from './GeneralSettings';
 import UserManagement from './UserManagement';
 import AssetManagement from './AssetManagement';
+import LoggerManagement from './LoggerManagement';
 import NotificationSettings from './NotificationSettings';
 import BackupRestore from './BackupRestore';
 
@@ -37,6 +39,7 @@ const ConfigPage = () => {
     { label: 'General Settings', icon: <SettingsIcon /> },
     { label: 'User Management', icon: <PeopleIcon /> },
     { label: 'Asset Management', icon: <DevicesIcon /> },
+    { label: 'Logger Management', icon: <RouterIcon /> },
     { label: 'Notifications', icon: <NotificationsIcon /> },
     { label: 'Backup & Restore', icon: <BackupIcon /> },
   ];
@@ -98,15 +101,22 @@ const ConfigPage = () => {
         </TabPanel>
       )}
       
-      {/* Notification Settings Tab */}
+      {/* Logger Management Tab */}
       {tabValue === 3 && (
+        <TabPanel>
+          <LoggerManagement />
+        </TabPanel>
+      )}
+      
+      {/* Notification Settings Tab */}
+      {tabValue === 4 && (
         <TabPanel>
           <NotificationSettings />
         </TabPanel>
       )}
       
       {/* Backup & Restore Tab */}
-      {tabValue === 4 && (
+      {tabValue === 5 && (
         <TabPanel>
           <BackupRestore />
         </TabPanel>
