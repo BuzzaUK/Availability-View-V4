@@ -188,11 +188,6 @@ const Dashboard = () => {
   return (
     <Box sx={{ flexGrow: 1 }}>
       {/* Debug Panel */}
-      {showRefreshNotice && (
-        <Alert severity="success" sx={{ mb: 2 }}>
-          Auto-refresh triggered!
-        </Alert>
-      )}
       {showDebug && (
         <Alert severity="info" sx={{ mb: 2 }}>
           <Typography variant="h6">Debug Information</Typography>
@@ -235,9 +230,7 @@ const Dashboard = () => {
             onClick={() => {
               // Force refresh by fetching fresh data and resetting countdown
               fetchAllData();
-            setShowRefreshNotice(true);
-            setTimeout(() => setShowRefreshNotice(false), 2000);
-            setRefreshCountdown(settings?.refreshInterval || 30);
+              setRefreshCountdown(settings?.refreshInterval || 30);
             }}
             disabled={false}
           >

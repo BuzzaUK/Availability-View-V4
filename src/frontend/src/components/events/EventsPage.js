@@ -15,6 +15,8 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import ClearIcon from '@mui/icons-material/Clear';
 import DownloadIcon from '@mui/icons-material/Download';
 import Collapse from '@mui/material/Collapse';
+import Chip from '@mui/material/Chip';
+import Alert from '@mui/material/Alert';
 // Date utilities
 import { format } from 'date-fns';
 import axios from 'axios';
@@ -25,6 +27,7 @@ import EventsTable from './EventsTable';
 // Context
 import SocketContext from '../../context/SocketContext';
 import AlertContext from '../../context/AlertContext';
+import SettingsContext from '../../context/SettingsContext';
 
 // Styled components
 const FiltersContainer = styled(Box)(({ theme }) => ({
@@ -34,6 +37,7 @@ const FiltersContainer = styled(Box)(({ theme }) => ({
 const EventsPage = () => {
   const { assets } = useContext(SocketContext);
   const { error, success } = useContext(AlertContext);
+  const { settings } = useContext(SettingsContext);
   
   // State for events data
   const [events, setEvents] = useState([]);
@@ -56,6 +60,10 @@ const EventsPage = () => {
   
   // State for filter visibility
   const [showFilters, setShowFilters] = useState(false);
+  
+  // Auto-refresh state
+  const [refreshCountdown, setRefreshCountdown] = useState(30);
+  const [showRefreshNotice, setShowRefreshNotice] = useState(false);
   
   // Event type options
   const eventTypes = [
@@ -110,6 +118,55 @@ const EventsPage = () => {
     fetchEvents();
   }, [page, rowsPerPage]);
 
+  // Update countdown when settings change
+  useEffect(() => {
+    console.log('🔍 EVENTS PAGE SETTINGS CHANGED:', {
+      autoRefresh: settings?.autoRefresh,
+      refreshInterval: settings?.refreshInterval,
+      fullSettings: settings
+    });
+    if (settings?.refreshInterval) {
+      setRefreshCountdown(settings.refreshInterval);
+    }
+  }, [settings?.refreshInterval, settings?.autoRefresh]);
+
+  // Auto-refresh countdown
+  useEffect(() => {
+    console.log('🔍 EVENTS PAGE AUTO-REFRESH EFFECT:', {
+      autoRefresh: settings?.autoRefresh,
+      refreshInterval: settings?.refreshInterval
+    });
+    if (settings?.autoRefresh) {
+      const interval = setInterval(() => {
+        setRefreshCountdown(prev => {
+          const newValue = prev - 1;
+          
+          if (newValue <= 0) {
+            // Trigger refresh
+            fetchEvents().then(() => {
+              console.log('✅ Events auto-refresh completed successfully', new Date().toISOString());
+            }).catch(error => {
+              console.error('❌ Events auto-refresh failed:', error, new Date().toISOString());
+            });
+            setShowRefreshNotice(true);
+            setTimeout(() => setShowRefreshNotice(false), 2000);
+            const nextInterval = settings?.refreshInterval || 30;
+            return nextInterval;
+          }
+          
+          return newValue;
+        });
+      }, 1000);
+
+      return () => {
+        clearInterval(interval);
+      };
+    } else {
+      // Reset countdown when auto-refresh is disabled
+      setRefreshCountdown(settings?.refreshInterval || 30);
+    }
+  }, [settings?.autoRefresh, settings?.refreshInterval, fetchEvents]);
+
   // Handle page change
   const handleChangePage = (event, newPage) => {
     setPage(newPage);
@@ -158,6 +215,14 @@ const EventsPage = () => {
     setShowFilters(!showFilters);
   };
 
+  // Manual refresh function
+  const handleManualRefresh = () => {
+    fetchEvents();
+    setShowRefreshNotice(true);
+    setTimeout(() => setShowRefreshNotice(false), 2000);
+    setRefreshCountdown(settings?.refreshInterval || 30);
+  };
+
   // Export events as CSV
   const exportEvents = async () => {
     try {
@@ -202,7 +267,17 @@ const EventsPage = () => {
         <Typography variant="h4" component="h1" gutterBottom>
           Events
         </Typography>
-        <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          {/* Auto-refresh chip matching Dashboard style */}
+          {settings?.autoRefresh && (
+            <Chip 
+              icon={<RefreshIcon />}
+              label={`Auto-refresh in: ${refreshCountdown}s`}
+              variant="outlined"
+              color="primary"
+              size="small"
+            />
+          )}
           <Button
             variant="outlined"
             startIcon={<FilterListIcon />}
@@ -214,11 +289,11 @@ const EventsPage = () => {
           <Button
             variant="outlined"
             startIcon={<RefreshIcon />}
-            onClick={fetchEvents}
+            onClick={handleManualRefresh}
             disabled={loading}
             sx={{ mr: 1 }}
           >
-            Refresh
+            Refresh Now
           </Button>
           <Button
             variant="outlined"
@@ -230,7 +305,8 @@ const EventsPage = () => {
           </Button>
         </Box>
       </Box>
-      
+
+      {/* Filters and other components */}
       <Collapse in={showFilters}>
         <FiltersContainer>
           <Paper sx={{ p: 3, mb: 3 }}>
@@ -254,7 +330,7 @@ const EventsPage = () => {
                   ))}
                 </TextField>
               </Grid>
-              
+
               <Grid item xs={12} sm={6} md={3}>
                 <TextField
                   select
@@ -273,7 +349,7 @@ const EventsPage = () => {
                   ))}
                 </TextField>
               </Grid>
-              
+
               <Grid item xs={12} sm={6} md={3}>
                 <TextField
                   select
@@ -292,7 +368,7 @@ const EventsPage = () => {
                   ))}
                 </TextField>
               </Grid>
-              
+
               <Grid item xs={12} sm={6} md={3}>
                 <TextField
                   fullWidth
@@ -311,7 +387,7 @@ const EventsPage = () => {
                   }}
                 />
               </Grid>
-              
+
               <Grid item xs={12} sm={6} md={3}>
                 <TextField
                   fullWidth

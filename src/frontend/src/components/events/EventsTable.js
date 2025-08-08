@@ -145,11 +145,11 @@ const EventsTable = ({
                 <TableCell component="th" scope="row">
                   {format(new Date(event.timestamp), 'yyyy-MM-dd HH:mm:ss')}
                 </TableCell>
-                <TableCell>{event.asset_name || getAssetName(event.asset)}</TableCell>
+                <TableCell>{event.assetName || getAssetName(event.assetId)}</TableCell>
                 <TableCell>
                   <Chip 
-                    label={formatEventType(event.event_type)} 
-                    color={getEventTypeColor(event.event_type)}
+                    label={formatEventType(event.eventType)} 
+                    color={getEventTypeColor(event.eventType)}
                     size="small"
                   />
                 </TableCell>
@@ -164,7 +164,7 @@ const EventsTable = ({
                     'N/A'
                   )}
                 </TableCell>
-                <TableCell>{formatDuration(event.duration)}</TableCell>
+                <TableCell>{formatDuration(event.duration / 1000)}</TableCell>
                 <TableCell>
                   <Typography 
                     variant="body2" 
@@ -175,7 +175,7 @@ const EventsTable = ({
                       textOverflow: 'ellipsis'
                     }}
                   >
-                    {event.note || 'N/A'}
+                    {event.notes || 'N/A'}
                   </Typography>
                 </TableCell>
                 <TableCell align="center">
