@@ -7,9 +7,10 @@
     "start": "node src/backend/server.js",
     "dev": "nodemon src/backend/server.js",
     "client": "cd src/frontend && npm start",
-    "dev:full": "concurrently \\\"npm run dev\\\" \\\"npm run client\\\"\",
+    "dev:full": "concurrently \"npm run dev\" \"npm run client\"",
     "install:all": "npm install && cd src/frontend && npm install",
-    "build": "cd src/frontend && npm install && npm run build"
+    "build": "cd src/frontend && npm install && npm run build",
+    "heroku-postbuild": "cd src/frontend && npm install && npm run build"
   },
   "keywords": [
     "esp32",
