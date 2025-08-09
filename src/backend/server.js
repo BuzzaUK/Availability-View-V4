@@ -3,7 +3,16 @@ const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
 const path = require('path');
-require('dotenv').config();
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+
+// Debug: Test environment variables immediately after dotenv config
+console.log('🔍 DOTENV DEBUG - Environment variables loaded:');
+console.log('EMAIL_HOST:', process.env.EMAIL_HOST);
+console.log('EMAIL_PORT:', process.env.EMAIL_PORT);
+console.log('EMAIL_USER:', process.env.EMAIL_USER);
+console.log('EMAIL_PASSWORD:', process.env.EMAIL_PASSWORD ? '***HIDDEN***' : 'NOT SET');
+console.log('JWT_SECRET:', process.env.JWT_SECRET ? '***HIDDEN***' : 'NOT SET');
+console.log('PORT:', process.env.PORT);
 
 // Using in-memory database for development
 console.log('Using in-memory database for development - server starting...');
@@ -20,9 +29,13 @@ const settingsRoutes = require('./routes/settingsRoutes');
 const userRoutes = require('./routes/userRoutes');
 const backupRoutes = require('./routes/backupRoutes');
 const loggerRoutes = require('./routes/loggerRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 
 // Import middleware
 const { authenticateJWT } = require('./middleware/authMiddleware');
+
+// Import shift scheduler
+const shiftScheduler = require('./services/shiftScheduler');
 
 const app = express();
 const server = http.createServer(app);
@@ -55,6 +68,8 @@ app.use('/api/settings', authenticateJWT, settingsRoutes);
 app.use('/api/shifts', require('./routes/shiftRoutes'));
 app.use('/api/users', authenticateJWT, userRoutes);
 app.use('/api/backups', authenticateJWT, backupRoutes);
+app.use('/api/notifications', notificationRoutes);
+
 // Device endpoints (ESP32) - No authentication required
 
 // Public endpoint to list all devices (for device management)
@@ -472,8 +487,40 @@ io.on('connection', (socket) => {
 // REMOVE the previous setInterval block that creates events and updates runtime/downtime on every interval
 // --- END: Periodic Asset Runtime/Downtime Update ---
 
+// Initialize shift scheduler
+async function initializeServices() {
+  try {
+    await shiftScheduler.initialize();
+    console.log('All services initialized successfully');
+  } catch (error) {
+    console.error('Error initializing services:', error);
+  }
+}
+
+// Graceful shutdown handling
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received, shutting down gracefully...');
+  await shiftScheduler.shutdown();
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', async () => {
+  console.log('SIGINT received, shutting down gracefully...');
+  await shiftScheduler.shutdown();
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
+
 // Start server
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, '0.0.0.0', async () => {
   console.log(`Server running on port ${PORT} and listening on all interfaces`);
+  
+  // Initialize services after server starts
+  await initializeServices();
 });

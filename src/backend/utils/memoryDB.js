@@ -1,9 +1,9 @@
-// Simple in-memory database for development
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 class MemoryDB {
   constructor() {
+    // Initialize arrays
     this.users = [];
     this.loggers = [];
     this.assets = [];
@@ -15,33 +15,122 @@ class MemoryDB {
     this.reports = [];
     this.shiftPatterns = [];
     this.shiftReports = [];
+    this.settings = []; // Add settings storage
     this.nextId = 1;
-    
-    // Create default admin user
-    this.createDefaultUser();
-    
-    // Create sample data
-    this.createSampleData();
 
-    // Ensure nextId is always greater than any existing _id
+    // Create default admin user if no users exist
+    if (this.users.length === 0) {
+      this.createDefaultUser();
+      this.createSampleData();
+      this.createDefaultSettings(); // Initialize default settings
+    } else {
+      // Migrate existing users to include new fields
+      this.migrateExistingUsers();
+    }
+
+    // Ensure nextId is always greater than any existing _id across all entities
     const allIds = [
-      ...this.users.map(u => u._id),
-      ...this.loggers.map(l => l._id),
-      ...this.assets.map(a => a._id),
-      ...this.events.map(e => e._id),
-      ...this.shifts.map(s => s._id),
-      ...this.configs.map(c => c._id),
-      ...this.archives.map(a => a._id),
-      ...this.backups.map(b => b._id),
-      ...this.reports.map(r => r._id),
-      ...this.shiftPatterns.map(sp => sp._id),
-      ...this.shiftReports.map(sr => sr._id)
-    ].filter(id => typeof id === 'number');
+      ...this.users.map(u => typeof u._id === 'number' ? u._id : 0),
+      ...this.loggers.map(l => typeof l._id === 'number' ? l._id : 0),
+      ...this.assets.map(a => typeof a._id === 'number' ? a._id : 0),
+      ...this.events.map(e => typeof e._id === 'number' ? e._id : 0),
+      ...this.shifts.map(s => typeof s._id === 'number' ? s._id : 0),
+      ...this.configs.map(c => typeof c._id === 'number' ? c._id : 0),
+      ...this.archives.map(a => typeof a._id === 'number' ? a._id : 0),
+      ...this.backups.map(b => typeof b._id === 'number' ? b._id : 0),
+      ...this.reports.map(r => typeof r._id === 'number' ? r._id : 0),
+      ...this.shiftPatterns.map(sp => typeof sp._id === 'number' ? sp._id : 0),
+      ...this.shiftReports.map(sr => typeof sr._id === 'number' ? sr._id : 0),
+      ...this.settings.map(s => typeof s._id === 'number' ? s._id : 0)
+    ];
+    
     if (allIds.length > 0) {
       this.nextId = Math.max(...allIds) + 1;
     }
   }
-  
+
+  // Create default notification settings
+  createDefaultSettings() {
+    const defaultNotificationSettings = {
+      _id: this.nextId++,
+      type: 'notification',
+      enabled: true,
+      channels: {
+        inApp: true,
+        email: true,
+        sms: false
+      },
+      emailSettings: {
+        smtpServer: process.env.EMAIL_HOST || '',
+        port: parseInt(process.env.EMAIL_PORT) || 587,
+        username: process.env.EMAIL_USER || '',
+        password: process.env.EMAIL_PASSWORD || '',
+        fromEmail: process.env.EMAIL_USER || '',
+        useTLS: true
+      },
+      smsSettings: {
+        provider: process.env.SMS_PROVIDER || 'twilio',
+        accountSid: process.env.SMS_ACCOUNT_SID || '',
+        authToken: process.env.SMS_AUTH_TOKEN || '',
+        fromNumber: process.env.SMS_FROM_NUMBER || ''
+      },
+      shiftSettings: {
+        enabled: false,
+        shiftTimes: ['0800', '1600', '0000'],
+        emailFormat: 'pdf',
+        autoSend: false
+      },
+      eventNotifications: {
+        assetDown: {
+          enabled: true,
+          channels: ['email'],
+          recipients: [],
+          minDuration: 5
+        },
+        assetUp: {
+          enabled: true,
+          channels: ['email'],
+          recipients: [],
+          minDuration: 0
+        },
+        longStop: {
+          enabled: true,
+          channels: ['email'],
+          recipients: [],
+          minDuration: 30
+        }
+      },
+      refreshInterval: 30,
+      autoRefresh: true,
+      created_at: new Date(),
+      updated_at: new Date()
+    };
+
+    this.settings.push(defaultNotificationSettings);
+    console.log('Default notification settings created');
+  }
+
+  // Migration method for existing users
+  migrateExistingUsers() {
+    this.users.forEach(user => {
+      // Add missing fields to existing users
+      if (user.isActive === undefined) {
+        user.isActive = true;
+      }
+      if (!user.shiftReportPreferences) {
+        user.shiftReportPreferences = {
+          enabled: false,
+          shifts: [],
+          emailFormat: 'pdf'
+        };
+      }
+      if (!user.createdAt && user.created_at) {
+        user.createdAt = user.created_at;
+      }
+    });
+    console.log('Migrated existing users with new fields');
+  }
+
   async createDefaultUser() {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash('admin123', salt);
@@ -53,8 +142,15 @@ class MemoryDB {
       email: 'admin@example.com',
       password: hashedPassword,
       role: 'admin',
+      isActive: true,
       receive_reports: false,
+      shiftReportPreferences: {
+        enabled: false,
+        shifts: [],
+        emailFormat: 'pdf'
+      },
       created_at: new Date(),
+      createdAt: new Date(), // Add this for frontend compatibility
       updated_at: new Date(),
       last_login: null
     });
@@ -64,7 +160,7 @@ class MemoryDB {
     
     console.log('Default admin user created: admin@example.com / admin123');
   }
-  
+
   createSampleData() {
     // Create sample logger
     const logger1 = this.createLogger({
@@ -131,7 +227,8 @@ class MemoryDB {
       ...this.backups.map(b => typeof b._id === 'number' ? b._id : 0),
       ...this.reports.map(r => typeof r._id === 'number' ? r._id : 0),
       ...this.shiftPatterns.map(sp => typeof sp._id === 'number' ? sp._id : 0),
-      ...this.shiftReports.map(sr => typeof sr._id === 'number' ? sr._id : 0)
+      ...this.shiftReports.map(sr => typeof sr._id === 'number' ? sr._id : 0),
+      ...this.settings.map(s => typeof s._id === 'number' ? s._id : 0)
     ];
     
     if (allIds.length > 0) {
@@ -161,16 +258,22 @@ class MemoryDB {
       email: userData.email,
       password: hashedPassword,
       role: userData.role || 'viewer',
+      isActive: userData.isActive !== undefined ? userData.isActive : true,
       receive_reports: userData.receive_reports || false,
+      shiftReportPreferences: userData.shiftReportPreferences || {
+        enabled: false,
+        shifts: [],
+        emailFormat: 'pdf'
+      },
       created_at: new Date(),
-      updated_at: new Date(),
-      last_login: null
+      createdAt: new Date(), // Add this for frontend compatibility
+      updated_at: new Date()
     };
     
     this.users.push(user);
     return user;
   }
-  
+
   async updateUser(id, updates) {
     const userIndex = this.users.findIndex(user => user._id == id);
     if (userIndex === -1) return null;
@@ -178,21 +281,20 @@ class MemoryDB {
     this.users[userIndex] = { ...this.users[userIndex], ...updates, updated_at: new Date() };
     return this.users[userIndex];
   }
-  
-  async comparePassword(plainPassword, hashedPassword) {
-    return await bcrypt.compare(plainPassword, hashedPassword);
-  }
-  
-  generateJWT(user) {
-    return jwt.sign(
-      { id: user._id, role: user.role },
-      process.env.JWT_SECRET || 'fallback_secret',
-      { expiresIn: process.env.JWT_EXPIRE || '24h' }
-    );
+
+  // Auth helpers (needed by authController)
+  async comparePassword(enteredPassword, hashedPassword) {
+    return bcrypt.compare(enteredPassword, hashedPassword);
   }
 
-  // Additional user methods for user management
-  getUsers() {
+  generateJWT(user) {
+    const payload = { id: user._id, role: user.role };
+    const secret = process.env.JWT_SECRET || 'fallback_secret';
+    // Token lifetime can be adjusted as needed
+    return jwt.sign(payload, secret, { expiresIn: '7d' });
+  }
+
+  getAllUsers() {
     return this.users;
   }
 
@@ -235,14 +337,15 @@ class MemoryDB {
       _id: this.nextId++,
       logger_id: loggerData.logger_id,
       user_account_id: loggerData.user_account_id,
-      logger_name: loggerData.logger_name || `Logger ${loggerData.logger_id}`,
+      logger_name: loggerData.logger_name || 'Unnamed Logger',
       status: loggerData.status || 'offline',
+      ip_address: loggerData.ip_address || null,
+      firmware_version: loggerData.firmware_version || 'Unknown',
       last_seen: new Date(),
-      ip_address: loggerData.ip_address || '',
-      firmware_version: loggerData.firmware_version || '1.0.0',
       created_at: new Date(),
       updated_at: new Date()
     };
+    
     this.loggers.push(logger);
     return logger;
   }
@@ -251,36 +354,13 @@ class MemoryDB {
     const loggerIndex = this.loggers.findIndex(logger => logger._id == id);
     if (loggerIndex === -1) return null;
     
-    this.loggers[loggerIndex] = { 
-      ...this.loggers[loggerIndex], 
-      ...updates, 
-      updated_at: new Date() 
-    };
+    this.loggers[loggerIndex] = { ...this.loggers[loggerIndex], ...updates, updated_at: new Date() };
     return this.loggers[loggerIndex];
-  }
-
-  updateLoggerStatus(loggerId, status, ipAddress = null) {
-    const logger = this.findLoggerByLoggerId(loggerId);
-    if (!logger) return null;
-    
-    logger.status = status;
-    logger.last_seen = new Date();
-    if (ipAddress) logger.ip_address = ipAddress;
-    logger.updated_at = new Date();
-    
-    return logger;
   }
 
   deleteLogger(id) {
     const loggerIndex = this.loggers.findIndex(logger => logger._id == id);
     if (loggerIndex === -1) return false;
-    
-    // Also delete all assets and events associated with this logger
-    const loggerAssets = this.assets.filter(asset => asset.logger_id == id);
-    loggerAssets.forEach(asset => {
-      this.events = this.events.filter(event => event.asset != asset._id);
-    });
-    this.assets = this.assets.filter(asset => asset.logger_id != id);
     
     this.loggers.splice(loggerIndex, 1);
     return true;
@@ -291,125 +371,189 @@ class MemoryDB {
     return this.assets;
   }
 
-  getAssetsByUserId(userId) {
-    const userLoggers = this.getLoggersByUserId(userId);
-    const loggerIds = userLoggers.map(logger => logger._id);
-    return this.assets.filter(asset => loggerIds.includes(asset.logger_id));
-  }
-
   getAssetsByLoggerId(loggerId) {
     return this.assets.filter(asset => asset.logger_id == loggerId);
   }
-  
+
   findAssetById(id) {
     return this.assets.find(asset => asset._id == id);
   }
-  
-  findAssetByName(name) {
-    return this.assets.find(asset => asset.name === name);
-  }
-  
+
   createAsset(assetData) {
     const asset = {
       _id: this.nextId++,
-      ...assetData,
-      logger_id: assetData.logger_id || null,
+      name: assetData.name,
+      type: assetData.type || 'machine',
+      pin_number: assetData.pin_number,
+      logger_id: assetData.logger_id,
+      description: assetData.description || '',
       current_state: assetData.current_state || 'STOPPED',
       availability_percentage: assetData.availability_percentage || 0,
       runtime: assetData.runtime || 0,
       downtime: assetData.downtime || 0,
       total_stops: assetData.total_stops || 0,
-      short_stop_threshold: assetData.short_stop_threshold || 300, // 5 minutes default
-      long_stop_threshold: assetData.long_stop_threshold || 1800, // 30 minutes default
-      downtime_reasons: assetData.downtime_reasons || [
-        'Material shortage',
-        'Machine fault',
-        'Maintenance',
-        'Cleaning & Setup'
-      ],
+      short_stop_threshold: assetData.short_stop_threshold || 300,
+      long_stop_threshold: assetData.long_stop_threshold || 1800,
+      downtime_reasons: assetData.downtime_reasons || [],
       last_state_change: assetData.last_state_change || new Date(),
       created_at: new Date(),
       updated_at: new Date()
     };
+    
     this.assets.push(asset);
     return asset;
   }
-  
+
   updateAsset(id, updates) {
     const assetIndex = this.assets.findIndex(asset => asset._id == id);
     if (assetIndex === -1) return null;
     
-    this.assets[assetIndex] = { 
-      ...this.assets[assetIndex], 
-      ...updates, 
-      updated_at: new Date() 
-    };
+    this.assets[assetIndex] = { ...this.assets[assetIndex], ...updates, updated_at: new Date() };
     return this.assets[assetIndex];
   }
-  
+
   deleteAsset(id) {
     const assetIndex = this.assets.findIndex(asset => asset._id == id);
     if (assetIndex === -1) return false;
     
-    // Also delete all events associated with this asset
-    this.events = this.events.filter(event => event.asset != id);
-    
     this.assets.splice(assetIndex, 1);
     return true;
   }
-  
+
   // Event methods
   getAllEvents() {
     return this.events;
   }
-  
+
+  getEventsByAssetId(assetId) {
+    return this.events.filter(event => event.asset_id == assetId);
+  }
+
   createEvent(eventData) {
     const event = {
       _id: this.nextId++,
-      ...eventData,
-      logger_id: eventData.logger_id || null,
-      availability_percentage: eventData.availability_percentage || 0,
-      runtime_minutes: eventData.runtime_minutes || 0,
-      downtime_minutes: eventData.downtime_minutes || 0,
-      mtbf: eventData.mtbf || 0,
-      mttr: eventData.mttr || 0,
-      stops_count: eventData.stops_count || 0,
+      asset_id: eventData.asset_id,
+      event_type: eventData.event_type,
+      timestamp: eventData.timestamp || new Date(),
+      duration: eventData.duration || 0,
       reason: eventData.reason || '',
-      is_short_stop: eventData.is_short_stop || false,
-      timestamp: eventData.timestamp || new Date()
+      created_at: new Date()
     };
+    
     this.events.push(event);
     return event;
   }
 
-  getEventsByUserId(userId) {
-    const userLoggers = this.getLoggersByUserId(userId);
-    const loggerIds = userLoggers.map(logger => logger._id);
-    return this.events.filter(event => loggerIds.includes(event.logger_id));
+  cleanupEvents() {
+    // Remove duplicate events and events with invalid timestamps
+    const validEvents = [];
+    const seenEvents = new Set();
+    
+    this.events.forEach(event => {
+      const eventKey = `${event.asset_id}-${event.event_type}-${event.timestamp}`;
+      if (!seenEvents.has(eventKey) && event.timestamp && !isNaN(new Date(event.timestamp))) {
+        seenEvents.add(eventKey);
+        validEvents.push(event);
+      }
+    });
+    
+    this.events = validEvents;
+    console.log(`Cleaned up events: ${validEvents.length} valid events remaining`);
   }
 
-  getEventsByLoggerId(loggerId) {
-    return this.events.filter(event => event.logger_id == loggerId);
+  // Settings methods
+  getNotificationSettings() {
+    return this.settings.find(setting => setting.type === 'notification') || null;
   }
-  
-  deleteEvent(eventId) {
-    const index = this.events.findIndex(event => event._id == eventId);
-    if (index !== -1) {
-      this.events.splice(index, 1);
-      return true;
+
+  updateNotificationSettings(settingsData) {
+    try {
+      console.log('🔍 MEMORYDB - updateNotificationSettings called with:', JSON.stringify(settingsData, null, 2));
+      console.log('🔍 MEMORYDB - Current settings array length:', this.settings.length);
+      console.log('🔍 MEMORYDB - Current settings array:', this.settings);
+      
+      const settingIndex = this.settings.findIndex(setting => setting.type === 'notification');
+      console.log('🔍 MEMORYDB - Found setting index:', settingIndex);
+      
+      if (settingIndex === -1) {
+        // Create new settings if none exist
+        const newSettings = {
+          _id: this.nextId++,
+          type: 'notification',
+          ...settingsData,
+          created_at: new Date(),
+          updated_at: new Date()
+        };
+        console.log('🔍 MEMORYDB - Creating new settings:', newSettings);
+        this.settings.push(newSettings);
+        console.log('🔍 MEMORYDB - Settings array after push:', this.settings.length);
+        return newSettings;
+      } else {
+        // Update existing settings
+        const updatedSettings = {
+          ...this.settings[settingIndex],
+          ...settingsData,
+          updated_at: new Date()
+        };
+        console.log('🔍 MEMORYDB - Updating existing settings:', updatedSettings);
+        this.settings[settingIndex] = updatedSettings;
+        return this.settings[settingIndex];
+      }
+    } catch (error) {
+      console.error('🔍 MEMORYDB ERROR in updateNotificationSettings:', error);
+      console.error('🔍 MEMORYDB ERROR STACK:', error.stack);
+      throw error;
     }
-    return false;
   }
 
-  clearAllEvents() {
-    const count = this.events.length;
-    this.events = [];
-    console.log(`Cleared ${count} events from database`);
-    return count;
+  // General settings methods
+  getSettings() {
+    return this.settings.find(setting => setting.type === 'general') || null;
   }
 
-  // Shift methods
-  getAllShifts() {
+  updateSettings(settingsData) {
+    try {
+      console.log('🔍 MEMORYDB - updateSettings called with:', JSON.stringify(settingsData, null, 2));
+      console.log('🔍 MEMORYDB - Current settings array length:', this.settings.length);
+      
+      const settingIndex = this.settings.findIndex(setting => setting.type === 'general');
+      console.log('🔍 MEMORYDB - Found general setting index:', settingIndex);
+      
+      if (settingIndex === -1) {
+        // Create new settings if none exist
+        const newSettings = {
+          _id: this.nextId++,
+          type: 'general',
+          ...settingsData,
+          created_at: new Date(),
+          updated_at: new Date()
+        };
+        console.log('🔍 MEMORYDB - Creating new general settings:', newSettings);
+        this.settings.push(newSettings);
+        console.log('🔍 MEMORYDB - Settings array after push:', this.settings.length);
+        return newSettings;
+      } else {
+        // Update existing settings
+        const updatedSettings = {
+          ...this.settings[settingIndex],
+          ...settingsData,
+          updated_at: new Date()
+        };
+        console.log('🔍 MEMORYDB - Updating existing general settings:', updatedSettings);
+        this.settings[settingIndex] = updatedSettings;
+        return this.settings[settingIndex];
+      }
+    } catch (error) {
+      console.error('🔍 MEMORYDB ERROR in updateSettings:', error);
+      console.error('🔍 MEMORYDB ERROR STACK:', error.stack);
+      throw error;
+    }
+  }
+
+  // Additional methods for shifts, configs, archives, etc. would go here...
+  // For now, just basic structure
+
+  getShifts() {
     return this.shifts;
   }
 
@@ -424,17 +568,20 @@ class MemoryDB {
   createShift(shiftData) {
     const shift = {
       _id: this.nextId++,
-      ...shiftData,
+      shift_number: shiftData.shift_number,
+      name: shiftData.name,
       start_time: shiftData.start_time || new Date(),
-      active: shiftData.active !== undefined ? shiftData.active : true,
+      end_time: shiftData.end_time || null,
+      active: shiftData.active || false,
       asset_states: shiftData.asset_states || [],
+      notes: shiftData.notes || '',
       runtime: shiftData.runtime || 0,
       downtime: shiftData.downtime || 0,
       stops: shiftData.stops || 0,
       availability: shiftData.availability || 0,
-      created_at: new Date(),
-      updated_at: new Date()
+      created_at: new Date()
     };
+    
     this.shifts.push(shift);
     return shift;
   }
@@ -443,151 +590,101 @@ class MemoryDB {
     const shiftIndex = this.shifts.findIndex(shift => shift._id == id);
     if (shiftIndex === -1) return null;
     
-    this.shifts[shiftIndex] = { 
-      ...this.shifts[shiftIndex], 
-      ...updates, 
-      updated_at: new Date() 
-    };
+    this.shifts[shiftIndex] = { ...this.shifts[shiftIndex], ...updates, updated_at: new Date() };
     return this.shifts[shiftIndex];
   }
 
-  deleteShift(id) {
-    const shiftIndex = this.shifts.findIndex(shift => shift._id == id);
-    if (shiftIndex === -1) return false;
+  // User methods (aliases for compatibility)
+  getUsers() {
+    return this.getAllUsers();
+  }
+
+  findUserById(id) {
+    return this.getUserById(id);
+  }
+
+  findUserByEmail(email) {
+    return this.getUserByEmail(email);
+  }
+
+  createUser(userData) {
+    const user = {
+      _id: this.nextId++,
+      email: userData.email,
+      password: userData.password,
+      role: userData.role || 'user',
+      first_name: userData.first_name || '',
+      last_name: userData.last_name || '',
+      isActive: userData.isActive !== undefined ? userData.isActive : true,
+      shiftReportPreferences: userData.shiftReportPreferences || {
+        enabled: false,
+        shifts: []
+      },
+      last_login: userData.last_login || null,
+      created_at: new Date(),
+      updated_at: new Date()
+    };
     
-    this.shifts.splice(shiftIndex, 1);
+    this.users.push(user);
+    return user;
+  }
+
+  updateUser(id, updates) {
+    const userIndex = this.users.findIndex(user => user._id == id);
+    if (userIndex === -1) return null;
+    
+    this.users[userIndex] = { ...this.users[userIndex], ...updates, updated_at: new Date() };
+    return this.users[userIndex];
+  }
+
+  // Asset methods (additional)
+  findAssetByName(name) {
+    return this.assets.find(asset => asset.name.toLowerCase() === name.toLowerCase());
+  }
+
+  getAssetsByUserId(userId) {
+    // For now, return all assets since we don't have user-asset relationships
+    return this.assets;
+  }
+
+  // Event methods (additional)
+  getEventsByUserId(userId) {
+    // For now, return all events since we don't have user-event relationships
+    return this.events;
+  }
+
+  deleteEvent(id) {
+    const eventIndex = this.events.findIndex(event => event._id == id);
+    if (eventIndex === -1) return false;
+    
+    this.events.splice(eventIndex, 1);
     return true;
   }
 
   // Config methods
   getConfig() {
-    if (this.configs.length === 0) {
-      // Create default config
-      const defaultConfig = {
-        _id: this.nextId++,
-        company_name: 'Industrial Monitoring System',
-        logo_url: '',
-        micro_stop_threshold: 5,
-        downtime_reasons: [
-          { _id: this.nextId++, name: 'Maintenance', description: 'Scheduled maintenance', color: '#FF9800' },
-          { _id: this.nextId++, name: 'Material Shortage', description: 'Lack of raw materials', color: '#F44336' },
-          { _id: this.nextId++, name: 'Equipment Failure', description: 'Mechanical breakdown', color: '#E91E63' }
-        ],
-        shift_schedules: [
-          { _id: this.nextId++, name: 'Morning Shift', start_time: '06:00', end_time: '14:00' },
-          { _id: this.nextId++, name: 'Afternoon Shift', start_time: '14:00', end_time: '22:00' },
-          { _id: this.nextId++, name: 'Night Shift', start_time: '22:00', end_time: '06:00' }
-        ],
-        report_recipients: [],
-        report_schedule: 'end_of_shift',
-        created_at: new Date(),
-        updated_at: new Date()
-      };
-      this.configs.push(defaultConfig);
-    }
-    return this.configs[0];
+    return this.configs.length > 0 ? this.configs[0] : {
+      downtime_reasons: [],
+      shift_schedules: [],
+      report_recipients: [],
+      report_schedule: 'daily'
+    };
   }
 
   updateConfig(updates) {
-    const config = this.getConfig();
-    Object.assign(config, updates, { updated_at: new Date() });
-    return config;
-  }
-
-  // Shift Pattern methods
-  getAllShiftPatterns() {
-    return this.shiftPatterns;
-  }
-
-  getShiftPatternsByUserId(userId) {
-    return this.shiftPatterns.filter(pattern => pattern.user_account_id == userId);
-  }
-
-  getShiftPatternsByLoggerId(loggerId) {
-    return this.shiftPatterns.filter(pattern => pattern.logger_id == loggerId);
-  }
-
-  findShiftPatternById(id) {
-    return this.shiftPatterns.find(pattern => pattern._id == id);
-  }
-
-  createShiftPattern(patternData) {
-    const pattern = {
-      _id: this.nextId++,
-      ...patternData,
-      created_at: new Date(),
-      updated_at: new Date()
-    };
-    this.shiftPatterns.push(pattern);
-    return pattern;
-  }
-
-  updateShiftPattern(id, updates) {
-    const patternIndex = this.shiftPatterns.findIndex(pattern => pattern._id == id);
-    if (patternIndex === -1) return null;
-    
-    this.shiftPatterns[patternIndex] = { 
-      ...this.shiftPatterns[patternIndex], 
-      ...updates, 
-      updated_at: new Date() 
-    };
-    return this.shiftPatterns[patternIndex];
-  }
-
-  deleteShiftPattern(id) {
-    const patternIndex = this.shiftPatterns.findIndex(pattern => pattern._id == id);
-    if (patternIndex === -1) return false;
-    
-    this.shiftPatterns.splice(patternIndex, 1);
-    return true;
-  }
-
-  // Shift Report methods
-  getAllShiftReports() {
-    return this.shiftReports;
-  }
-
-  getShiftReportsByUserId(userId) {
-    return this.shiftReports.filter(report => report.user_account_id == userId);
-  }
-
-  getShiftReportsByLoggerId(loggerId) {
-    return this.shiftReports.filter(report => report.logger_id == loggerId);
-  }
-
-  findShiftReportById(id) {
-    return this.shiftReports.find(report => report._id == id);
-  }
-
-  createShiftReport(reportData) {
-    const report = {
-      _id: this.nextId++,
-      ...reportData,
-      created_at: new Date(),
-      updated_at: new Date()
-    };
-    this.shiftReports.push(report);
-    return report;
-  }
-
-  updateShiftReport(id, updates) {
-    const reportIndex = this.shiftReports.findIndex(report => report._id == id);
-    if (reportIndex === -1) return null;
-    
-    this.shiftReports[reportIndex] = { 
-      ...this.shiftReports[reportIndex], 
-      ...updates, 
-      updated_at: new Date() 
-    };
-    return this.shiftReports[reportIndex];
-  }
-
-  deleteShiftReport(id) {
-    const reportIndex = this.shiftReports.findIndex(report => report._id == id);
-    if (reportIndex === -1) return false;
-    
-    this.shiftReports.splice(reportIndex, 1);
-    return true;
+    if (this.configs.length === 0) {
+      const newConfig = {
+        _id: this.nextId++,
+        ...updates,
+        created_at: new Date(),
+        updated_at: new Date()
+      };
+      this.configs.push(newConfig);
+      return newConfig;
+    } else {
+      this.configs[0] = { ...this.configs[0], ...updates, updated_at: new Date() };
+      return this.configs[0];
+    }
   }
 
   // Archive methods
@@ -603,9 +700,9 @@ class MemoryDB {
     const archive = {
       _id: this.nextId++,
       ...archiveData,
-      created_at: new Date(),
-      updated_at: new Date()
+      created_at: new Date()
     };
+    
     this.archives.push(archive);
     return archive;
   }
@@ -619,10 +716,6 @@ class MemoryDB {
   }
 
   // Backup methods
-  getBackups() {
-    return this.backups;
-  }
-
   getBackupById(id) {
     return this.backups.find(backup => backup._id == id);
   }
@@ -631,9 +724,9 @@ class MemoryDB {
     const backup = {
       _id: this.nextId++,
       ...backupData,
-      created_at: new Date(),
-      updated_at: new Date()
+      created_at: new Date()
     };
+    
     this.backups.push(backup);
     return backup;
   }
@@ -646,74 +739,15 @@ class MemoryDB {
     return true;
   }
 
-  // Restore methods for backups
-  restoreUsers(users) {
-    this.users = users;
-  }
-
-  // Clean up duplicate events and invalid timestamps
-  cleanupEvents() {
-    // Remove events with invalid timestamps (before 2000-01-01)
-    this.events = this.events.filter(e => {
-      const ts = new Date(e.timestamp);
-      return ts.getFullYear() >= 2000;
-    });
-
-    // Remove duplicate events by keeping only the first occurrence of each _id
-    const seenIds = new Set();
-    this.events = this.events.filter(e => {
-      if (seenIds.has(e._id)) {
-        console.log(`Removing duplicate event with ID: ${e._id}`);
-        return false;
-      }
-      seenIds.add(e._id);
-      return true;
-    });
-
-    console.log(`Events after cleanup: ${this.events.length} events remaining`);
-  }
-
-  restoreEvents(events) {
-    this.events = events;
-    this.cleanupEvents();
-    // Ensure nextId is always greater than any existing event _id
-    const eventIds = events.map(e => typeof e._id === 'number' ? e._id : 0);
-    if (eventIds.length > 0) {
-      this.nextId = Math.max(this.nextId, ...eventIds) + 1;
+  // Logger status update
+  // Logger status update
+  updateLoggerStatus(loggerId, status) {
+    const logger = this.findLoggerByLoggerId(loggerId);
+    if (logger) {
+      return this.updateLogger(logger._id, { status, last_seen: new Date() });
     }
-  }
-
-  restoreAssets(assets) {
-    this.assets = assets;
-  }
-
-  restoreSettings(settings) {
-    this.configs = [settings];
-  }
-
-  restoreShifts(shifts) {
-    this.shifts = shifts;
-  }
-
-  restoreReports(reports) {
-    this.reports = reports;
-  }
-
-  restoreArchives(archives) {
-    this.archives = archives;
-  }
-
-  // Report methods
-  getReports() {
-    return this.reports;
-  }
-
-  getSettings() {
-    return this.getConfig();
+    return null;
   }
 }
 
-// Create singleton instance
-const memoryDB = new MemoryDB();
-
-module.exports = memoryDB;
+module.exports = new MemoryDB();

@@ -487,7 +487,8 @@ exports.getShiftAnalytics = async (req, res) => {
     const { start_date, end_date, shift_id } = req.query;
     const { start, end } = getDateRangeFilter(start_date, end_date);
 
-    let shifts = memoryDB.getAllShifts();
+    // Fix line 490
+    let shifts = memoryDB.getShifts();
     
     // Filter by specific shift if requested
     if (shift_id) {
@@ -532,10 +533,11 @@ exports.getShiftAnalytics = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Server Error',
-      error: error.message
+    console.error('Error getting shift analytics:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to get shift analytics',
+      error: error.message 
     });
   }
 };

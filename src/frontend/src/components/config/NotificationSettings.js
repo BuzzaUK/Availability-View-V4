@@ -20,6 +20,8 @@ import CircularProgress from '@mui/material/CircularProgress';
 import Accordion from '@mui/material/Accordion';
 import AccordionSummary from '@mui/material/AccordionSummary';
 import AccordionDetails from '@mui/material/AccordionDetails';
+import Alert from '@mui/material/Alert';
+import IconButton from '@mui/material/IconButton';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import SaveIcon from '@mui/icons-material/Save';
 import NotificationsIcon from '@mui/icons-material/Notifications';
@@ -28,6 +30,9 @@ import SmsIcon from '@mui/icons-material/Sms';
 import WarningIcon from '@mui/icons-material/Warning';
 import InfoIcon from '@mui/icons-material/Info';
 import ErrorIcon from '@mui/icons-material/Error';
+import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
+import ScheduleIcon from '@mui/icons-material/Schedule';
 import axios from 'axios';
 
 // Context
@@ -66,11 +71,17 @@ const NotificationSettings = () => {
       authToken: '',
       fromNumber: ''
     },
+    shiftSettings: {
+      enabled: false,
+      shiftTimes: ['0600', '1400', '2200'],
+      emailFormat: 'pdf',
+      autoSend: true
+    },
     eventNotifications: {
       assetStopped: {
         enabled: true,
         channels: ['inApp', 'email'],
-        minDuration: 5, // minutes
+        minDuration: 5,
         recipients: []
       },
       assetWarning: {
@@ -107,14 +118,56 @@ const NotificationSettings = () => {
     { value: 'custom', label: 'Custom API' }
   ];
 
+  // Helper functions for shift settings
+  const handleShiftTimeChange = (index, value) => {
+    const newShiftTimes = [...settings.shiftSettings.shiftTimes];
+    newShiftTimes[index] = value;
+    setSettings(prev => ({
+      ...prev,
+      shiftSettings: {
+        ...prev.shiftSettings,
+        shiftTimes: newShiftTimes
+      }
+    }));
+  };
+
+  const addShiftTime = () => {
+    setSettings(prev => ({
+      ...prev,
+      shiftSettings: {
+        ...prev.shiftSettings,
+        shiftTimes: [...prev.shiftSettings.shiftTimes, '0800']
+      }
+    }));
+  };
+
+  const removeShiftTime = (index) => {
+    const newShiftTimes = settings.shiftSettings.shiftTimes.filter((_, i) => i !== index);
+    setSettings(prev => ({
+      ...prev,
+      shiftSettings: {
+        ...prev.shiftSettings,
+        shiftTimes: newShiftTimes
+      }
+    }));
+  };
+
   // Fetch notification settings
   const fetchSettings = async () => {
+    console.log('🔍 FRONTEND fetchSettings called, making request to /api/settings/notifications');
     try {
       setLoading(true);
       const response = await axios.get('/api/settings/notifications');
       const newSettings = response.data;
 
+      // Debug: Log what we received from backend
+      console.log('🔍 FRONTEND RECEIVED FROM BACKEND:', newSettings);
+      console.log('🔍 FRONTEND RECEIVED EMAIL SETTINGS:', newSettings.emailSettings);
+
       setSettings(prevSettings => {
+        // Debug: Log previous settings
+        console.log('🔍 FRONTEND PREVIOUS EMAIL SETTINGS:', prevSettings.emailSettings);
+
         const mergedEventNotifications = { ...prevSettings.eventNotifications };
         if (newSettings.eventNotifications) {
           for (const key in mergedEventNotifications) {
@@ -129,7 +182,7 @@ const NotificationSettings = () => {
           }
         }
 
-        return {
+        const mergedSettings = {
           ...prevSettings,
           ...newSettings,
           channels: {
@@ -144,10 +197,20 @@ const NotificationSettings = () => {
             ...prevSettings.smsSettings,
             ...(newSettings.smsSettings || {}),
           },
+          shiftSettings: {
+            ...prevSettings.shiftSettings,
+            ...(newSettings.shiftSettings || {}),
+          },
           eventNotifications: mergedEventNotifications,
         };
+
+        // Debug: Log merged email settings
+        console.log('🔍 FRONTEND MERGED EMAIL SETTINGS:', mergedSettings.emailSettings);
+
+        return mergedSettings;
       });
     } catch (err) {
+      console.error('🔍 FRONTEND ERROR fetching notification settings:', err);
       error('Failed to fetch notification settings: ' + (err.response?.data?.message || err.message));
     } finally {
       setLoading(false);
@@ -197,100 +260,64 @@ const NotificationSettings = () => {
     }
   };
 
-  // Handle form input change
+  // Handle form changes
   const handleChange = (event) => {
-    const { name, value, checked } = event.target;
+    const { name, value, checked, type } = event.target;
+    const keys = name.split('.');
     
-    // Handle nested properties
-    if (name.includes('.')) {
-      const parts = name.split('.');
+    setSettings(prev => {
+      const newSettings = { ...prev };
+      let current = newSettings;
       
-      if (parts.length === 2) {
-        // Handle two-level nesting (e.g., channels.inApp)
-        setSettings(prev => ({
-          ...prev,
-          [parts[0]]: {
-            ...prev[parts[0]],
-            [parts[1]]: event.target.type === 'checkbox' ? checked : 
-                      event.target.type === 'number' ? Number(value) : value,
-          }
-        }));
-      } else if (parts.length === 3) {
-        // Handle three-level nesting (e.g., eventNotifications.assetStopped.enabled)
-        setSettings(prev => ({
-          ...prev,
-          [parts[0]]: {
-            ...prev[parts[0]],
-            [parts[1]]: {
-              ...prev[parts[0]][parts[1]],
-              [parts[2]]: event.target.type === 'checkbox' ? checked : 
-                        event.target.type === 'number' ? Number(value) : value,
-            }
-          }
-        }));
+      for (let i = 0; i < keys.length - 1; i++) {
+        current[keys[i]] = { ...current[keys[i]] };
+        current = current[keys[i]];
       }
-    } else {
-      // Handle top-level properties
-      setSettings(prev => ({
-        ...prev,
-        [name]: event.target.type === 'checkbox' ? checked : value,
-      }));
-    }
+      
+      current[keys[keys.length - 1]] = type === 'checkbox' ? checked : value;
+      return newSettings;
+    });
   };
 
-  // Handle channel selection for event notifications
-  const handleChannelChange = (event, eventType) => {
-    const { value } = event.target;
+  // Handle channel changes for event notifications
+  const handleChannelChange = (eventType, channel, enabled) => {
     setSettings(prev => ({
       ...prev,
       eventNotifications: {
         ...prev.eventNotifications,
         [eventType]: {
           ...prev.eventNotifications[eventType],
-          channels: value
+          channels: enabled 
+            ? [...prev.eventNotifications[eventType].channels, channel]
+            : prev.eventNotifications[eventType].channels.filter(c => c !== channel)
         }
       }
     }));
   };
 
-  // Handle recipient selection for event notifications
-  const handleRecipientChange = (event, eventType) => {
-    const { value } = event.target;
+  // Handle recipient changes
+  const handleRecipientChange = (eventType, recipients) => {
     setSettings(prev => ({
       ...prev,
       eventNotifications: {
         ...prev.eventNotifications,
         [eventType]: {
           ...prev.eventNotifications[eventType],
-          recipients: value
+          recipients
         }
       }
     }));
   };
 
-  // Fetch settings and users when component mounts
   useEffect(() => {
+    console.log('🔍 FRONTEND NotificationSettings component mounted, calling fetchSettings...');
     fetchSettings();
     fetchUsers();
   }, []);
 
-  // Subscribe to settings updates via socket
-  useEffect(() => {
-    if (socket) {
-      socket.on('settings_updated', () => {
-        fetchSettings();
-      });
-      
-      return () => {
-        socket.off('settings_updated');
-      };
-    }
-  }, [socket]);
-
-  // Render loading state
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
         <CircularProgress />
       </Box>
     );
@@ -298,671 +325,465 @@ const NotificationSettings = () => {
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h6" component="div">
-          Notification Settings
-        </Typography>
-        <Button
-          variant="contained"
-          color="primary"
-          startIcon={<SaveIcon />}
-          onClick={saveSettings}
-          disabled={saving}
-        >
-          {saving ? 'Saving...' : 'Save Settings'}
-        </Button>
-      </Box>
-      
-      {/* General Notification Settings */}
+      <Typography variant="h4" gutterBottom>
+        <NotificationsIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+        Notification Settings
+      </Typography>
+
       <StyledPaper>
-        <Typography variant="subtitle1" gutterBottom>
-          General Settings
-        </Typography>
-        <Grid container spacing={3}>
-          <Grid item xs={12}>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={settings.enabled}
-                  onChange={handleChange}
-                  name="enabled"
-                  color="primary"
-                />
-              }
-              label="Enable Notifications"
-            />
-            <FormHelperText>Master switch for all notifications</FormHelperText>
-          </Grid>
-          
-          <Grid item xs={12}>
-            <Typography variant="subtitle2" gutterBottom>
-              Notification Channels
-            </Typography>
-            <FormGroup row>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={settings.channels.inApp}
-                    onChange={handleChange}
-                    name="channels.inApp"
-                    color="primary"
-                  />
-                }
-                label="In-App Notifications"
-              />
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={settings.channels.email}
-                    onChange={handleChange}
-                    name="channels.email"
-                    color="primary"
-                  />
-                }
-                label="Email Notifications"
-              />
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={settings.channels.sms}
-                    onChange={handleChange}
-                    name="channels.sms"
-                    color="primary"
-                  />
-                }
-                label="SMS Notifications"
-              />
-            </FormGroup>
-          </Grid>
-        </Grid>
-      </StyledPaper>
-      
-      {/* Email Configuration */}
-      <Accordion defaultExpanded={settings.channels.email}>
-        <AccordionSummary
-          expandIcon={<ExpandMoreIcon />}
-          aria-controls="email-config-content"
-          id="email-config-header"
-        >
-          <EmailIcon sx={{ mr: 1 }} />
-          <Typography variant="subtitle1">Email Configuration</Typography>
-        </AccordionSummary>
-        <AccordionDetails>
-          <Grid container spacing={2}>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="SMTP Server"
-                name="emailSettings.smtpServer"
-                value={settings.emailSettings.smtpServer}
-                onChange={handleChange}
-                disabled={!settings.channels.email}
-                margin="normal"
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Port"
-                name="emailSettings.port"
-                type="number"
-                value={settings.emailSettings.port}
-                onChange={handleChange}
-                disabled={!settings.channels.email}
-                margin="normal"
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Username"
-                name="emailSettings.username"
-                value={settings.emailSettings.username}
-                onChange={handleChange}
-                disabled={!settings.channels.email}
-                margin="normal"
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Password"
-                name="emailSettings.password"
-                type="password"
-                value={settings.emailSettings.password}
-                onChange={handleChange}
-                disabled={!settings.channels.email}
-                margin="normal"
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="From Email"
-                name="emailSettings.fromEmail"
-                value={settings.emailSettings.fromEmail}
-                onChange={handleChange}
-                disabled={!settings.channels.email}
-                margin="normal"
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={settings.emailSettings.useTLS}
-                    onChange={handleChange}
-                    name="emailSettings.useTLS"
-                    color="primary"
-                    disabled={!settings.channels.email}
-                  />
-                }
-                label="Use TLS"
-                sx={{ mt: 2 }}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <Button
-                variant="outlined"
-                color="primary"
-                onClick={testEmailConfig}
-                disabled={!settings.channels.email}
-                sx={{ mt: 1 }}
-              >
-                Test Email Configuration
-              </Button>
-            </Grid>
-          </Grid>
-        </AccordionDetails>
-      </Accordion>
-      
-      {/* SMS Configuration */}
-      <Accordion defaultExpanded={settings.channels.sms}>
-        <AccordionSummary
-          expandIcon={<ExpandMoreIcon />}
-          aria-controls="sms-config-content"
-          id="sms-config-header"
-        >
-          <SmsIcon sx={{ mr: 1 }} />
-          <Typography variant="subtitle1">SMS Configuration</Typography>
-        </AccordionSummary>
-        <AccordionDetails>
-          <Grid container spacing={2}>
-            <Grid item xs={12}>
-              <FormControl fullWidth margin="normal" disabled={!settings.channels.sms}>
-                <InputLabel id="sms-provider-label">SMS Provider</InputLabel>
-                <Select
-                  labelId="sms-provider-label"
-                  name="smsSettings.provider"
-                  value={settings.smsSettings.provider}
-                  onChange={handleChange}
-                  label="SMS Provider"
-                >
-                  {smsProviders.map((provider) => (
-                    <MenuItem key={provider.value} value={provider.value}>
-                      {provider.label}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            
-            {settings.smsSettings.provider === 'twilio' && (
-              <>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="Account SID"
-                    name="smsSettings.accountSid"
-                    value={settings.smsSettings.accountSid}
-                    onChange={handleChange}
-                    disabled={!settings.channels.sms}
-                    margin="normal"
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="Auth Token"
-                    name="smsSettings.authToken"
-                    type="password"
-                    value={settings.smsSettings.authToken}
-                    onChange={handleChange}
-                    disabled={!settings.channels.sms}
-                    margin="normal"
-                  />
-                </Grid>
-              </>
-            )}
-            
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="From Number"
-                name="smsSettings.fromNumber"
-                value={settings.smsSettings.fromNumber}
-                onChange={handleChange}
-                disabled={!settings.channels.sms}
-                margin="normal"
-                helperText="Include country code (e.g., +1234567890)"
-              />
-            </Grid>
-            
-            <Grid item xs={12}>
-              <Button
-                variant="outlined"
-                color="primary"
-                onClick={testSmsConfig}
-                disabled={!settings.channels.sms}
-                sx={{ mt: 1 }}
-              >
-                Test SMS Configuration
-              </Button>
-            </Grid>
-          </Grid>
-        </AccordionDetails>
-      </Accordion>
-      
-      {/* Event Notification Settings */}
-      <StyledPaper>
-        <Typography variant="subtitle1" gutterBottom>
-          Event Notification Settings
-        </Typography>
-        
-        {/* Asset Stopped */}
-        <Accordion>
-          <AccordionSummary
-            expandIcon={<ExpandMoreIcon />}
-            aria-controls="asset-stopped-content"
-            id="asset-stopped-header"
-          >
-            <ErrorIcon color="error" sx={{ mr: 1 }} />
-            <Typography>Asset Stopped Notifications</Typography>
+        {/* General Settings */}
+        <Accordion defaultExpanded>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Typography variant="h6">General Settings</Typography>
           </AccordionSummary>
           <AccordionDetails>
-            <Grid container spacing={2}>
+            <Grid container spacing={3}>
               <Grid item xs={12}>
                 <FormControlLabel
                   control={
                     <Switch
-                      checked={settings.eventNotifications.assetStopped.enabled}
+                      checked={settings.enabled}
                       onChange={handleChange}
-                      name="eventNotifications.assetStopped.enabled"
+                      name="enabled"
                       color="primary"
                     />
                   }
-                  label="Enable Asset Stopped Notifications"
-                />
-              </Grid>
-              
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth margin="normal" disabled={!settings.eventNotifications.assetStopped.enabled}>
-                  <InputLabel id="asset-stopped-channels-label">Notification Channels</InputLabel>
-                  <Select
-                    labelId="asset-stopped-channels-label"
-                    multiple
-                    value={settings.eventNotifications.assetStopped.channels}
-                    onChange={(e) => handleChannelChange(e, 'assetStopped')}
-                    renderValue={(selected) => (
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                        {selected.map((value) => (
-                          <Chip key={value} label={value === 'inApp' ? 'In-App' : value === 'email' ? 'Email' : 'SMS'} size="small" />
-                        ))}
-                      </Box>
-                    )}
-                  >
-                    <MenuItem value="inApp" disabled={!settings.channels.inApp}>In-App</MenuItem>
-                    <MenuItem value="email" disabled={!settings.channels.email}>Email</MenuItem>
-                    <MenuItem value="sms" disabled={!settings.channels.sms}>SMS</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-              
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Minimum Duration (minutes)"
-                  name="eventNotifications.assetStopped.minDuration"
-                  type="number"
-                  value={settings.eventNotifications.assetStopped.minDuration}
-                  onChange={handleChange}
-                  disabled={!settings.eventNotifications.assetStopped.enabled}
-                  margin="normal"
-                  helperText="Minimum stop duration before notification is sent"
-                  InputProps={{ inputProps: { min: 0 } }}
+                  label="Enable Notifications"
                 />
               </Grid>
               
               <Grid item xs={12}>
-                <FormControl fullWidth margin="normal" disabled={!settings.eventNotifications.assetStopped.enabled}>
-                  <InputLabel id="asset-stopped-recipients-label">Recipients</InputLabel>
-                  <Select
-                    labelId="asset-stopped-recipients-label"
-                    multiple
-                    value={settings.eventNotifications.assetStopped.recipients}
-                    onChange={(e) => handleRecipientChange(e, 'assetStopped')}
-                    renderValue={(selected) => (
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                        {selected.map((value) => {
-                          const user = users.find(u => u._id === value);
-                          return <Chip key={value} label={user ? user.name : value} size="small" />;
-                        })}
-                      </Box>
-                    )}
-                  >
-                    <MenuItem value="all">All Users</MenuItem>
-                    <Divider />
-                    {users.map((user) => (
-                      <MenuItem key={user._id} value={user._id}>
-                        {user.name} ({user.role})
-                      </MenuItem>
-                    ))}
-                  </Select>
-                  <FormHelperText>Leave empty to notify all users with appropriate roles</FormHelperText>
-                </FormControl>
+                <Typography variant="subtitle1" gutterBottom>
+                  Notification Channels
+                </Typography>
+                <FormGroup row>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={settings.channels.inApp}
+                        onChange={handleChange}
+                        name="channels.inApp"
+                        disabled={!settings.enabled}
+                      />
+                    }
+                    label="In-App Notifications"
+                  />
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={settings.channels.email}
+                        onChange={handleChange}
+                        name="channels.email"
+                        disabled={!settings.enabled}
+                      />
+                    }
+                    label="Email Notifications"
+                  />
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={settings.channels.sms}
+                        onChange={handleChange}
+                        name="channels.sms"
+                        disabled={!settings.enabled}
+                      />
+                    }
+                    label="SMS Notifications"
+                  />
+                </FormGroup>
               </Grid>
             </Grid>
           </AccordionDetails>
         </Accordion>
-        
-        {/* Asset Warning */}
+
+        {/* Email Configuration */}
         <Accordion>
-          <AccordionSummary
-            expandIcon={<ExpandMoreIcon />}
-            aria-controls="asset-warning-content"
-            id="asset-warning-header"
-          >
-            <WarningIcon color="warning" sx={{ mr: 1 }} />
-            <Typography>Asset Warning Notifications</Typography>
-          </AccordionSummary>
-          <AccordionDetails>
-            <Grid container spacing={2}>
-              <Grid item xs={12}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={settings.eventNotifications.assetWarning.enabled}
-                      onChange={handleChange}
-                      name="eventNotifications.assetWarning.enabled"
-                      color="primary"
-                    />
-                  }
-                  label="Enable Asset Warning Notifications"
-                />
-              </Grid>
-              
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth margin="normal" disabled={!settings.eventNotifications.assetWarning.enabled}>
-                  <InputLabel id="asset-warning-channels-label">Notification Channels</InputLabel>
-                  <Select
-                    labelId="asset-warning-channels-label"
-                    multiple
-                    value={settings.eventNotifications.assetWarning.channels}
-                    onChange={(e) => handleChannelChange(e, 'assetWarning')}
-                    renderValue={(selected) => (
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                        {selected.map((value) => (
-                          <Chip key={value} label={value === 'inApp' ? 'In-App' : value === 'email' ? 'Email' : 'SMS'} size="small" />
-                        ))}
-                      </Box>
-                    )}
-                  >
-                    <MenuItem value="inApp" disabled={!settings.channels.inApp}>In-App</MenuItem>
-                    <MenuItem value="email" disabled={!settings.channels.email}>Email</MenuItem>
-                    <MenuItem value="sms" disabled={!settings.channels.sms}>SMS</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-              
-              <Grid item xs={12}>
-                <FormControl fullWidth margin="normal" disabled={!settings.eventNotifications.assetWarning.enabled}>
-                  <InputLabel id="asset-warning-recipients-label">Recipients</InputLabel>
-                  <Select
-                    labelId="asset-warning-recipients-label"
-                    multiple
-                    value={settings.eventNotifications.assetWarning.recipients}
-                    onChange={(e) => handleRecipientChange(e, 'assetWarning')}
-                    renderValue={(selected) => (
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                        {selected.map((value) => {
-                          const user = users.find(u => u._id === value);
-                          return <Chip key={value} label={user ? user.name : value} size="small" />;
-                        })}
-                      </Box>
-                    )}
-                  >
-                    <MenuItem value="all">All Users</MenuItem>
-                    <Divider />
-                    {users.map((user) => (
-                      <MenuItem key={user._id} value={user._id}>
-                        {user.name} ({user.role})
-                      </MenuItem>
-                    ))}
-                  </Select>
-                  <FormHelperText>Leave empty to notify all users with appropriate roles</FormHelperText>
-                </FormControl>
-              </Grid>
-            </Grid>
-          </AccordionDetails>
-        </Accordion>
-        
-        {/* OEE Threshold Alert */}
-        <Accordion>
-          <AccordionSummary
-            expandIcon={<ExpandMoreIcon />}
-            aria-controls="oee-alert-content"
-            id="oee-alert-header"
-          >
-            <InfoIcon color="info" sx={{ mr: 1 }} />
-            <Typography>OEE Threshold Alert Notifications</Typography>
-          </AccordionSummary>
-          <AccordionDetails>
-            <Grid container spacing={2}>
-              <Grid item xs={12}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={settings.eventNotifications.oeeThresholdAlert.enabled}
-                      onChange={handleChange}
-                      name="eventNotifications.oeeThresholdAlert.enabled"
-                      color="primary"
-                    />
-                  }
-                  label="Enable OEE Threshold Alert Notifications"
-                />
-              </Grid>
-              
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth margin="normal" disabled={!settings.eventNotifications.oeeThresholdAlert.enabled}>
-                  <InputLabel id="oee-alert-channels-label">Notification Channels</InputLabel>
-                  <Select
-                    labelId="oee-alert-channels-label"
-                    multiple
-                    value={settings.eventNotifications.oeeThresholdAlert.channels}
-                    onChange={(e) => handleChannelChange(e, 'oeeThresholdAlert')}
-                    renderValue={(selected) => (
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                        {selected.map((value) => (
-                          <Chip key={value} label={value === 'inApp' ? 'In-App' : value === 'email' ? 'Email' : 'SMS'} size="small" />
-                        ))}
-                      </Box>
-                    )}
-                  >
-                    <MenuItem value="inApp" disabled={!settings.channels.inApp}>In-App</MenuItem>
-                    <MenuItem value="email" disabled={!settings.channels.email}>Email</MenuItem>
-                    <MenuItem value="sms" disabled={!settings.channels.sms}>SMS</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-              
-              <Grid item xs={12}>
-                <FormControl fullWidth margin="normal" disabled={!settings.eventNotifications.oeeThresholdAlert.enabled}>
-                  <InputLabel id="oee-alert-recipients-label">Recipients</InputLabel>
-                  <Select
-                    labelId="oee-alert-recipients-label"
-                    multiple
-                    value={settings.eventNotifications.oeeThresholdAlert.recipients}
-                    onChange={(e) => handleRecipientChange(e, 'oeeThresholdAlert')}
-                    renderValue={(selected) => (
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                        {selected.map((value) => {
-                          const user = users.find(u => u._id === value);
-                          return <Chip key={value} label={user ? user.name : value} size="small" />;
-                        })}
-                      </Box>
-                    )}
-                  >
-                    <MenuItem value="all">All Users</MenuItem>
-                    <Divider />
-                    {users.map((user) => (
-                      <MenuItem key={user._id} value={user._id}>
-                        {user.name} ({user.role})
-                      </MenuItem>
-                    ))}
-                  </Select>
-                  <FormHelperText>Leave empty to notify all users with appropriate roles</FormHelperText>
-                </FormControl>
-              </Grid>
-            </Grid>
-          </AccordionDetails>
-        </Accordion>
-        
-        {/* Shift Start/End */}
-        <Accordion>
-          <AccordionSummary
-            expandIcon={<ExpandMoreIcon />}
-            aria-controls="shift-notifications-content"
-            id="shift-notifications-header"
-          >
-            <NotificationsIcon sx={{ mr: 1 }} />
-            <Typography>Shift Notifications</Typography>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <EmailIcon sx={{ mr: 1 }} />
+            <Typography variant="h6">Email Configuration</Typography>
           </AccordionSummary>
           <AccordionDetails>
             <Grid container spacing={3}>
               <Grid item xs={12} md={6}>
-                <Typography variant="subtitle2" gutterBottom>
-                  Shift Start Notifications
-                </Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={12}>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          checked={settings.eventNotifications.shiftStart.enabled}
-                          onChange={handleChange}
-                          name="eventNotifications.shiftStart.enabled"
-                          color="primary"
-                        />
-                      }
-                      label="Enable Shift Start Notifications"
-                    />
-                  </Grid>
-                  
-                  <Grid item xs={12}>
-                    <FormControl fullWidth margin="normal" disabled={!settings.eventNotifications.shiftStart.enabled}>
-                      <InputLabel id="shift-start-channels-label">Notification Channels</InputLabel>
-                      <Select
-                        labelId="shift-start-channels-label"
-                        multiple
-                        value={settings.eventNotifications.shiftStart.channels}
-                        onChange={(e) => handleChannelChange(e, 'shiftStart')}
-                        renderValue={(selected) => (
-                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                            {selected.map((value) => (
-                              <Chip key={value} label={value === 'inApp' ? 'In-App' : value === 'email' ? 'Email' : 'SMS'} size="small" />
-                            ))}
-                          </Box>
-                        )}
-                      >
-                        <MenuItem value="inApp" disabled={!settings.channels.inApp}>In-App</MenuItem>
-                        <MenuItem value="email" disabled={!settings.channels.email}>Email</MenuItem>
-                        <MenuItem value="sms" disabled={!settings.channels.sms}>SMS</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                </Grid>
+                <TextField
+                  fullWidth
+                  label="SMTP Server"
+                  value={settings.emailSettings.smtpServer}
+                  onChange={handleChange}
+                  name="emailSettings.smtpServer"
+                  disabled={!settings.channels.email}
+                />
               </Grid>
-              
               <Grid item xs={12} md={6}>
-                <Typography variant="subtitle2" gutterBottom>
-                  Shift End Notifications
-                </Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={12}>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          checked={settings.eventNotifications.shiftEnd.enabled}
-                          onChange={handleChange}
-                          name="eventNotifications.shiftEnd.enabled"
-                          color="primary"
-                        />
-                      }
-                      label="Enable Shift End Notifications"
-                    />
-                  </Grid>
-                  
-                  <Grid item xs={12}>
-                    <FormControl fullWidth margin="normal" disabled={!settings.eventNotifications.shiftEnd.enabled}>
-                      <InputLabel id="shift-end-channels-label">Notification Channels</InputLabel>
-                      <Select
-                        labelId="shift-end-channels-label"
-                        multiple
-                        value={settings.eventNotifications.shiftEnd.channels}
-                        onChange={(e) => handleChannelChange(e, 'shiftEnd')}
-                        renderValue={(selected) => (
-                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                            {selected.map((value) => (
-                              <Chip key={value} label={value === 'inApp' ? 'In-App' : value === 'email' ? 'Email' : 'SMS'} size="small" />
-                            ))}
-                          </Box>
-                        )}
-                      >
-                        <MenuItem value="inApp" disabled={!settings.channels.inApp}>In-App</MenuItem>
-                        <MenuItem value="email" disabled={!settings.channels.email}>Email</MenuItem>
-                        <MenuItem value="sms" disabled={!settings.channels.sms}>SMS</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                </Grid>
+                <TextField
+                  fullWidth
+                  label="Port"
+                  type="number"
+                  value={settings.emailSettings.port}
+                  onChange={handleChange}
+                  name="emailSettings.port"
+                  disabled={!settings.channels.email}
+                />
               </Grid>
-              
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Username"
+                  value={settings.emailSettings.username}
+                  onChange={handleChange}
+                  name="emailSettings.username"
+                  disabled={!settings.channels.email}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Password"
+                  type="password"
+                  value={settings.emailSettings.password}
+                  onChange={handleChange}
+                  name="emailSettings.password"
+                  disabled={!settings.channels.email}
+                />
+              </Grid>
               <Grid item xs={12}>
-                <FormControl fullWidth margin="normal" disabled={!settings.eventNotifications.shiftStart.enabled && !settings.eventNotifications.shiftEnd.enabled}>
-                  <InputLabel id="shift-recipients-label">Shift Notification Recipients</InputLabel>
-                  <Select
-                    labelId="shift-recipients-label"
-                    multiple
-                    value={settings.eventNotifications.shiftStart.recipients}
-                    onChange={(e) => {
-                      handleRecipientChange(e, 'shiftStart');
-                      handleRecipientChange(e, 'shiftEnd');
-                    }}
-                    renderValue={(selected) => (
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                        {selected.map((value) => {
-                          const user = users.find(u => u._id === value);
-                          return <Chip key={value} label={user ? user.name : value} size="small" />;
-                        })}
-                      </Box>
-                    )}
-                  >
-                    <MenuItem value="all">All Users</MenuItem>
-                    <Divider />
-                    {users.map((user) => (
-                      <MenuItem key={user._id} value={user._id}>
-                        {user.name} ({user.role})
-                      </MenuItem>
-                    ))}
-                  </Select>
-                  <FormHelperText>Recipients for both shift start and end notifications</FormHelperText>
-                </FormControl>
+                <TextField
+                  fullWidth
+                  label="From Email"
+                  value={settings.emailSettings.fromEmail}
+                  onChange={handleChange}
+                  name="emailSettings.fromEmail"
+                  disabled={!settings.channels.email}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={settings.emailSettings.useTLS}
+                      onChange={handleChange}
+                      name="emailSettings.useTLS"
+                      disabled={!settings.channels.email}
+                    />
+                  }
+                  label="Use TLS"
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <Button
+                  variant="outlined"
+                  onClick={testEmailConfig}
+                  disabled={!settings.channels.email}
+                  startIcon={<EmailIcon />}
+                >
+                  Test Email Configuration
+                </Button>
               </Grid>
             </Grid>
           </AccordionDetails>
         </Accordion>
+
+        {/* Shift Report Settings */}
+        <Accordion>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <ScheduleIcon sx={{ mr: 1 }} />
+            <Typography variant="h6">Shift Report Settings</Typography>
+          </AccordionSummary>
+          <AccordionDetails>
+            <Grid container spacing={3}>
+              <Grid item xs={12}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={settings.shiftSettings.enabled}
+                      onChange={handleChange}
+                      name="shiftSettings.enabled"
+                      color="primary"
+                    />
+                  }
+                  label="Enable Automatic Shift Reports"
+                />
+                <FormHelperText>
+                  When enabled, PDF reports will be automatically sent to selected users at the end of each shift
+                </FormHelperText>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Typography variant="subtitle2" gutterBottom>
+                  Shift Start Times
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Define when shifts start. Reports will be sent when each shift ends.
+                </Typography>
+                
+                {settings.shiftSettings.shiftTimes.map((time, index) => (
+                  <Box key={index} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <TextField
+                      label={`Shift ${index + 1} Start Time`}
+                      value={time}
+                      onChange={(e) => handleShiftTimeChange(index, e.target.value)}
+                      placeholder="0600"
+                      helperText="Format: HHMM (24-hour)"
+                      disabled={!settings.shiftSettings.enabled}
+                      sx={{ mr: 2, minWidth: 200 }}
+                      inputProps={{
+                        pattern: "[0-9]{4}",
+                        maxLength: 4
+                      }}
+                    />
+                    {settings.shiftSettings.shiftTimes.length > 1 && (
+                      <IconButton 
+                        onClick={() => removeShiftTime(index)}
+                        disabled={!settings.shiftSettings.enabled}
+                        color="error"
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    )}
+                  </Box>
+                ))}
+                
+                <Button
+                  startIcon={<AddIcon />}
+                  onClick={addShiftTime}
+                  disabled={!settings.shiftSettings.enabled}
+                  variant="outlined"
+                  size="small"
+                  sx={{ mt: 1 }}
+                >
+                  Add Shift Time
+                </Button>
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth disabled={!settings.shiftSettings.enabled}>
+                  <InputLabel>Report Format</InputLabel>
+                  <Select
+                    value={settings.shiftSettings.emailFormat}
+                    onChange={handleChange}
+                    name="shiftSettings.emailFormat"
+                    label="Report Format"
+                  >
+                    <MenuItem value="pdf">PDF Attachment</MenuItem>
+                    <MenuItem value="html">HTML Email</MenuItem>
+                  </Select>
+                  <FormHelperText>
+                    PDF format is recommended for archival purposes
+                  </FormHelperText>
+                </FormControl>
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={settings.shiftSettings.autoSend}
+                      onChange={handleChange}
+                      name="shiftSettings.autoSend"
+                      color="primary"
+                      disabled={!settings.shiftSettings.enabled}
+                    />
+                  }
+                  label="Auto-send at shift end"
+                />
+                <FormHelperText>
+                  Automatically send reports when shifts end based on the configured times
+                </FormHelperText>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Alert severity="info">
+                  <Typography variant="body2">
+                    <strong>How it works:</strong>
+                    <br />• Reports are automatically generated and sent when each shift ends
+                    <br />• Users can configure which shifts they want to receive in User Management
+                    <br />• Reports include shift metrics, asset performance, and event logs
+                    <br />• PDF reports are attached to emails for easy archival
+                  </Typography>
+                </Alert>
+              </Grid>
+            </Grid>
+          </AccordionDetails>
+        </Accordion>
+
+        {/* SMS Configuration */}
+        <Accordion>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <SmsIcon sx={{ mr: 1 }} />
+            <Typography variant="h6">SMS Configuration</Typography>
+          </AccordionSummary>
+          <AccordionDetails>
+            <Grid container spacing={3}>
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth disabled={!settings.channels.sms}>
+                  <InputLabel>SMS Provider</InputLabel>
+                  <Select
+                    value={settings.smsSettings.provider}
+                    onChange={handleChange}
+                    name="smsSettings.provider"
+                    label="SMS Provider"
+                  >
+                    {smsProviders.map((provider) => (
+                      <MenuItem key={provider.value} value={provider.value}>
+                        {provider.label}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Account SID"
+                  value={settings.smsSettings.accountSid}
+                  onChange={handleChange}
+                  name="smsSettings.accountSid"
+                  disabled={!settings.channels.sms}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Auth Token"
+                  type="password"
+                  value={settings.smsSettings.authToken}
+                  onChange={handleChange}
+                  name="smsSettings.authToken"
+                  disabled={!settings.channels.sms}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="From Number"
+                  value={settings.smsSettings.fromNumber}
+                  onChange={handleChange}
+                  name="smsSettings.fromNumber"
+                  disabled={!settings.channels.sms}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <Button
+                  variant="outlined"
+                  onClick={testSmsConfig}
+                  disabled={!settings.channels.sms}
+                  startIcon={<SmsIcon />}
+                >
+                  Test SMS Configuration
+                </Button>
+              </Grid>
+            </Grid>
+          </AccordionDetails>
+        </Accordion>
+
+        {/* Event Notifications */}
+        <Accordion>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <WarningIcon sx={{ mr: 1 }} />
+            <Typography variant="h6">Event Notifications</Typography>
+          </AccordionSummary>
+          <AccordionDetails>
+            <Grid container spacing={3}>
+              {Object.entries(settings.eventNotifications).map(([eventType, config]) => (
+                <Grid item xs={12} key={eventType}>
+                  <Paper sx={{ p: 2, mb: 2 }}>
+                    <Typography variant="subtitle1" gutterBottom>
+                      {eventType.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
+                    </Typography>
+                    
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={config.enabled}
+                          onChange={handleChange}
+                          name={`eventNotifications.${eventType}.enabled`}
+                        />
+                      }
+                      label="Enabled"
+                    />
+                    
+                    <Box sx={{ mt: 2 }}>
+                      <Typography variant="body2" gutterBottom>Channels:</Typography>
+                      <FormGroup row>
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={config.channels.includes('inApp')}
+                              onChange={(e) => handleChannelChange(eventType, 'inApp', e.target.checked)}
+                              disabled={!config.enabled}
+                            />
+                          }
+                          label="In-App"
+                        />
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={config.channels.includes('email')}
+                              onChange={(e) => handleChannelChange(eventType, 'email', e.target.checked)}
+                              disabled={!config.enabled || !settings.channels.email}
+                            />
+                          }
+                          label="Email"
+                        />
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={config.channels.includes('sms')}
+                              onChange={(e) => handleChannelChange(eventType, 'sms', e.target.checked)}
+                              disabled={!config.enabled || !settings.channels.sms}
+                            />
+                          }
+                          label="SMS"
+                        />
+                      </FormGroup>
+                    </Box>
+
+                    {eventType === 'assetStopped' && (
+                      <TextField
+                        label="Minimum Duration (minutes)"
+                        type="number"
+                        value={config.minDuration}
+                        onChange={handleChange}
+                        name={`eventNotifications.${eventType}.minDuration`}
+                        disabled={!config.enabled}
+                        sx={{ mt: 2, width: 200 }}
+                      />
+                    )}
+
+                    <Box sx={{ mt: 2 }}>
+                      <FormControl fullWidth disabled={!config.enabled}>
+                        <InputLabel>Recipients</InputLabel>
+                        <Select
+                          multiple
+                          value={config.recipients}
+                          onChange={(e) => handleRecipientChange(eventType, e.target.value)}
+                          renderValue={(selected) => (
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                              {selected.map((value) => {
+                                const user = users.find(u => u._id === value);
+                                return (
+                                  <Chip key={value} label={user ? user.name : value} size="small" />
+                                );
+                              })}
+                            </Box>
+                          )}
+                        >
+                          {users.map((user) => (
+                            <MenuItem key={user._id} value={user._id}>
+                              {user.name} ({user.role})
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Box>
+                  </Paper>
+                </Grid>
+              ))}
+            </Grid>
+          </AccordionDetails>
+        </Accordion>
       </StyledPaper>
-      
+
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3 }}>
         <Button
           variant="contained"

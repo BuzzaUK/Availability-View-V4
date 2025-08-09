@@ -22,11 +22,33 @@ import {
   Warning as WarningIcon,
   Schedule as ScheduleIcon
 } from '@mui/icons-material';
+import { Doughnut, Bar } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  ArcElement,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+} from 'chart.js';
 import SocketContext from '../../context/SocketContext';
 import SettingsContext from '../../context/SettingsContext';
 import AuthContext from '../../context/AuthContext';
 
 
+
+// Register Chart.js components
+ChartJS.register(
+  ArcElement,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend
+);
 
 // Styled components
 const MetricCard = styled(Card)(({ theme }) => ({
@@ -131,6 +153,220 @@ const Dashboard = () => {
         return '#ef4444'; // Red
       default:
         return '#94a3b8'; // Gray
+    }
+  };
+
+  // Chart helper functions
+  const getAvailabilityChartData = (availability) => {
+    const availabilityPercent = availability * 100;
+    
+    return {
+      labels: ['Availability'],
+      datasets: [
+        {
+          label: 'Available',
+          data: [availabilityPercent],
+          backgroundColor: 'rgba(59, 130, 246, 0.8)', // More opaque blue
+          borderColor: 'rgba(59, 130, 246, 1)',
+          borderWidth: 1,
+          borderRadius: 4,
+        }
+      ],
+    };
+  };
+
+  const getRuntimeDowntimeChartData = (runtime, downtime) => {
+    // Convert time strings to minutes for comparison
+    const parseTime = (timeStr) => {
+      if (!timeStr || timeStr === '00:00:00') return 0;
+      const [hours, minutes, seconds] = timeStr.split(':').map(Number);
+      return hours * 60 + minutes + seconds / 60;
+    };
+    
+    const runtimeMinutes = parseTime(runtime);
+    const downtimeMinutes = parseTime(downtime);
+    
+    return {
+      labels: ['Runtime', 'Downtime'],
+      datasets: [{
+        label: 'Time',
+        data: [runtimeMinutes, downtimeMinutes],
+        backgroundColor: [
+          'rgba(16, 185, 129, 0.8)', // More opaque green for runtime
+          'rgba(239, 68, 68, 0.8)', // More opaque red for downtime
+        ],
+        borderColor: [
+          'rgba(16, 185, 129, 1)',
+          'rgba(239, 68, 68, 1)',
+        ],
+        borderWidth: 1,
+        borderRadius: 4,
+      }],
+    };
+  };
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        display: false,
+      },
+      tooltip: {
+        callbacks: {
+          label: function(context) {
+            if (context.chart.config.type === 'doughnut') {
+              return `${context.parsed.toFixed(1)}%`;
+            } else {
+              const hours = Math.floor(context.parsed / 60);
+              const minutes = Math.floor(context.parsed % 60);
+              return `${context.label}: ${hours}h ${minutes}m`;
+            }
+          }
+        }
+      }
+    },
+    scales: {
+      x: {
+        display: false,
+      },
+      y: {
+        display: false,
+      }
+    }
+  };
+
+  const doughnutOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        display: false,
+      },
+      tooltip: {
+        callbacks: {
+          label: function(context) {
+            return `${context.parsed.toFixed(1)}%`;
+          }
+        }
+      }
+    },
+    cutout: '70%',
+  };
+
+  const availabilityChartOptions = {
+    indexAxis: 'y', // This makes it horizontal
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        display: false,
+      },
+      tooltip: {
+        callbacks: {
+          label: function(context) {
+            return `${context.dataset.label}: ${context.parsed.x.toFixed(1)}%`;
+          }
+        }
+      }
+    },
+    scales: {
+      x: {
+        beginAtZero: true,
+        max: 100,
+        display: true,
+        grid: {
+          display: true,
+          color: 'rgba(0, 0, 0, 0.1)',
+        },
+        ticks: {
+          callback: function(value) {
+            return value + '%';
+          },
+          font: {
+            size: 10,
+          },
+          color: '#64748b',
+        }
+      },
+      y: {
+        display: false,
+        stacked: true,
+      }
+    },
+    layout: {
+      padding: {
+        top: 5,
+        bottom: 5,
+      }
+    }
+  };
+
+  const runtimeDowntimeChartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        display: false,
+      },
+      tooltip: {
+        callbacks: {
+          label: function(context) {
+            const value = context.parsed.y;
+            const hours = Math.floor(value / 60);
+            const minutes = Math.floor(value % 60);
+            return `${context.label}: ${hours}h ${minutes}m`;
+          }
+        }
+      }
+    },
+    scales: {
+      x: {
+        display: true,
+        grid: {
+          display: false,
+        },
+        ticks: {
+          font: {
+            size: 10,
+          },
+          color: '#64748b',
+        }
+      },
+      y: {
+        beginAtZero: true,
+        display: true,
+        grid: {
+          display: true,
+          color: 'rgba(0, 0, 0, 0.1)',
+        },
+        ticks: {
+          stepSize: function(context) {
+            const max = context.chart.scales.y.max;
+            if (max <= 60) return 10; // 10 minute intervals for small values
+            if (max <= 300) return 30; // 30 minute intervals for medium values
+            return 60; // 1 hour intervals for large values
+          },
+          callback: function(value) {
+            const hours = Math.floor(value / 60);
+            const minutes = Math.floor(value % 60);
+            if (hours > 0) {
+              return `${hours}h${minutes > 0 ? ` ${minutes}m` : ''}`;
+            }
+            return `${minutes}m`;
+          },
+          font: {
+            size: 10,
+          },
+          color: '#64748b',
+        }
+      }
+    },
+    layout: {
+      padding: {
+        top: 5,
+        bottom: 5,
+      }
     }
   };
 
@@ -357,89 +593,86 @@ const Dashboard = () => {
                   {/* Asset Metrics */}
                   <Box sx={{ mb: 3 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography variant="body2" sx={{ color: '#64748b' }}>
+                      <Typography variant="body1" sx={{ color: '#64748b', fontSize: '1rem' }}>
                         Availability:
                       </Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      <Typography variant="body1" sx={{ fontWeight: 600, fontSize: '1.1rem' }}>
                         {(asset.availability * 100).toFixed(1)}%
                       </Typography>
                     </Box>
                     
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography variant="body2" sx={{ color: '#64748b' }}>
+                      <Typography variant="body1" sx={{ color: '#64748b', fontSize: '1rem' }}>
                         Runtime:
                       </Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 600, color: '#10b981' }}>
+                      <Typography variant="body1" sx={{ fontWeight: 600, color: '#10b981', fontSize: '1.1rem' }}>
                         {formatTime(asset.runtime)}
                       </Typography>
                     </Box>
                     
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography variant="body2" sx={{ color: '#64748b' }}>
+                      <Typography variant="body1" sx={{ color: '#64748b', fontSize: '1rem' }}>
                         Downtime:
                       </Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 600, color: '#ef4444' }}>
+                      <Typography variant="body1" sx={{ fontWeight: 600, color: '#ef4444', fontSize: '1.1rem' }}>
                         {formatTime(asset.downtime)}
                       </Typography>
                     </Box>
                     
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-                      <Typography variant="body2" sx={{ color: '#64748b' }}>
+                      <Typography variant="body1" sx={{ color: '#64748b', fontSize: '1rem' }}>
                         Total Stops:
                       </Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      <Typography variant="body1" sx={{ fontWeight: 600, fontSize: '1.1rem' }}>
                         {asset.totalStops}
                       </Typography>
                     </Box>
                   </Box>
 
-                  {/* Availability Chart Placeholder */}
+                  {/* Availability Chart */}
                   <Box sx={{ mb: 2 }}>
-                    <Typography variant="body2" sx={{ color: '#64748b', mb: 1, textAlign: 'center' }}>
+                    <Typography variant="body2" sx={{ color: '#64748b', mb: 1, textAlign: 'center', fontWeight: 500 }}>
                       Availability
                     </Typography>
                     <Box sx={{ 
                       height: 60, 
-                      backgroundColor: '#f8fafc', 
-                      borderRadius: 1,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      border: '1px solid #e2e8f0'
+                      position: 'relative'
                     }}>
-                      <Typography variant="caption" sx={{ color: '#94a3b8' }}>
-                        Chart Placeholder
+                      <Bar 
+                        data={getAvailabilityChartData(asset.availability)} 
+                        options={availabilityChartOptions}
+                      />
+                    </Box>
+                    <Box sx={{ textAlign: 'center', mt: 1 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: '#3b82f6' }}>
+                        {(asset.availability * 100).toFixed(1)}%
                       </Typography>
                     </Box>
                   </Box>
 
-                  {/* Runtime vs Downtime Chart Placeholder */}
+                  {/* Runtime vs Downtime Chart */}
                   <Box>
-                    <Typography variant="body2" sx={{ color: '#64748b', mb: 1, textAlign: 'center' }}>
+                    <Typography variant="body2" sx={{ color: '#64748b', mb: 1, textAlign: 'center', fontWeight: 500 }}>
                       Runtime vs Downtime
                     </Typography>
                     <Box sx={{ 
-                      height: 80, 
-                      backgroundColor: '#f8fafc', 
-                      borderRadius: 1,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      border: '1px solid #e2e8f0',
+                      height: 120,
                       position: 'relative'
                     }}>
-                      {asset.name === 'Production Line A' && asset.downtime !== '00:00:00' ? (
-                        <Box sx={{ 
-                          width: '80%', 
-                          height: '60%', 
-                          backgroundColor: '#ef4444',
-                          borderRadius: 1
-                        }} />
-                      ) : (
-                        <Typography variant="caption" sx={{ color: '#94a3b8' }}>
-                          Chart Placeholder
-                        </Typography>
-                      )}
+                      <Bar 
+                        data={getRuntimeDowntimeChartData(asset.runtime, asset.downtime)} 
+                        options={runtimeDowntimeChartOptions}
+                      />
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mt: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Box sx={{ width: 12, height: 12, backgroundColor: 'rgba(16, 185, 129, 0.8)', borderRadius: 1 }} />
+                        <Typography variant="caption" sx={{ color: '#64748b' }}>Runtime</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Box sx={{ width: 12, height: 12, backgroundColor: 'rgba(239, 68, 68, 0.8)', borderRadius: 1 }} />
+                        <Typography variant="caption" sx={{ color: '#64748b' }}>Downtime</Typography>
+                      </Box>
                     </Box>
                   </Box>
                 </CardContent>

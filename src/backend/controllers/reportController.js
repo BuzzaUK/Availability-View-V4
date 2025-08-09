@@ -151,9 +151,10 @@ exports.generateAssetReport = async (req, res) => {
     });
 
   } catch (error) {
+    console.error('Error getting monthly reports:', error);
     res.status(500).json({
       success: false,
-      message: 'Server Error',
+      message: 'Failed to get monthly reports',
       error: error.message
     });
   }
@@ -164,19 +165,23 @@ exports.generateAssetReport = async (req, res) => {
 // @access  Private
 exports.getShiftReports = async (req, res) => {
   try {
-    const { page = 1, limit = 10, search = '', startDate, endDate } = req.query;
-    const shifts = memoryDB.getAllShifts();
+    const { page = 1, limit = 10, search = '', startDate, endDate, shiftId } = req.query;
+    const shifts = memoryDB.getShifts();
     
     let filteredShifts = shifts;
     
     // Apply date filter
-    if (startDate && endDate) {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      filteredShifts = filteredShifts.filter(shift => {
+    if (startDate || endDate) {
+      filteredShifts = shifts.filter(shift => {
         const shiftDate = new Date(shift.start_time);
-        return shiftDate >= start && shiftDate <= end;
+        if (startDate && shiftDate < new Date(startDate)) return false;
+        if (endDate && shiftDate > new Date(endDate)) return false;
+        return true;
       });
+    }
+    
+    if (shiftId) {
+      filteredShifts = filteredShifts.filter(shift => shift._id == shiftId);
     }
     
     // Apply search filter
@@ -214,6 +219,7 @@ exports.getShiftReports = async (req, res) => {
     res.status(200).json({
       success: true,
       data: shiftReports,
+      total: filteredShifts.length,
       pagination: {
         current_page: parseInt(page),
         total_pages: Math.ceil(filteredShifts.length / limit),
@@ -223,9 +229,10 @@ exports.getShiftReports = async (req, res) => {
     });
     
   } catch (error) {
+    console.error('Error getting shift reports:', error);
     res.status(500).json({
       success: false,
-      message: 'Server Error',
+      message: 'Failed to get shift reports',
       error: error.message
     });
   }
@@ -323,7 +330,7 @@ exports.getMonthlyReports = async (req, res) => {
   try {
     const { page = 1, limit = 10, search = '', startDate, endDate } = req.query;
     const events = memoryDB.getAllEvents();
-    const shifts = memoryDB.getAllShifts();
+    const shifts = memoryDB.getShifts();
     
     // Group data by month
     const monthlyData = {};
@@ -422,7 +429,7 @@ exports.getMonthlyReports = async (req, res) => {
 exports.exportShiftReports = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    const shifts = memoryDB.getAllShifts();
+    const shifts = memoryDB.getShifts();
     
     let filteredShifts = shifts;
     
@@ -458,9 +465,10 @@ exports.exportShiftReports = async (req, res) => {
     res.send(csv);
     
   } catch (error) {
+    console.error('Error exporting shift reports:', error);
     res.status(500).json({
       success: false,
-      message: 'Server Error',
+      message: 'Failed to export shift reports',
       error: error.message
     });
   }
@@ -530,9 +538,10 @@ exports.exportDailyReports = async (req, res) => {
     res.send(csv);
     
   } catch (error) {
+    console.error('Error exporting daily reports:', error);
     res.status(500).json({
       success: false,
-      message: 'Server Error',
+      message: 'Failed to export daily reports',
       error: error.message
     });
   }
@@ -545,7 +554,7 @@ exports.exportMonthlyReports = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
     const events = memoryDB.getAllEvents();
-    const shifts = memoryDB.getAllShifts();
+    const shifts = memoryDB.getShifts();
     
     // Group data by month
     const monthlyData = {};
@@ -784,7 +793,7 @@ exports.generateSystemReport = async (req, res) => {
 
     // Get all data
     const assets = memoryDB.getAllAssets();
-    const shifts = memoryDB.getAllShifts();
+    const shifts = memoryDB.getShifts();
     const allEvents = memoryDB.getAllEvents();
 
     // Filter events by date range
@@ -948,9 +957,10 @@ exports.generateSystemReport = async (req, res) => {
     });
 
   } catch (error) {
+    console.error('Error getting system report:', error);
     res.status(500).json({
       success: false,
-      message: 'Server Error',
+      message: 'Failed to get system report',
       error: error.message
     });
   }
@@ -962,7 +972,7 @@ exports.generateSystemReport = async (req, res) => {
 exports.getAvailableReports = async (req, res) => {
   try {
     const assets = memoryDB.getAllAssets();
-    const shifts = memoryDB.getAllShifts();
+    const shifts = memoryDB.getShifts();
 
     const availableReports = {
       asset_reports: assets.map(asset => ({

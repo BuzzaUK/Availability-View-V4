@@ -27,9 +27,33 @@ const userSchema = new mongoose.Schema({
     enum: ['admin', 'manager', 'operator', 'viewer'],
     default: 'viewer'
   },
+  isActive: {
+    type: Boolean,
+    default: true
+  },
   receive_reports: {
     type: Boolean,
     default: false
+  },
+  shiftReportPreferences: {
+    enabled: {
+      type: Boolean,
+      default: false
+    },
+    shifts: [{
+      type: String,
+      validate: {
+        validator: function(v) {
+          return /^\d{4}$/.test(v);
+        },
+        message: 'Shift time must be in HHMM format'
+      }
+    }],
+    emailFormat: {
+      type: String,
+      enum: ['pdf', 'html'],
+      default: 'pdf'
+    }
   },
   created_at: {
     type: Date,

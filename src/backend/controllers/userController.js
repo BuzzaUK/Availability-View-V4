@@ -75,7 +75,7 @@ const getUserById = async (req, res) => {
 // @access  Private (Admin)
 const createUser = async (req, res) => {
   try {
-    const { name, email, password, role = 'operator' } = req.body;
+    const { name, email, password, role = 'operator', isActive = true, shiftReportPreferences } = req.body;
     
     // Validation
     if (!name || !email || !password) {
@@ -95,7 +95,18 @@ const createUser = async (req, res) => {
     }
     
     // Create user
-    const newUser = memoryDB.createUser({ name, email, password, role });
+    const newUser = memoryDB.createUser({ 
+      name, 
+      email, 
+      password, 
+      role,
+      isActive,
+      shiftReportPreferences: shiftReportPreferences || {
+        enabled: false,
+        shifts: [],
+        emailFormat: 'pdf'
+      }
+    });
     
     // Remove password from response
     const { password: userPassword, ...userWithoutPassword } = newUser;
@@ -112,15 +123,33 @@ const createUser = async (req, res) => {
 // @access  Private (Admin)
 const updateUser = async (req, res) => {
   try {
-    const { name, email, role } = req.body;
+    console.log('Update user request body:', req.body);
+    const { name, email, role, isActive, shiftReportPreferences } = req.body;
     
     const user = memoryDB.getUserById(req.params.id);
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
     
+    console.log('Current user data before update:', user);
+    
+    // Prepare update data
+    const updateData = { name, email, role };
+    if (isActive !== undefined) {
+      updateData.isActive = isActive;
+      console.log('Setting isActive to:', isActive);
+    }
+    if (shiftReportPreferences) {
+      updateData.shiftReportPreferences = shiftReportPreferences;
+      console.log('Setting shiftReportPreferences to:', shiftReportPreferences);
+    }
+    
+    console.log('Update data to apply:', updateData);
+    
     // Update user
-    const updatedUser = memoryDB.updateUser(req.params.id, { name, email, role });
+    const updatedUser = memoryDB.updateUser(req.params.id, updateData);
+    
+    console.log('Updated user result:', updatedUser);
     
     // Remove password from response
     const { password, ...userWithoutPassword } = updatedUser;

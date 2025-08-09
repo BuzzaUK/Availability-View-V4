@@ -1,33 +1,48 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { styled } from '@mui/material/styles';
-import Box from '@mui/material/Box';
-import Typography from '@mui/material/Typography';
-import Paper from '@mui/material/Paper';
-import Table from '@mui/material/Table';
-import TableBody from '@mui/material/TableBody';
-import TableCell from '@mui/material/TableCell';
-import TableContainer from '@mui/material/TableContainer';
-import TableHead from '@mui/material/TableHead';
-import TableRow from '@mui/material/TableRow';
-import TablePagination from '@mui/material/TablePagination';
-import Button from '@mui/material/Button';
-import IconButton from '@mui/material/IconButton';
-import TextField from '@mui/material/TextField';
-import Dialog from '@mui/material/Dialog';
-import DialogActions from '@mui/material/DialogActions';
-import DialogContent from '@mui/material/DialogContent';
-import DialogContentText from '@mui/material/DialogContentText';
-import DialogTitle from '@mui/material/DialogTitle';
-import MenuItem from '@mui/material/MenuItem';
-import FormControlLabel from '@mui/material/FormControlLabel';
-import Switch from '@mui/material/Switch';
-import Chip from '@mui/material/Chip';
-import CircularProgress from '@mui/material/CircularProgress';
-import AddIcon from '@mui/icons-material/Add';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
-import SearchIcon from '@mui/icons-material/Search';
-import InputAdornment from '@mui/material/InputAdornment';
+import {
+  Box,
+  Typography,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TablePagination,
+  Button,
+  IconButton,
+  TextField,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  MenuItem,
+  FormControlLabel,
+  Switch,
+  Chip,
+  CircularProgress,
+  InputAdornment,
+  FormControl,
+  InputLabel,
+  Select,
+  Checkbox,
+  ListItemText,
+  OutlinedInput,
+  FormGroup,
+  Grid,
+  Divider,
+  FormHelperText,
+  Alert
+} from '@mui/material';
+import {
+  Add as AddIcon,
+  Edit as EditIcon,
+  Delete as DeleteIcon,
+  Search as SearchIcon
+} from '@mui/icons-material';
 import { format } from 'date-fns';
 import axios from 'axios';
 
@@ -71,7 +86,16 @@ const UserManagement = () => {
     isActive: true,
     password: '',
     confirmPassword: '',
+    // Add shift report preferences
+    shiftReportPreferences: {
+      enabled: false,
+      shifts: [], // Array of shift times user wants to receive reports for
+      emailFormat: 'pdf'
+    }
   });
+
+  // Available shift times (should match the ones configured in NotificationSettings)
+  const [availableShiftTimes, setAvailableShiftTimes] = useState(['0600', '1400', '2200']);
   
   // State for delete confirmation dialog
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
@@ -97,8 +121,8 @@ const UserManagement = () => {
       
       const response = await axios.get('/api/users', { params });
       
-      setUsers(response.data.users || []);
-      setTotalUsers(response.data.total || 0);
+      setUsers(response.data.data || []); // Changed from response.data.users to response.data.data
+      setTotalUsers(response.data.pagination?.total || 0); // Changed from response.data.total to response.data.pagination.total
     } catch (err) {
       error('Failed to fetch users: ' + (err.response?.data?.message || err.message));
     } finally {
@@ -120,6 +144,7 @@ const UserManagement = () => {
         role: userForm.role,
         isActive: userForm.isActive,
         password: userForm.password,
+        shiftReportPreferences: userForm.shiftReportPreferences
       });
       
       success('User added successfully');
@@ -143,6 +168,7 @@ const UserManagement = () => {
         email: userForm.email,
         role: userForm.role,
         isActive: userForm.isActive,
+        shiftReportPreferences: userForm.shiftReportPreferences
       };
       
       // Only include password if it's provided
@@ -187,22 +213,10 @@ const UserManagement = () => {
   // Handle search
   const handleSearch = (event) => {
     setSearchQuery(event.target.value);
-  };
-
-  // Apply search
-  const applySearch = () => {
     setPage(0); // Reset to first page when searching
-    fetchUsers();
   };
 
-  // Handle key press in search field
-  const handleSearchKeyPress = (event) => {
-    if (event.key === 'Enter') {
-      applySearch();
-    }
-  };
-
-  // Open add user dialog
+  // Handle open add dialog
   const handleOpenAddDialog = () => {
     setDialogMode('add');
     setUserForm({
@@ -212,11 +226,16 @@ const UserManagement = () => {
       isActive: true,
       password: '',
       confirmPassword: '',
+      shiftReportPreferences: {
+        enabled: false,
+        shifts: [],
+        emailFormat: 'pdf'
+      }
     });
     setOpenDialog(true);
   };
 
-  // Open edit user dialog
+  // Handle open edit dialog
   const handleOpenEditDialog = (user) => {
     setDialogMode('edit');
     setSelectedUser(user);
@@ -227,282 +246,396 @@ const UserManagement = () => {
       isActive: user.isActive,
       password: '',
       confirmPassword: '',
+      shiftReportPreferences: user.shiftReportPreferences || {
+        enabled: false,
+        shifts: [],
+        emailFormat: 'pdf'
+      }
     });
     setOpenDialog(true);
   };
 
-  // Open delete confirmation dialog
+  // Handle close dialog
+  const handleCloseDialog = () => {
+    setOpenDialog(false);
+    setSelectedUser(null);
+  };
+
+  // Handle open delete dialog
   const handleOpenDeleteDialog = (user) => {
     setSelectedUser(user);
     setOpenDeleteDialog(true);
   };
 
-  // Close user dialog
-  const handleCloseDialog = () => {
-    setOpenDialog(false);
-  };
-
-  // Handle form input change
+  // Handle form change
   const handleFormChange = (event) => {
-    const { name, value, checked } = event.target;
-    setUserForm(prev => ({
-      ...prev,
-      [name]: event.target.type === 'checkbox' ? checked : value,
-    }));
-  };
-
-  // Handle form submission
-  const handleSubmitForm = () => {
-    if (dialogMode === 'add') {
-      addUser();
+    const { name, value, checked, type } = event.target;
+    
+    if (name.startsWith('shiftReportPreferences.')) {
+      const field = name.split('.')[1];
+      setUserForm(prev => ({
+        ...prev,
+        shiftReportPreferences: {
+          ...prev.shiftReportPreferences,
+          [field]: type === 'checkbox' ? checked : value
+        }
+      }));
     } else {
-      updateUser();
+      setUserForm(prev => ({
+        ...prev,
+        [name]: type === 'checkbox' ? checked : value
+      }));
     }
   };
 
-  // Fetch users when component mounts or when page, rowsPerPage changes
+  // Handle shift selection change
+  const handleShiftSelectionChange = (event) => {
+    const value = event.target.value;
+    setUserForm(prev => ({
+      ...prev,
+      shiftReportPreferences: {
+        ...prev.shiftReportPreferences,
+        shifts: typeof value === 'string' ? value.split(',') : value
+      }
+    }));
+  };
+
+  // Fetch available shift times from notification settings
+  const fetchShiftTimes = async () => {
+    try {
+      const response = await axios.get('/api/notifications/settings');
+      if (response.data && response.data.shiftSettings && response.data.shiftSettings.shiftTimes) {
+        setAvailableShiftTimes(response.data.shiftSettings.shiftTimes);
+      }
+    } catch (err) {
+      console.error('Failed to fetch shift times:', err);
+    }
+  };
+
+  // Format shift time for display
+  const formatShiftTime = (time) => {
+    if (time.length === 4) {
+      return `${time.substring(0, 2)}:${time.substring(2, 4)}`;
+    }
+    return time;
+  };
+
   useEffect(() => {
     fetchUsers();
-  }, [page, rowsPerPage]);
-
-  // Render loading state
-  if (loading && users.length === 0) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
+    fetchShiftTimes();
+  }, [page, rowsPerPage, searchQuery]);
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h6" component="div">
-          User Management
-        </Typography>
-        <Button
-          variant="contained"
-          color="primary"
-          startIcon={<AddIcon />}
-          onClick={handleOpenAddDialog}
-        >
-          Add User
-        </Button>
-      </Box>
-      
-      <Box sx={{ mb: 3 }}>
+      <Typography variant="h4" gutterBottom>
+        User Management
+      </Typography>
+
+      {/* Search and Add User */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
         <TextField
-          fullWidth
           placeholder="Search users..."
           value={searchQuery}
           onChange={handleSearch}
-          onKeyPress={handleSearchKeyPress}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
                 <SearchIcon />
               </InputAdornment>
             ),
-            endAdornment: (
-              <InputAdornment position="end">
-                <Button onClick={applySearch} size="small">
-                  Search
-                </Button>
-              </InputAdornment>
-            ),
           }}
-          variant="outlined"
-          size="small"
+          sx={{ width: 300 }}
         />
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={handleOpenAddDialog}
+        >
+          Add User
+        </Button>
       </Box>
-      
-      <TableContainer component={Paper}>
-        <Table sx={{ minWidth: 650 }} aria-label="users table">
-          <TableHead>
-            <TableRow>
-              <TableCell>Name</TableCell>
-              <TableCell>Email</TableCell>
-              <TableCell>Role</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell>Created</TableCell>
-              <TableCell>Last Login</TableCell>
-              <TableCell align="center">Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {users.length === 0 ? (
+
+      {/* Users Table */}
+      <Paper>
+        <TableContainer>
+          <Table>
+            <TableHead>
               <TableRow>
-                <TableCell colSpan={7} align="center">
-                  No users found
-                </TableCell>
+                <TableCell>Name</TableCell>
+                <TableCell>Email</TableCell>
+                <TableCell>Role</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell>Shift Reports</TableCell>
+                <TableCell>Created</TableCell>
+                <TableCell>Actions</TableCell>
               </TableRow>
-            ) : (
-              users.map((user) => (
-                <StyledTableRow key={user._id}>
-                  <TableCell component="th" scope="row">
-                    {user.name}
+            </TableHead>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={7} align="center">
+                    <CircularProgress />
                   </TableCell>
-                  <TableCell>{user.email}</TableCell>
-                  <TableCell>
-                    <Chip 
-                      label={user.role.charAt(0).toUpperCase() + user.role.slice(1)} 
-                      color={
-                        user.role === 'admin' ? 'primary' :
-                        user.role === 'manager' ? 'secondary' :
-                        user.role === 'operator' ? 'info' : 'default'
-                      }
-                      size="small"
-                    />
+                </TableRow>
+              ) : users.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} align="center">
+                    No users found
                   </TableCell>
-                  <TableCell>
-                    <Chip 
-                      label={user.isActive ? 'Active' : 'Inactive'} 
-                      color={user.isActive ? 'success' : 'error'}
-                      size="small"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {format(new Date(user.createdAt), 'yyyy-MM-dd')}
-                  </TableCell>
-                  <TableCell>
-                    {user.lastLogin 
-                      ? format(new Date(user.lastLogin), 'yyyy-MM-dd HH:mm')
-                      : 'Never'}
-                  </TableCell>
-                  <TableCell align="center">
-                    <IconButton 
-                      size="small" 
-                      color="primary" 
-                      onClick={() => handleOpenEditDialog(user)}
-                      sx={{ mr: 1 }}
-                    >
-                      <EditIcon fontSize="small" />
-                    </IconButton>
-                    <IconButton 
-                      size="small" 
-                      color="error" 
-                      onClick={() => handleOpenDeleteDialog(user)}
-                    >
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </TableCell>
-                </StyledTableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
-      
-      <TablePagination
-        rowsPerPageOptions={[5, 10, 25]}
-        component="div"
-        count={totalUsers}
-        rowsPerPage={rowsPerPage}
-        page={page}
-        onPageChange={handleChangePage}
-        onRowsPerPageChange={handleChangeRowsPerPage}
-      />
-      
+                </TableRow>
+              ) : (
+                users.map((user) => (
+                  <StyledTableRow key={user._id}>
+                    <TableCell>{user.name}</TableCell>
+                    <TableCell>{user.email}</TableCell>
+                    <TableCell>
+                      <Chip
+                        label={user.role}
+                        color={user.role === 'admin' ? 'error' : user.role === 'manager' ? 'warning' : 'default'}
+                        size="small"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={user.isActive ? 'Active' : 'Inactive'}
+                        color={user.isActive ? 'success' : 'default'}
+                        size="small"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      {user.shiftReportPreferences?.enabled ? (
+                        <Chip
+                          label={`${user.shiftReportPreferences.shifts?.length || 0} shifts`}
+                          color="info"
+                          size="small"
+                        />
+                      ) : (
+                        <Chip label="Disabled" color="default" size="small" />
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {user.created_at ? format(new Date(user.created_at), 'MMM dd, yyyy') : 'N/A'}
+                    </TableCell>
+                    <TableCell>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleOpenEditDialog(user)}
+                        color="primary"
+                      >
+                        <EditIcon />
+                      </IconButton>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleOpenDeleteDialog(user)}
+                        color="error"
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </TableCell>
+                  </StyledTableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+        <TablePagination
+          rowsPerPageOptions={[5, 10, 25]}
+          component="div"
+          count={totalUsers}
+          rowsPerPage={rowsPerPage}
+          page={page}
+          onPageChange={handleChangePage}
+          onRowsPerPageChange={handleChangeRowsPerPage}
+        />
+      </Paper>
+
       {/* Add/Edit User Dialog */}
-      <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
+      <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
         <DialogTitle>
           {dialogMode === 'add' ? 'Add New User' : 'Edit User'}
         </DialogTitle>
         <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            name="name"
-            label="Full Name"
-            type="text"
-            fullWidth
-            variant="outlined"
-            value={userForm.name}
-            onChange={handleFormChange}
-            required
-          />
-          <TextField
-            margin="dense"
-            name="email"
-            label="Email Address"
-            type="email"
-            fullWidth
-            variant="outlined"
-            value={userForm.email}
-            onChange={handleFormChange}
-            required
-          />
-          <TextField
-            select
-            margin="dense"
-            name="role"
-            label="Role"
-            fullWidth
-            variant="outlined"
-            value={userForm.role}
-            onChange={handleFormChange}
-            required
-          >
-            {roles.map((option) => (
-              <MenuItem key={option.value} value={option.value}>
-                {option.label}
-              </MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            margin="dense"
-            name="password"
-            label={dialogMode === 'add' ? 'Password' : 'New Password (leave blank to keep current)'}
-            type="password"
-            fullWidth
-            variant="outlined"
-            value={userForm.password}
-            onChange={handleFormChange}
-            required={dialogMode === 'add'}
-          />
-          <TextField
-            margin="dense"
-            name="confirmPassword"
-            label="Confirm Password"
-            type="password"
-            fullWidth
-            variant="outlined"
-            value={userForm.confirmPassword}
-            onChange={handleFormChange}
-            required={dialogMode === 'add' || userForm.password !== ''}
-          />
-          <FormControlLabel
-            control={
-              <Switch
-                checked={userForm.isActive}
+          <Grid container spacing={3} sx={{ mt: 1 }}>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Name"
+                name="name"
+                value={userForm.name}
                 onChange={handleFormChange}
-                name="isActive"
-                color="primary"
+                required
               />
-            }
-            label="Active"
-            sx={{ mt: 2 }}
-          />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Email"
+                name="email"
+                type="email"
+                value={userForm.email}
+                onChange={handleFormChange}
+                required
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                select
+                label="Role"
+                name="role"
+                value={userForm.role}
+                onChange={handleFormChange}
+                required
+              >
+                {roles.map((role) => (
+                  <MenuItem key={role.value} value={role.value}>
+                    {role.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={userForm.isActive}
+                    onChange={handleFormChange}
+                    name="isActive"
+                  />
+                }
+                label="Active User"
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Password"
+                name="password"
+                type="password"
+                value={userForm.password}
+                onChange={handleFormChange}
+                required={dialogMode === 'add'}
+                helperText={dialogMode === 'edit' ? 'Leave blank to keep current password' : ''}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Confirm Password"
+                name="confirmPassword"
+                type="password"
+                value={userForm.confirmPassword}
+                onChange={handleFormChange}
+                required={dialogMode === 'add' || userForm.password !== ''}
+              />
+            </Grid>
+
+            {/* Shift Report Preferences */}
+            <Grid item xs={12}>
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="h6" gutterBottom>
+                Shift Report Preferences
+              </Typography>
+            </Grid>
+
+            <Grid item xs={12}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={userForm.shiftReportPreferences.enabled}
+                    onChange={handleFormChange}
+                    name="shiftReportPreferences.enabled"
+                  />
+                }
+                label="Enable Shift Report Emails"
+              />
+              <FormHelperText>
+                When enabled, this user will receive automated shift reports via email
+              </FormHelperText>
+            </Grid>
+
+            {userForm.shiftReportPreferences.enabled && (
+              <>
+                <Grid item xs={12} md={6}>
+                  <FormControl fullWidth>
+                    <InputLabel>Shifts to Receive Reports</InputLabel>
+                    <Select
+                      multiple
+                      value={userForm.shiftReportPreferences.shifts}
+                      onChange={handleShiftSelectionChange}
+                      input={<OutlinedInput label="Shifts to Receive Reports" />}
+                      renderValue={(selected) => (
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                          {selected.map((value) => (
+                            <Chip key={value} label={formatShiftTime(value)} size="small" />
+                          ))}
+                        </Box>
+                      )}
+                    >
+                      {availableShiftTimes.map((time) => (
+                        <MenuItem key={time} value={time}>
+                          <Checkbox checked={userForm.shiftReportPreferences.shifts.indexOf(time) > -1} />
+                          <ListItemText primary={`${formatShiftTime(time)} Shift`} />
+                        </MenuItem>
+                      ))}
+                    </Select>
+                    <FormHelperText>
+                      Select which shift end times this user should receive reports for
+                    </FormHelperText>
+                  </FormControl>
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    select
+                    label="Email Format"
+                    name="shiftReportPreferences.emailFormat"
+                    value={userForm.shiftReportPreferences.emailFormat}
+                    onChange={handleFormChange}
+                  >
+                    <MenuItem value="pdf">PDF Attachment</MenuItem>
+                    <MenuItem value="html">HTML Email</MenuItem>
+                  </TextField>
+                  <FormHelperText>
+                    PDF format is recommended for archival purposes
+                  </FormHelperText>
+                </Grid>
+
+                <Grid item xs={12}>
+                  <Alert severity="info">
+                    <Typography variant="body2">
+                      <strong>Note:</strong> Shift reports are automatically sent when each shift ends based on the times configured in Notification Settings. 
+                      This user will receive reports for the selected shifts only if they have a valid email address.
+                    </Typography>
+                  </Alert>
+                </Grid>
+              </>
+            )}
+          </Grid>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDialog}>Cancel</Button>
-          <Button onClick={handleSubmitForm} variant="contained" color="primary">
-            {dialogMode === 'add' ? 'Add User' : 'Save Changes'}
+          <Button
+            onClick={dialogMode === 'add' ? addUser : updateUser}
+            variant="contained"
+          >
+            {dialogMode === 'add' ? 'Add User' : 'Update User'}
           </Button>
         </DialogActions>
       </Dialog>
-      
+
       {/* Delete Confirmation Dialog */}
       <Dialog open={openDeleteDialog} onClose={() => setOpenDeleteDialog(false)}>
         <DialogTitle>Confirm Delete</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Are you sure you want to delete the user "{selectedUser?.name}"? This action cannot be undone.
+            Are you sure you want to delete user "{selectedUser?.name}"? This action cannot be undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpenDeleteDialog(false)}>Cancel</Button>
-          <Button onClick={deleteUser} variant="contained" color="error">
+          <Button onClick={deleteUser} color="error" variant="contained">
             Delete
           </Button>
         </DialogActions>

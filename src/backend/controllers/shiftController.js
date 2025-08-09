@@ -12,7 +12,8 @@ const calculateAvailability = (runtime, downtime) => {
 // @access  Private
 exports.getShifts = async (req, res) => {
   try {
-    let shifts = memoryDB.getAllShifts();
+    // Fix line 15
+    let shifts = memoryDB.getShifts();
     
     // Filtering
     if (req.query.start_date && req.query.end_date) {
@@ -152,7 +153,7 @@ exports.startShift = async (req, res) => {
     }
     
     // Get the latest shift number
-    const allShifts = memoryDB.getAllShifts();
+    const allShifts = memoryDB.getShifts();
     const latestShift = allShifts.sort((a, b) => (b.shift_number || 0) - (a.shift_number || 0))[0];
     const nextShiftNumber = latestShift ? (latestShift.shift_number || 0) + 1 : 1;
     
@@ -451,14 +452,12 @@ exports.sendShiftReport = async (req, res) => {
     const recipients = config.report_recipients.map(recipient => recipient.email);
     
     try {
-      // Send email
       await sendEmail({
         to: recipients.join(','),
         subject: `Shift Report: ${shift.name} - ${shiftDate}`,
         html: reportContent
       });
       
-      // Update shift record
       memoryDB.updateShift(shift._id, {
         report_sent: true,
         report_sent_at: new Date()
@@ -483,4 +482,14 @@ exports.sendShiftReport = async (req, res) => {
       error: error.message
     });
   }
+};
+
+module.exports = {
+  getShifts: exports.getShifts,
+  getShiftById: exports.getShiftById,
+  getCurrentShift: exports.getCurrentShift,
+  startShift: exports.startShift,
+  endShift: exports.endShift,
+  updateShift: exports.updateShift,
+  sendShiftReport: exports.sendShiftReport
 };
