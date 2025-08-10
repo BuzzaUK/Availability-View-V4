@@ -12,7 +12,8 @@ const {
   getOEEAnalytics,
   getDowntimeAnalytics,
   getStateDistribution,
-  getPerformanceMetrics
+  getPerformanceMetrics,
+  getAvailabilityAnalytics
 } = require('../controllers/analyticsController');
 
 // Overall analytics
@@ -29,6 +30,9 @@ router.get('/events', getEventAnalytics);
 
 // Availability trends
 router.get('/trends', getAvailabilityTrends);
+
+// Comprehensive availability analytics
+router.get('/availability', getAvailabilityAnalytics);
 
 // OEE Analytics
 router.get('/oee', getOEEAnalytics);

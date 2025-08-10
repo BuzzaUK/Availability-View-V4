@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useContext, useCallback } from 'react';
 import { styled } from '@mui/material/styles';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Paper from '@mui/material/Paper';
@@ -10,10 +11,13 @@ import TextField from '@mui/material/TextField';
 import MenuItem from '@mui/material/MenuItem';
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
+import Chip from '@mui/material/Chip';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import PieChartIcon from '@mui/icons-material/PieChart';
 import BarChartIcon from '@mui/icons-material/BarChart';
+import AvailabilityIcon from '@mui/icons-material/Assessment';
+import ClearIcon from '@mui/icons-material/Clear';
 // Date utilities
 import { format } from 'date-fns';
 import axios from 'axios';
@@ -23,6 +27,8 @@ import OeeChart from './OeeChart';
 import DowntimePareto from './DowntimePareto';
 import StateDistribution from './StateDistribution';
 import PerformanceMetrics from './PerformanceMetrics';
+import AvailabilityKPIs from './AvailabilityKPIs';
+import MicroStopsChart from './MicroStopsChart';
 
 // Context
 import SocketContext from '../../context/SocketContext';
@@ -36,6 +42,7 @@ const TabPanel = styled(Box)(() => ({
 const AnalyticsPage = () => {
   const { assets } = useContext(SocketContext);
   const { error } = useContext(AlertContext);
+  const [searchParams, setSearchParams] = useSearchParams();
   
   // State for tab selection
   const [tabValue, setTabValue] = useState(0);
@@ -54,11 +61,37 @@ const AnalyticsPage = () => {
     downtimeData: [],
     stateDistribution: [],
     performanceMetrics: null,
+    availabilityData: null,
   });
   const [loading, setLoading] = useState(false);
+
+  // Initialize asset filter from query parameter
+  useEffect(() => {
+    const assetParam = searchParams.get('asset');
+    if (assetParam && assetParam !== filters.asset) {
+      setFilters(prev => ({ ...prev, asset: assetParam }));
+    }
+  }, [searchParams]);
+
+  // Get selected asset name for display
+  const getSelectedAssetName = () => {
+    if (!filters.asset) return null;
+    const asset = assets.find(a => a._id === filters.asset);
+    return asset ? asset.name : 'Unknown Asset';
+  };
+
+  // Clear asset filter
+  const clearAssetFilter = () => {
+    setFilters(prev => ({ ...prev, asset: '' }));
+    setSearchParams(params => {
+      params.delete('asset');
+      return params;
+    });
+  };
   
   // Tab labels and icons
   const tabs = [
+    { label: 'Availability KPIs', icon: <AvailabilityIcon /> },
     { label: 'OEE Trends', icon: <TimelineIcon /> },
     { label: 'Downtime Analysis', icon: <BarChartIcon /> },
     { label: 'State Distribution', icon: <PieChartIcon /> },
@@ -80,9 +113,16 @@ const AnalyticsPage = () => {
   const handleFilterChange = (event) => {
     const { name, value } = event.target;
     setFilters(prev => ({ ...prev, [name]: value }));
+    
+    // Update URL when asset filter changes
+    if (name === 'asset') {
+      if (value) {
+        setSearchParams({ asset: value });
+      } else {
+        setSearchParams({});
+      }
+    }
   };
-
-
 
   // Fetch analytics data
   const fetchAnalyticsData = useCallback(async () => {
@@ -90,25 +130,29 @@ const AnalyticsPage = () => {
       setLoading(true);
       
       const params = {
-        ...(filters.asset && { asset: filters.asset }),
-        ...(filters.startDate && { startDate: filters.startDate.toISOString() }),
-        ...(filters.endDate && { endDate: filters.endDate.toISOString() }),
+        ...(filters.asset && { asset_id: filters.asset }),
+        ...(filters.startDate && { start_date: filters.startDate.toISOString() }),
+        ...(filters.endDate && { end_date: filters.endDate.toISOString() }),
         groupBy: filters.groupBy,
       };
       
-      // Fetch OEE data
-      const oeeResponse = await axios.get('/api/analytics/oee', { params });
-      
-      // Fetch downtime data
-      const downtimeResponse = await axios.get('/api/analytics/downtime', { params });
-      
-      // Fetch state distribution data
-      const stateResponse = await axios.get('/api/analytics/state-distribution', { params });
-      
-      // Fetch performance metrics
-      const metricsResponse = await axios.get('/api/analytics/performance-metrics', { params });
+      // Fetch all analytics data in parallel
+      const [
+        availabilityResponse,
+        oeeResponse,
+        downtimeResponse,
+        stateResponse,
+        metricsResponse
+      ] = await Promise.all([
+        axios.get('/api/analytics/availability', { params }),
+        axios.get('/api/analytics/oee', { params }),
+        axios.get('/api/analytics/downtime', { params }),
+        axios.get('/api/analytics/state-distribution', { params }),
+        axios.get('/api/analytics/performance-metrics', { params })
+      ]);
       
       setAnalyticsData({
+        availabilityData: availabilityResponse.data.data || null,
         oeeData: oeeResponse.data.data || [],
         downtimeData: downtimeResponse.data.data?.downtime_by_reason || [],
         stateDistribution: stateResponse.data.data?.distribution || [],
@@ -126,17 +170,52 @@ const AnalyticsPage = () => {
     fetchAnalyticsData();
   };
 
-  // Fetch data when component mounts
+  // Fetch data when component mounts or filters change
   useEffect(() => {
     fetchAnalyticsData();
   }, [fetchAnalyticsData]);
 
+  // Render tab content
+  const renderTabContent = () => {
+    switch (tabValue) {
+      case 0:
+        return (
+          <Box>
+            <AvailabilityKPIs data={analyticsData.availabilityData} loading={loading} />
+            <Box sx={{ mt: 4 }}>
+              <MicroStopsChart data={analyticsData.availabilityData} loading={loading} />
+            </Box>
+          </Box>
+        );
+      case 1:
+        return <OeeChart data={analyticsData.oeeData} loading={loading} />;
+      case 2:
+        return <DowntimePareto data={analyticsData.downtimeData} loading={loading} />;
+      case 3:
+        return <StateDistribution data={analyticsData.stateDistribution} loading={loading} />;
+      default:
+        return null;
+    }
+  };
+
   return (
     <Box sx={{ flexGrow: 1 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          Analytics
-        </Typography>
+        <Box>
+          <Typography variant="h4" component="h1" gutterBottom>
+            Analytics
+          </Typography>
+          {getSelectedAssetName() && (
+            <Chip
+              label={`Asset: ${getSelectedAssetName()}`}
+              onDelete={clearAssetFilter}
+              deleteIcon={<ClearIcon />}
+              color="primary"
+              variant="outlined"
+              sx={{ mt: 1 }}
+            />
+          )}
+        </Box>
         <Button
           variant="outlined"
           startIcon={<RefreshIcon />}
@@ -157,7 +236,6 @@ const AnalyticsPage = () => {
               name="asset"
               value={filters.asset}
               onChange={handleFilterChange}
-              variant="outlined"
               size="small"
             >
               <MenuItem value="">All Assets</MenuItem>
@@ -169,34 +247,28 @@ const AnalyticsPage = () => {
             </TextField>
           </Grid>
           
-          <Grid item xs={12} md={2.5}>
+          <Grid item xs={12} md={3}>
             <TextField
+              type="date"
               fullWidth
               label="Start Date"
-              type="date"
+              name="startDate"
               value={filters.startDate ? format(filters.startDate, 'yyyy-MM-dd') : ''}
-              onChange={(e) => setFilters(prev => ({ 
-                ...prev, 
-                startDate: e.target.value ? new Date(e.target.value) : null 
-              }))}
+              onChange={(e) => setFilters(prev => ({ ...prev, startDate: new Date(e.target.value) }))}
               size="small"
-              variant="outlined"
               InputLabelProps={{ shrink: true }}
             />
           </Grid>
           
-          <Grid item xs={12} md={2.5}>
+          <Grid item xs={12} md={3}>
             <TextField
+              type="date"
               fullWidth
               label="End Date"
-              type="date"
+              name="endDate"
               value={filters.endDate ? format(filters.endDate, 'yyyy-MM-dd') : ''}
-              onChange={(e) => setFilters(prev => ({ 
-                ...prev, 
-                endDate: e.target.value ? new Date(e.target.value) : null 
-              }))}
+              onChange={(e) => setFilters(prev => ({ ...prev, endDate: new Date(e.target.value) }))}
               size="small"
-              variant="outlined"
               InputLabelProps={{ shrink: true }}
             />
           </Grid>
@@ -209,7 +281,6 @@ const AnalyticsPage = () => {
               name="groupBy"
               value={filters.groupBy}
               onChange={handleFilterChange}
-              variant="outlined"
               size="small"
             >
               {groupByOptions.map((option) => (
@@ -220,70 +291,48 @@ const AnalyticsPage = () => {
             </TextField>
           </Grid>
           
-          <Grid item xs={12} md={2}>
+          <Grid item xs={12} md={1}>
             <Button
               variant="contained"
               color="primary"
               onClick={applyFilters}
               fullWidth
               disabled={loading}
+              size="small"
             >
               Apply
             </Button>
           </Grid>
         </Grid>
       </Paper>
-      
-      {/* Performance Metrics Cards */}
-      <PerformanceMetrics metrics={analyticsData.performanceMetrics} loading={loading} />
-      
-      <Paper sx={{ width: '100%', mb: 3 }}>
-        <Tabs
-          value={tabValue}
+
+      <Paper sx={{ mb: 3 }}>
+        <Tabs 
+          value={tabValue} 
           onChange={handleTabChange}
-          indicatorColor="primary"
-          textColor="primary"
-          variant="fullWidth"
+          variant="scrollable"
+          scrollButtons="auto"
+          sx={{ borderBottom: 1, borderColor: 'divider' }}
         >
           {tabs.map((tab, index) => (
             <Tab 
-              key={index} 
-              label={tab.label} 
+              key={index}
               icon={tab.icon} 
+              label={tab.label} 
               iconPosition="start"
             />
           ))}
         </Tabs>
+        
+        <TabPanel>
+          {loading && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+              <CircularProgress />
+            </Box>
+          )}
+          {!loading && renderTabContent()}
+        </TabPanel>
       </Paper>
-      
-      {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-          <CircularProgress />
-        </Box>
-      ) : (
-        <>
-          {/* OEE Trends Tab */}
-          {tabValue === 0 && (
-            <TabPanel>
-              <OeeChart data={analyticsData.oeeData} groupBy={filters.groupBy} />
-            </TabPanel>
-          )}
-          
-          {/* Downtime Analysis Tab */}
-          {tabValue === 1 && (
-            <TabPanel>
-              <DowntimePareto data={analyticsData.downtimeData} />
-            </TabPanel>
-          )}
-          
-          {/* State Distribution Tab */}
-          {tabValue === 2 && (
-            <TabPanel>
-              <StateDistribution data={analyticsData.stateDistribution} />
-            </TabPanel>
-          )}
-        </>
-      )}
     </Box>
   );
 };

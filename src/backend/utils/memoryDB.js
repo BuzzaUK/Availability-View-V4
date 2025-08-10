@@ -432,11 +432,19 @@ class MemoryDB {
   createEvent(eventData) {
     const event = {
       _id: this.nextId++,
-      asset_id: eventData.asset_id,
+      asset: eventData.asset,
+      asset_id: eventData.asset_id || eventData.asset, // Support both field names
+      asset_name: eventData.asset_name,
+      logger_id: eventData.logger_id,
       event_type: eventData.event_type,
+      state: eventData.state,
       timestamp: eventData.timestamp || new Date(),
       duration: eventData.duration || 0,
+      runtime: eventData.runtime || 0,
+      downtime: eventData.downtime || 0,
+      is_short_stop: eventData.is_short_stop || false,
       reason: eventData.reason || '',
+      note: eventData.note || '',
       created_at: new Date()
     };
     

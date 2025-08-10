@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useContext } from 'react';
 import { styled } from '@mui/material/styles';
+import { useNavigate } from 'react-router-dom';
 import {
   Grid,
   Typography,
@@ -20,7 +21,8 @@ import {
   CheckCircle as CheckCircleIcon,
   Error as ErrorIcon,
   Warning as WarningIcon,
-  Schedule as ScheduleIcon
+  Schedule as ScheduleIcon,
+  Analytics as AnalyticsIcon
 } from '@mui/icons-material';
 import { Doughnut, Bar } from 'react-chartjs-2';
 import {
@@ -69,8 +71,13 @@ const Dashboard = () => {
   const [refreshCountdown, setRefreshCountdown] = useState(30);
   const [showDebug, setShowDebug] = useState(false);
   const [assetStates, setAssetStates] = useState({});
+  const navigate = useNavigate();
 
-
+  // Navigate to Analytics with the selected asset pre-filtered
+  const handleAnalyticsClick = (assetId) => {
+    if (!assetId) return;
+    navigate(`/analytics?asset=${encodeURIComponent(assetId)}`);
+  };
 
   // Listen for ESP32 asset state changes
   // Note: Socket functionality will be implemented when needed
@@ -192,8 +199,8 @@ const Dashboard = () => {
         label: 'Time',
         data: [runtimeMinutes, downtimeMinutes],
         backgroundColor: [
-          'rgba(16, 185, 129, 0.8)', // More opaque green for runtime
-          'rgba(239, 68, 68, 0.8)', // More opaque red for downtime
+          'rgba(16, 185, 129, 0.7)', // More opaque green for runtime
+          'rgba(239, 68, 68, 0.7)', // More opaque red for downtime
         ],
         borderColor: [
           'rgba(16, 185, 129, 1)',
@@ -675,6 +682,26 @@ const Dashboard = () => {
                       </Box>
                     </Box>
                   </Box>
+
+                  {/* Analytics Button */}
+                  <Box sx={{ mt: 2 }}>
+                    <Button
+                      variant="outlined"
+                      fullWidth
+                      startIcon={<AnalyticsIcon />}
+                      onClick={() => handleAnalyticsClick(asset.id)}
+                      sx={{
+                        borderColor: '#3b82f6',
+                        color: '#3b82f6',
+                        '&:hover': {
+                          backgroundColor: 'rgba(59, 130, 246, 0.04)',
+                          borderColor: '#2563eb'
+                        }
+                      }}
+                    >
+                      View Analytics
+                    </Button>
+                  </Box>
                 </CardContent>
               </Card>
             </Grid>
@@ -692,5 +719,4 @@ const Dashboard = () => {
     </Box>
   );
 };
-
 export default Dashboard;

@@ -5,11 +5,26 @@ const getTimeDifferenceInMinutes = (startDate, endDate) => {
   return Math.abs(new Date(endDate) - new Date(startDate)) / (1000 * 60);
 };
 
-// Helper function to get date range filter
+// Helper function to get date range with defaults
 const getDateRangeFilter = (startDate, endDate) => {
   const start = startDate ? new Date(startDate) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000); // Default to 7 days ago
   const end = endDate ? new Date(endDate) : new Date(); // Default to now
   return { start, end };
+};
+
+// Helper function to get user-scoped assets and events
+const getUserScopedData = (req) => {
+  const userId = req.user?.id;
+  
+  if (!userId) {
+    throw new Error('User not authenticated');
+  }
+
+  // Get user's assets and events
+  const userAssets = memoryDB.getAssetsByUserId(userId);
+  const userEvents = memoryDB.getEventsByUserId(userId);
+  
+  return { userAssets, userEvents, userId };
 };
 
 // @desc    Get overall analytics
@@ -19,13 +34,10 @@ exports.getOverviewAnalytics = async (req, res) => {
   try {
     const { start_date, end_date } = req.query;
     const { start, end } = getDateRangeFilter(start_date, end_date);
+    const { userAssets, userEvents } = getUserScopedData(req);
 
-    // Get all assets and events
-    const assets = memoryDB.getAllAssets();
-    const allEvents = memoryDB.getAllEvents();
-    
     // Filter events by date range
-    const events = allEvents.filter(event => {
+    const events = userEvents.filter(event => {
       const eventDate = new Date(event.timestamp);
       return eventDate >= start && eventDate <= end;
     });
@@ -36,7 +48,7 @@ exports.getOverviewAnalytics = async (req, res) => {
     let totalStops = 0;
     let activeAssets = 0;
 
-    assets.forEach(asset => {
+    userAssets.forEach(asset => {
       totalRuntime += asset.runtime || 0;
       totalDowntime += asset.downtime || 0;
       totalStops += asset.total_stops || 0;
@@ -60,7 +72,7 @@ exports.getOverviewAnalytics = async (req, res) => {
       success: true,
       data: {
         overview: {
-          total_assets: assets.length,
+          total_assets: userAssets.length,
           active_assets: activeAssets,
           overall_availability: parseFloat(overallAvailability.toFixed(2)),
           total_runtime: parseFloat(totalRuntime.toFixed(2)),
@@ -90,10 +102,11 @@ exports.getOEEAnalytics = async (req, res) => {
   try {
     const { start_date, end_date, asset_id } = req.query;
     const { start, end } = getDateRangeFilter(start_date, end_date);
+    const { userAssets, userEvents } = getUserScopedData(req);
 
     const assets = asset_id ? 
-      [memoryDB.findAssetById(asset_id)].filter(Boolean) : 
-      memoryDB.getAllAssets();
+      userAssets.filter(asset => asset._id == asset_id) : 
+      userAssets;
 
     const allEvents = memoryDB.getAllEvents();
     
@@ -334,10 +347,11 @@ exports.getPerformanceMetrics = async (req, res) => {
   try {
     const { start_date, end_date, asset_id } = req.query;
     const { start, end } = getDateRangeFilter(start_date, end_date);
+    const { userAssets, userEvents } = getUserScopedData(req);
 
     const assets = asset_id ? 
-      [memoryDB.findAssetById(asset_id)].filter(Boolean) : 
-      memoryDB.getAllAssets();
+      userAssets.filter(asset => asset._id == asset_id) : 
+      userAssets;
 
     const allEvents = memoryDB.getAllEvents();
     
@@ -361,25 +375,30 @@ exports.getPerformanceMetrics = async (req, res) => {
         }
       });
 
+      // Calculate MTBF (Mean Time Between Failures) in hours
+      const mtbf = totalStops > 0 ? (totalRuntime / 60) / totalStops : 0;
+      
+      // Calculate MTTR (Mean Time To Repair) in hours  
+      const mttr = totalStops > 0 ? (totalDowntime / 60) / totalStops : 0;
+
+      // Calculate availability percentage
       const totalTime = totalRuntime + totalDowntime;
       const availability = totalTime > 0 ? (totalRuntime / totalTime) * 100 : 0;
-      const mtbf = totalStops > 0 ? totalRuntime / totalStops : 0; // Mean Time Between Failures
-      const mttr = totalStops > 0 ? totalDowntime / totalStops : 0; // Mean Time To Repair
+
+      // Calculate OEE (simplified version)
+      const oee = availability; // In real implementation, multiply by Performance and Quality rates
 
       return {
         asset_id: asset._id,
         asset_name: asset.name,
-        availability: parseFloat((availability / 100).toFixed(4)), // Convert to decimal for frontend
-        performance: 0.85, // Mock performance rate as decimal
-        quality: 0.95, // Mock quality rate as decimal
-        oee: parseFloat(((availability / 100) * 0.85 * 0.95).toFixed(4)), // Calculate OEE as decimal
-        runtime: parseFloat((totalRuntime * 1000).toFixed(2)), // Convert to milliseconds
-        downtime: parseFloat((totalDowntime * 1000).toFixed(2)), // Convert to milliseconds
+        runtime_hours: parseFloat((totalRuntime / 60).toFixed(2)),
+        downtime_hours: parseFloat((totalDowntime / 60).toFixed(2)),
         total_stops: totalStops,
-        total_cycles: totalCycles,
-        mtbf: parseFloat(mtbf.toFixed(2)),
-        mttr: parseFloat(mttr.toFixed(2)),
-        efficiency: parseFloat((availability * 0.85).toFixed(2)) // Mock efficiency calculation
+        mtbf_hours: parseFloat(mtbf.toFixed(2)),
+        mttr_hours: parseFloat(mttr.toFixed(2)),
+        availability_percent: parseFloat(availability.toFixed(2)),
+        oee_percent: parseFloat(oee.toFixed(2)),
+        total_cycles: totalCycles
       };
     });
 
@@ -407,19 +426,18 @@ exports.getAssetAnalytics = async (req, res) => {
   try {
     const { start_date, end_date, asset_id } = req.query;
     const { start, end } = getDateRangeFilter(start_date, end_date);
+    const { userAssets, userEvents } = getUserScopedData(req);
 
-    let assets = memoryDB.getAllAssets();
+    let assets = userAssets;
     
     // Filter by specific asset if requested
     if (asset_id) {
       assets = assets.filter(asset => asset._id == asset_id);
     }
-
-    const allEvents = memoryDB.getAllEvents();
     
     const assetAnalytics = assets.map(asset => {
       // Get events for this asset in the date range
-      const assetEvents = allEvents.filter(event => {
+      const assetEvents = userEvents.filter(event => {
         const eventDate = new Date(event.timestamp);
         return event.asset == asset._id && eventDate >= start && eventDate <= end;
       });
@@ -447,23 +465,28 @@ exports.getAssetAnalytics = async (req, res) => {
       const totalTime = runtime + downtime;
       const availability = totalTime > 0 ? (runtime / totalTime) * 100 : 0;
 
+      // Calculate MTBF and MTTR
+      const mtbf = stops > 0 ? (runtime / 60) / stops : 0;
+      const mttr = stops > 0 ? (downtime / 60) / stops : 0;
+
       return {
         asset_id: asset._id,
-        name: asset.name,
+        asset_name: asset.name,
         pin_number: asset.pin_number,
         current_state: asset.current_state,
         availability: parseFloat(availability.toFixed(2)),
-        runtime: parseFloat(runtime.toFixed(2)),
-        downtime: parseFloat(downtime.toFixed(2)),
-        stops: stops,
+        runtime_hours: parseFloat((runtime / 60).toFixed(2)),
+        downtime_hours: parseFloat((downtime / 60).toFixed(2)),
+        total_stops: stops,
+        mtbf_hours: parseFloat(mtbf.toFixed(2)),
+        mttr_hours: parseFloat(mttr.toFixed(2)),
         events_count: assetEvents.length,
-        last_state_change: asset.last_state_change
+        logger_id: asset.logger_id
       };
     });
 
     res.status(200).json({
       success: true,
-      count: assetAnalytics.length,
       data: assetAnalytics,
       date_range: {
         start: start.toISOString(),
@@ -725,6 +748,159 @@ exports.getAvailabilityTrends = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server Error',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Get comprehensive availability analytics
+// @route   GET /api/analytics/availability
+// @access  Private
+exports.getAvailabilityAnalytics = async (req, res) => {
+  try {
+    const { start_date, end_date, asset_id } = req.query;
+    const { userAssets } = getUserScopedData(req);
+
+    // Filter assets if specific asset requested
+    const assets = asset_id ? 
+      userAssets.filter(asset => asset._id == asset_id) : 
+      userAssets;
+
+    // Calculate overall KPIs using asset data (same as dashboard)
+    let totalRuntime = 0; // in milliseconds
+    let totalDowntime = 0; // in milliseconds
+    let totalStops = 0;
+    let activeAssets = 0;
+
+    // Analyze each asset using stored asset data
+    const assetAnalytics = assets.map(asset => {
+      const assetRuntime = asset.runtime || 0; // milliseconds
+      const assetDowntime = asset.downtime || 0; // milliseconds
+      const assetStops = asset.total_stops || 0;
+
+      // Add to totals
+      totalRuntime += assetRuntime;
+      totalDowntime += assetDowntime;
+      totalStops += assetStops;
+
+      if (asset.current_state === 'RUNNING') {
+        activeAssets++;
+      }
+
+      // Calculate asset-specific metrics
+      const assetTotalTime = assetRuntime + assetDowntime;
+      const assetAvailability = assetTotalTime > 0 ? (assetRuntime / assetTotalTime) * 100 : 0;
+      
+      // Calculate MTBF and MTTR (simplified calculation based on total time and stops)
+      const assetMTBF = assetStops > 0 ? (assetRuntime / 3600000) / assetStops : 0; // Hours
+      const assetMTTR = assetStops > 0 ? (assetDowntime / 3600000) / assetStops : 0; // Hours
+
+      return {
+        asset_id: asset._id,
+        asset_name: asset.name,
+        availability: parseFloat(assetAvailability.toFixed(2)),
+        runtime_hours: parseFloat((assetRuntime / 3600000).toFixed(2)), // Convert ms to hours
+        downtime_hours: parseFloat((assetDowntime / 3600000).toFixed(2)), // Convert ms to hours
+        total_stops: assetStops,
+        mtbf_hours: parseFloat(assetMTBF.toFixed(2)),
+        mttr_hours: parseFloat(assetMTTR.toFixed(2)),
+        current_state: asset.current_state || 'UNKNOWN'
+      };
+    });
+
+    // Calculate overall metrics using asset data (same as dashboard)
+    const totalTime = totalRuntime + totalDowntime;
+    const overallAvailability = totalTime > 0 ? (totalRuntime / totalTime) * 100 : 0;
+    const avgMTBF = assets.length > 0 && totalStops > 0 ? (totalRuntime / 3600000) / totalStops : 0;
+    const avgMTTR = assets.length > 0 && totalStops > 0 ? (totalDowntime / 3600000) / totalStops : 0;
+
+    // For micro stops analysis, we need to look at events for detailed breakdown
+    const { userEvents } = getUserScopedData(req);
+    const { start, end } = getDateRangeFilter(start_date, end_date);
+    
+    // Filter events by date range for micro stops analysis
+    const events = userEvents.filter(event => {
+      const eventDate = new Date(event.timestamp);
+      return eventDate >= start && eventDate <= end;
+    });
+
+    // Calculate micro stops from events (stops under 3 minutes)
+    let microStops = 0;
+    let microStopTime = 0; // in seconds
+
+    const stopEvents = events.filter(event => 
+      (event.event_type === 'STOP' || event.state === 'STOPPED') &&
+      (!asset_id || event.asset == asset_id)
+    );
+
+    stopEvents.forEach(event => {
+      const duration = event.duration || 0; // seconds
+      if (duration < 180) { // Under 3 minutes
+        microStops++;
+        microStopTime += duration;
+      }
+    });
+
+    // Calculate additional KPIs
+    const utilizationRate = totalTime > 0 ? (totalRuntime / totalTime) * 100 : overallAvailability;
+    const stopFrequency = totalRuntime > 0 ? (totalStops / (totalRuntime / 3600000)) : 0; // Stops per hour
+    const microStopPercentage = totalStops > 0 ? (microStops / totalStops) * 100 : 0;
+
+    // Generate micro stops trend data for chart
+    const microStopTrend = [];
+    const dayMs = 24 * 60 * 60 * 1000;
+    for (let time = start.getTime(); time < end.getTime(); time += dayMs) {
+      const dayStart = new Date(time);
+      const dayEnd = new Date(time + dayMs);
+      
+      const dayEvents = events.filter(event => {
+        const eventDate = new Date(event.timestamp);
+        return eventDate >= dayStart && eventDate < dayEnd && 
+               (event.event_type === 'STOP' || event.state === 'STOPPED') &&
+               (event.duration || 0) < 180; // Under 3 minutes
+      });
+
+      const dayMicroStops = dayEvents.length;
+      const dayMicroStopTime = dayEvents.reduce((sum, event) => sum + (event.duration || 0), 0);
+
+      microStopTrend.push({
+        date: dayStart.toISOString().split('T')[0],
+        micro_stops: dayMicroStops,
+        micro_stop_time_minutes: parseFloat((dayMicroStopTime / 60).toFixed(2))
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        overview: {
+          total_assets: assets.length,
+          active_assets: activeAssets,
+          overall_availability: parseFloat(overallAvailability.toFixed(2)),
+          total_runtime_hours: parseFloat((totalRuntime / 3600000).toFixed(2)), // Convert ms to hours
+          total_downtime_hours: parseFloat((totalDowntime / 3600000).toFixed(2)), // Convert ms to hours
+          total_stops: totalStops,
+          micro_stops: microStops,
+          micro_stop_time_hours: parseFloat((microStopTime / 3600).toFixed(2)), // Convert seconds to hours
+          avg_mtbf_hours: parseFloat(avgMTBF.toFixed(2)),
+          avg_mttr_hours: parseFloat(avgMTTR.toFixed(2)),
+          utilization_rate: parseFloat(utilizationRate.toFixed(2)),
+          stop_frequency_per_hour: parseFloat(stopFrequency.toFixed(2)),
+          micro_stop_percentage: parseFloat(microStopPercentage.toFixed(2))
+        },
+        assets: assetAnalytics,
+        micro_stop_trend: microStopTrend,
+        date_range: {
+          start: start.toISOString(),
+          end: end.toISOString()
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error getting availability analytics:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get availability analytics',
       error: error.message
     });
   }

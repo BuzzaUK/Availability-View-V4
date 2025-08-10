@@ -7,7 +7,8 @@ const SettingsContext = createContext();
 export const SettingsProvider = ({ children }) => {
   const { isAuthenticated, token } = useContext(AuthContext);
   
-  const [settings, setSettings] = useState({
+  // Default settings
+  const defaultSettings = {
     companyName: 'Industrial Monitoring Corp',
     timezone: 'America/New_York',
     dateFormat: 'MM/DD/YYYY',
@@ -22,9 +23,34 @@ export const SettingsProvider = ({ children }) => {
     dataRetentionDays: 90,
     autoBackup: true,
     autoBackupFrequency: 'daily',
-  });
-  
+  };
+
+  // Initialize settings from localStorage or defaults
+  const getInitialSettings = () => {
+    try {
+      const savedSettings = localStorage.getItem('appSettings');
+      if (savedSettings) {
+        const parsed = JSON.parse(savedSettings);
+        // Merge with defaults to ensure all properties exist
+        return { ...defaultSettings, ...parsed };
+      }
+    } catch (err) {
+      console.error('Failed to parse saved settings:', err);
+    }
+    return defaultSettings;
+  };
+
+  const [settings, setSettings] = useState(getInitialSettings);
   const [loading, setLoading] = useState(false);
+
+  // Save settings to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem('appSettings', JSON.stringify(settings));
+    } catch (err) {
+      console.error('Failed to save settings to localStorage:', err);
+    }
+  }, [settings]);
 
   // Fetch settings from backend
   const fetchSettings = async () => {
@@ -40,10 +66,13 @@ export const SettingsProvider = ({ children }) => {
       };
       const response = await axios.get('/api/settings', { headers });
       console.log('🔍 FETCHED SETTINGS FROM BACKEND:', response.data);
-      setSettings(response.data);
+      
+      // Merge backend settings with current settings to preserve any local changes
+      const mergedSettings = { ...settings, ...response.data };
+      setSettings(mergedSettings);
     } catch (err) {
       console.error('Failed to fetch settings:', err);
-      // Use default settings if fetch fails
+      // Keep current settings if fetch fails
     } finally {
       setLoading(false);
     }
@@ -75,7 +104,7 @@ export const SettingsProvider = ({ children }) => {
     }
   };
 
-  // Load settings on mount
+  // Load settings from backend when authenticated, but don't reset local settings
   useEffect(() => {
     if (isAuthenticated && token) {
       fetchSettings();

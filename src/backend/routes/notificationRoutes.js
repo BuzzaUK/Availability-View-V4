@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticateJWT, authorizeRoles } = require('../middleware/authMiddleware');
-const NotificationSettings = require('../models/NotificationSettings');
+const memoryDB = require('../utils/memoryDB');
 const shiftScheduler = require('../services/shiftScheduler');
 
 // @desc    Get notification settings
@@ -9,7 +9,7 @@ const shiftScheduler = require('../services/shiftScheduler');
 // @access  Private
 router.get('/settings', authenticateJWT, async (req, res) => {
   try {
-    const settings = await NotificationSettings.getSettings();
+    const settings = memoryDB.getNotificationSettings();
     res.json({
       success: true,
       data: settings
@@ -29,7 +29,7 @@ router.get('/settings', authenticateJWT, async (req, res) => {
 router.put('/settings', authenticateJWT, authorizeRoles('admin', 'manager'), async (req, res) => {
   try {
     const updates = req.body;
-    const settings = await NotificationSettings.updateSettings(updates);
+    const settings = memoryDB.updateNotificationSettings(updates);
     
     // If shift settings were updated, refresh the scheduler
     if (updates.shiftSettings) {
