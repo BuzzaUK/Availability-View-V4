@@ -77,7 +77,7 @@ const LoggerManagement = () => {
     location: '',
     wifi_ssid: '',
     wifi_password: '',
-    server_url: 'http://localhost:5000',
+    server_url: process.env.NODE_ENV === 'production' ? window.location.origin : 'http://localhost:5001',
     heartbeat_interval: 30
   });
   
@@ -203,7 +203,7 @@ const LoggerManagement = () => {
       location: '',
       wifi_ssid: '',
       wifi_password: '',
-      server_url: 'http://localhost:5000',
+      server_url: process.env.NODE_ENV === 'production' ? window.location.origin : 'http://localhost:5001',
       heartbeat_interval: 30
     });
     setOpenDialog(true);
@@ -220,7 +220,7 @@ const LoggerManagement = () => {
       location: logger.location || '',
       wifi_ssid: logger.wifi_ssid || '',
       wifi_password: logger.wifi_password || '',
-      server_url: logger.server_url || 'http://localhost:5000',
+      server_url: logger.server_url || (process.env.NODE_ENV === 'production' ? window.location.origin : 'http://localhost:5001'),
       heartbeat_interval: logger.heartbeat_interval || 30
     });
     setOpenDialog(true);

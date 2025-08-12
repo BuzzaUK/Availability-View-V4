@@ -23,7 +23,8 @@
     "recharts": "^3.1.2",
     "socket.io-client": "^4.6.1",
     "web-vitals": "^2.1.4",
-    "yup": "^1.1.1"
+    "yup": "^1.1.1",
+    "http-proxy-middleware": "^2.0.6"
   },
   "scripts": {
     "start": "react-scripts start",
@@ -48,6 +49,5 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
-  },
-  "proxy": "http://localhost:5001"
+  }
 }
