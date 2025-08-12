@@ -1,51 +1,48 @@
-const crypto = require('crypto');
-const memoryDB = require('../utils/memoryDB');
-const sendEmail = require('../utils/sendEmail');
+const databaseService = require('../services/databaseService');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
-// @desc    Register user
+// @desc    Register new user
 // @route   POST /api/auth/register
 // @access  Public
 exports.register = async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
-    
+
     // Check if user already exists
-    const existingUser = await memoryDB.findUserByEmail(email);
-    
+    const existingUser = await databaseService.findUserByEmail(email);
     if (existingUser) {
       return res.status(400).json({
         success: false,
-        message: 'Email already registered'
+        message: 'User already exists'
       });
     }
-    
-    // Create user
-    const user = await memoryDB.createUser({
+
+    // Create new user
+    const user = await databaseService.createUser({
       name,
       email,
-      password,
-      role: role || 'viewer' // Default to viewer if role not specified
+      password, // This will be hashed by the User model
+      role: role || 'user'
     });
-    
-    // Generate token
-    const token = memoryDB.generateJWT(user);
-    
+
+    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+
     res.status(201).json({
       success: true,
       token,
       user: {
-        id: user._id,
+        id: user.id,
         name: user.name,
         email: user.email,
         role: user.role
       }
     });
   } catch (error) {
+    console.error('Registration error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server Error',
-      error: error.message
+      message: 'Server error'
     });
   }
 };
@@ -56,66 +53,63 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    
-    // Validate email & password
+
+    // Validate input
     if (!email || !password) {
       return res.status(400).json({
         success: false,
         message: 'Please provide email and password'
       });
     }
-    
-    // Check for user (ensure email is case-insensitive)
-    const user = await memoryDB.findUserByEmail(email.toLowerCase());
-    
+
+    // Check if user exists
+    const user = await databaseService.findUserByEmail(email.toLowerCase());
     if (!user) {
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
       });
     }
-    
-    // Check if password matches
-    const isMatch = await memoryDB.comparePassword(password, user.password);
-    
+
+    // Check password
+    const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
       });
     }
-    
+
     // Update last login
-    await memoryDB.updateUser(user._id, { last_login: new Date() });
-    
-    // Generate token
-    const token = memoryDB.generateJWT(user);
-    
+    await databaseService.updateUser(user.id, { last_login: new Date() });
+
+    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+
     res.status(200).json({
       success: true,
       token,
       user: {
-        id: user._id,
+        id: user.id,
         name: user.name,
         email: user.email,
         role: user.role
       }
     });
   } catch (error) {
+    console.error('Login error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server Error',
-      error: error.message
+      message: 'Server error'
     });
   }
 };
 
-// @desc    Get current logged in user
+// @desc    Get current user
 // @route   GET /api/auth/me
 // @access  Private
 exports.getMe = async (req, res) => {
   try {
-    const user = await memoryDB.findUserById(req.user._id);
+    const user = await databaseService.findUserById(req.user.id);
     
     if (!user) {
       return res.status(404).json({
@@ -123,37 +117,39 @@ exports.getMe = async (req, res) => {
         message: 'User not found'
       });
     }
-    
-    // Remove password from response
-    const { password, ...userWithoutPassword } = user;
-    
+
     res.status(200).json({
       success: true,
-      data: userWithoutPassword
+      data: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        last_login: user.last_login
+      }
     });
   } catch (error) {
+    console.error('Get me error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server Error',
-      error: error.message
+      message: 'Server error'
     });
   }
 };
 
-// @desc    Update user details
-// @route   PUT /api/auth/update-details
+// @desc    Update user profile
+// @route   PUT /api/auth/profile
 // @access  Private
-exports.updateDetails = async (req, res) => {
+exports.updateProfile = async (req, res) => {
   try {
-    const { name, email, receive_reports } = req.body;
-    
     const fieldsToUpdate = {};
-    
+    const { name, email } = req.body;
+
     if (name) fieldsToUpdate.name = name;
     if (email) {
       // Check if email is already taken by another user
-      const existingUser = await memoryDB.findUserByEmail(email);
-      if (existingUser && existingUser._id != req.user._id) {
+      const existingUser = await databaseService.findUserByEmail(email);
+      if (existingUser && existingUser.id !== req.user.id) {
         return res.status(400).json({
           success: false,
           message: 'Email already in use'
@@ -161,79 +157,78 @@ exports.updateDetails = async (req, res) => {
       }
       fieldsToUpdate.email = email;
     }
-    if (receive_reports !== undefined) fieldsToUpdate.receive_reports = receive_reports;
-    
-    const user = await memoryDB.updateUser(req.user._id, fieldsToUpdate);
-    
+
+    const user = await databaseService.updateUser(req.user.id, fieldsToUpdate);
+
     if (!user) {
       return res.status(404).json({
         success: false,
         message: 'User not found'
       });
     }
-    
-    // Remove password from response
-    const { password, ...userWithoutPassword } = user;
-    
+
     res.status(200).json({
       success: true,
-      data: userWithoutPassword
+      data: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
     });
   } catch (error) {
+    console.error('Update profile error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server Error',
-      error: error.message
+      message: 'Server error'
     });
   }
 };
 
 // @desc    Update password
-// @route   PUT /api/auth/update-password
+// @route   PUT /api/auth/password
 // @access  Private
 exports.updatePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
-    
+
     // Get user with password
-    const user = await memoryDB.findUserById(req.user._id);
-    
+    const user = await databaseService.findUserById(req.user.id);
     if (!user) {
       return res.status(404).json({
         success: false,
         message: 'User not found'
       });
     }
-    
+
     // Check current password
-    const isMatch = await memoryDB.comparePassword(currentPassword, user.password);
-    
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
     if (!isMatch) {
-      return res.status(401).json({
+      return res.status(400).json({
         success: false,
         message: 'Current password is incorrect'
       });
     }
-    
+
     // Hash new password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(newPassword, salt);
-    
+
     // Update password
-    await memoryDB.updateUser(user._id, { password: hashedPassword });
-    
-    // Generate new token
-    const token = memoryDB.generateJWT(user);
-    
+    await databaseService.updateUser(user.id, { password: hashedPassword });
+
+    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+
     res.status(200).json({
       success: true,
+      message: 'Password updated successfully',
       token
     });
   } catch (error) {
+    console.error('Update password error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server Error',
-      error: error.message
+      message: 'Server error'
     });
   }
 };
@@ -244,129 +239,95 @@ exports.updatePassword = async (req, res) => {
 exports.forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
-    
-    const user = await memoryDB.findUserByEmail(email);
-    
+
+    const user = await databaseService.findUserByEmail(email);
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'No user with that email'
+        message: 'User not found'
       });
     }
-    
+
     // Generate reset token
-    const resetToken = crypto.randomBytes(20).toString('hex');
-    
-    // Hash token and set to resetPasswordToken field
-    const resetPasswordToken = crypto
-      .createHash('sha256')
-      .update(resetToken)
-      .digest('hex');
-    
-    // Set expire time (10 minutes)
-    const resetPasswordExpire = Date.now() + 10 * 60 * 1000;
-    
-    await memoryDB.updateUser(user._id, {
-      reset_password_token: resetPasswordToken,
-      reset_password_expire: resetPasswordExpire
+    const resetToken = jwt.sign(
+      { id: user.id, purpose: 'reset' },
+      process.env.JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+
+    // Save reset token to user (with expiration)
+    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour
+    await databaseService.updateUser(user.id, {
+      reset_password_token: resetToken,
+      reset_password_expires: resetTokenExpiry
     });
-    
-    // Create reset URL
-    const resetUrl = `${req.protocol}://${req.get('host')}/reset-password/${resetToken}`;
-    
-    const message = `You are receiving this email because you (or someone else) has requested the reset of a password. Please make a PUT request to: \n\n ${resetUrl}`;
-    
-    try {
-      await sendEmail({
-        email: user.email,
-        subject: 'Password reset token',
-        message
-      });
-      
-      res.status(200).json({
-        success: true,
-        message: 'Email sent'
-      });
-    } catch (err) {
-      console.error(err);
-      
-      await memoryDB.updateUser(user._id, {
-        reset_password_token: undefined,
-        reset_password_expire: undefined
-      });
-      
-      return res.status(500).json({
-        success: false,
-        message: 'Email could not be sent'
-      });
-    }
+
+    // TODO: Send email with reset link
+    // For now, just return the token
+    res.status(200).json({
+      success: true,
+      message: 'Reset token generated',
+      resetToken // Remove this in production
+    });
   } catch (error) {
+    console.error('Forgot password error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server Error',
-      error: error.message
+      message: 'Server error'
     });
   }
 };
 
 // @desc    Reset password
-// @route   PUT /api/auth/reset-password/:resetToken
+// @route   POST /api/auth/reset-password
 // @access  Public
 exports.resetPassword = async (req, res) => {
   try {
-    // Get hashed token
-    const resetPasswordToken = crypto
-      .createHash('sha256')
-      .update(req.params.resetToken)
-      .digest('hex');
-    
-    // Find user with valid reset token
-    const users = memoryDB.users || [];
-    const user = users.find(u => 
-      u.reset_password_token === resetPasswordToken && 
-      u.reset_password_expire > Date.now()
-    );
-    
-    if (!user) {
+    const { token, newPassword } = req.body;
+
+    // Verify reset token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded.purpose !== 'reset') {
       return res.status(400).json({
         success: false,
-        message: 'Invalid token'
+        message: 'Invalid reset token'
       });
     }
-    
+
+    // Find users with this token (since we don't have direct token lookup)
+    const users = await databaseService.getAllUsers() || [];
+    const user = users.find(u => u.reset_password_token === token);
+
+    if (!user || !user.reset_password_expires || new Date() > new Date(user.reset_password_expires)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or expired reset token'
+      });
+    }
+
     // Hash new password
     const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(req.body.password, salt);
-    
-    // Set new password and clear reset fields
-    await memoryDB.updateUser(user._id, {
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    // Update password and clear reset token
+    await databaseService.updateUser(user.id, {
       password: hashedPassword,
-      reset_password_token: undefined,
-      reset_password_expire: undefined
+      reset_password_token: null,
+      reset_password_expires: null
     });
-    
-    // Generate new token
-    const token = memoryDB.generateJWT(user);
-    
+
+    const authToken = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+
     res.status(200).json({
       success: true,
-      token
+      message: 'Password reset successfully',
+      token: authToken
     });
   } catch (error) {
+    console.error('Reset password error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server Error',
-      error: error.message
+      message: 'Server error'
     });
   }
-};
-
-// @desc    Logout user / clear cookie
-// @route   GET /api/auth/logout
-// @access  Private
-exports.logout = async (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'Logged out successfully'
-  });
 };

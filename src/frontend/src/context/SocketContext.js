@@ -120,7 +120,7 @@ export const SocketProvider = ({ children }) => {
       // Asset configuration updates (only for asset management changes, not state changes)
       socketInstance.on('asset_config_update', (updatedAsset) => {
         setAssets(prevAssets => {
-          const index = prevAssets.findIndex(asset => asset._id === updatedAsset._id);
+          const index = prevAssets.findIndex(asset => asset.id === updatedAsset.id);
           if (index !== -1) {
             const newAssets = [...prevAssets];
             newAssets[index] = updatedAsset;

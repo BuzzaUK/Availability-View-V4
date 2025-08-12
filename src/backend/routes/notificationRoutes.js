@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { authenticateJWT, authorizeRoles } = require('../middleware/authMiddleware');
-const memoryDB = require('../utils/memoryDB');
+const databaseService = require('../services/databaseService');
+const sendEmail = require('../utils/sendEmail');
 const shiftScheduler = require('../services/shiftScheduler');
 
 // @desc    Get notification settings
@@ -9,7 +10,7 @@ const shiftScheduler = require('../services/shiftScheduler');
 // @access  Private
 router.get('/settings', authenticateJWT, async (req, res) => {
   try {
-    const settings = memoryDB.getNotificationSettings();
+    const settings = await databaseService.getNotificationSettings();
     res.json({
       success: true,
       data: settings
@@ -29,7 +30,7 @@ router.get('/settings', authenticateJWT, async (req, res) => {
 router.put('/settings', authenticateJWT, authorizeRoles('admin', 'manager'), async (req, res) => {
   try {
     const updates = req.body;
-    const settings = memoryDB.updateNotificationSettings(updates);
+    const settings = await databaseService.updateNotificationSettings(updates);
     
     // If shift settings were updated, refresh the scheduler
     if (updates.shiftSettings) {
@@ -56,7 +57,6 @@ router.put('/settings', authenticateJWT, authorizeRoles('admin', 'manager'), asy
 router.post('/test-email', authenticateJWT, authorizeRoles('admin', 'manager'), async (req, res) => {
   try {
     const { testEmail } = req.body;
-    const { sendEmail } = require('../utils/emailService');
     
     if (!testEmail) {
       return res.status(400).json({
@@ -73,7 +73,7 @@ router.post('/test-email', authenticateJWT, authorizeRoles('admin', 'manager'), 
       <p>Sent at: ${new Date().toLocaleString()}</p>
     `;
 
-    await sendEmail([testEmail], subject, htmlContent);
+    await sendEmail({ to: testEmail, subject, html: htmlContent, text: 'Test email from Asset Monitoring System' });
     
     res.json({
       success: true,

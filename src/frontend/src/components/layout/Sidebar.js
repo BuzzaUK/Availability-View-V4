@@ -12,6 +12,8 @@ import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import Tooltip from '@mui/material/Tooltip';
+import Typography from '@mui/material/Typography';
+import Chip from '@mui/material/Chip';
 
 // Icons
 import DashboardIcon from '@mui/icons-material/Dashboard';
@@ -21,6 +23,8 @@ import InsightsIcon from '@mui/icons-material/Insights';
 import SettingsIcon from '@mui/icons-material/Settings';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
+import WifiIcon from '@mui/icons-material/Wifi';
+import WifiOffIcon from '@mui/icons-material/WifiOff';
 
 // Context
 import AuthContext from '../../context/AuthContext';
@@ -40,7 +44,7 @@ const Sidebar = ({ open, sidebarWidth, handleDrawerToggle }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useContext(AuthContext);
-  const { currentShift } = useContext(SocketContext);
+  const { currentShift, connected } = useContext(SocketContext);
   
   // Navigation items
   const mainNavItems = [
@@ -107,6 +111,41 @@ const Sidebar = ({ open, sidebarWidth, handleDrawerToggle }) => {
           </ListItem>
         ))}
       </List>
+      
+      <Divider />
+      
+      {/* System Status Section */}
+      <Box sx={{ p: 2 }}>
+        <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+          System Status
+        </Typography>
+        
+        {/* Connection status */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+          {connected ? <WifiIcon sx={{ color: '#10b981', fontSize: 16 }} /> : <WifiOffIcon sx={{ color: '#ef4444', fontSize: 16 }} />}
+          <Typography variant="body2" sx={{ color: connected ? '#10b981' : '#ef4444' }}>
+            {connected ? 'Connected' : 'Disconnected'}
+          </Typography>
+        </Box>
+        
+        {/* Current shift */}
+        {currentShift && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography variant="body2" sx={{ color: '#64748b' }}>
+              Current Shift:
+            </Typography>
+            <Chip
+              label={currentShift.name}
+              size="small"
+              sx={{ 
+                backgroundColor: '#3b82f6',
+                color: '#ffffff',
+                fontWeight: 500
+              }}
+            />
+          </Box>
+        )}
+      </Box>
       
       <Divider />
       

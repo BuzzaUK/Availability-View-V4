@@ -172,45 +172,10 @@ class MemoryDB {
       firmware_version: '2.0.0'
     });
 
-    // Create assets for all ESP32 pins (matching ESP32_AssetLogger_Enhanced.ino configuration)
-    const assetConfigs = [
-      { pin: 2, name: 'Production Line A', type: 'line', description: 'Main production line A' },
-      { pin: 4, name: 'Production Line B', type: 'line', description: 'Main production line B' },
-      { pin: 5, name: 'Packaging Unit', type: 'machine', description: 'Automated packaging unit' },
-      { pin: 18, name: 'Quality Control', type: 'station', description: 'Quality control station' },
-      { pin: 19, name: 'Conveyor Belt 1', type: 'conveyor', description: 'Primary conveyor belt' },
-      { pin: 21, name: 'Conveyor Belt 2', type: 'conveyor', description: 'Secondary conveyor belt' },
-      { pin: 22, name: 'Robotic Arm', type: 'robot', description: 'Industrial robotic arm' },
-      { pin: 23, name: 'Inspection Station', type: 'station', description: 'Final inspection station' }
-    ];
-
-    assetConfigs.forEach((config, index) => {
-      this.createAsset({
-        name: config.name,
-        type: config.type,
-        pin_number: config.pin,
-        logger_id: logger1._id,
-        description: config.description,
-        current_state: index % 2 === 0 ? 'RUNNING' : 'STOPPED', // Alternate states for variety
-        availability_percentage: 85.0 + (index * 2), // Vary availability
-        runtime: 7200 + (index * 600), // Vary runtime
-        downtime: 1200 - (index * 100), // Vary downtime
-        total_stops: 2 + index,
-        short_stop_threshold: 300, // 5 minutes
-        long_stop_threshold: 1800, // 30 minutes
-        downtime_reasons: [
-          'Material shortage',
-          'Machine fault', 
-          'Maintenance',
-          'Cleaning & Setup'
-        ],
-        last_state_change: new Date()
-      });
-    });
+    // Remove all the sample asset creation - let users register their own assets
+    // No sample assets - start with clean database
     
-    // No sample events - start with clean database
-    
-    console.log(`Sample data created: ${assetConfigs.length} assets for ESP32_001`);
+    console.log('Sample data created: ESP32_001 logger only (no sample assets)');
     
     // Clean up any duplicate events and invalid timestamps
     this.cleanupEvents();
@@ -377,6 +342,14 @@ class MemoryDB {
 
   findAssetById(id) {
     return this.assets.find(asset => asset._id == id);
+  }
+
+  findAssetByName(name) {
+    return this.assets.find(asset => asset.name === name);
+  }
+
+  findAssetByLoggerAndPin(loggerId, pinNumber) {
+    return this.assets.find(asset => asset.logger_id == loggerId && asset.pin_number == pinNumber);
   }
 
   createAsset(assetData) {
@@ -650,6 +623,10 @@ class MemoryDB {
     return this.assets.find(asset => asset.name.toLowerCase() === name.toLowerCase());
   }
 
+  findAssetByLoggerAndPin(loggerId, pinNumber) {
+    return this.assets.find(asset => asset.logger_id == loggerId && asset.pin_number == pinNumber);
+  }
+
   getAssetsByUserId(userId) {
     // For now, return all assets since we don't have user-asset relationships
     return this.assets;
@@ -667,6 +644,12 @@ class MemoryDB {
     
     this.events.splice(eventIndex, 1);
     return true;
+  }
+
+  removeEventsByIds(eventIds) {
+    const removedCount = this.events.length;
+    this.events = this.events.filter(event => !eventIds.includes(event._id));
+    return removedCount - this.events.length;
   }
 
   // Config methods
@@ -755,6 +738,11 @@ class MemoryDB {
       return this.updateLogger(logger._id, { status, last_seen: new Date() });
     }
     return null;
+  }
+
+  // Shift methods (additional)
+  getCurrentShift() {
+    return this.findActiveShift();
   }
 }
 

@@ -760,7 +760,7 @@ const NotificationSettings = () => {
                           renderValue={(selected) => (
                             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                               {selected.map((value) => {
-                                const user = users.find(u => u._id === value);
+                                const user = users.find(u => u.id === value);
                                 return (
                                   <Chip key={value} label={user ? user.name : value} size="small" />
                                 );
@@ -769,7 +769,7 @@ const NotificationSettings = () => {
                           )}
                         >
                           {users.map((user) => (
-                            <MenuItem key={user._id} value={user._id}>
+                            <MenuItem key={user.id} value={user.id}>
                               {user.name} ({user.role})
                             </MenuItem>
                           ))}

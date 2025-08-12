@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const memoryDB = require('../utils/memoryDB');
+const databaseService = require('../services/databaseService');
 
 // Middleware to protect routes
 exports.authenticateJWT = async (req, res, next) => {
@@ -23,7 +23,7 @@ exports.authenticateJWT = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret');
     
     // Get user from token
-    const user = await memoryDB.findUserById(decoded.id);
+    const user = await databaseService.findUserById(decoded.id);
     
     if (!user) {
       return res.status(401).json({
@@ -34,10 +34,10 @@ exports.authenticateJWT = async (req, res, next) => {
     
     // Set req.user with both the decoded token data and full user object
     req.user = {
-      id: decoded.id,  // This ensures req.user.id works
-      _id: user._id,   // This maintains compatibility with existing code
-      role: decoded.role,
-      ...user
+      id: user.id,  // ensure numeric id from DB
+      _id: user.id, // maintain compatibility with existing code
+      role: decoded.role || user.role,
+      ...user.toJSON?.() || user
     };
     
     next();
@@ -73,8 +73,6 @@ exports.authenticateDevice = async (req, res, next) => {
     });
   }
   
-  // In a real implementation, you would validate the API key against a database
-  // For now, we'll use a simple check against an environment variable
   if (apiKey !== process.env.ESP32_API_KEY) {
     return res.status(401).json({
       success: false,

@@ -1,4 +1,5 @@
-const memoryDB = require('../utils/memoryDB');
+// const memoryDB = require('../utils/memoryDB');
+ const databaseService = require('../services/databaseService');
 
 // @desc    Register user
 // @route   POST /api/auth/register
@@ -16,7 +17,7 @@ exports.register = async (req, res) => {
     }
     
     // Check if user already exists
-    const existingUser = await memoryDB.findUserByEmail(email);
+    const existingUser = await databaseService.findUserByEmail(email);
     
     if (existingUser) {
       return res.status(400).json({
@@ -26,7 +27,7 @@ exports.register = async (req, res) => {
     }
     
     // Create user
-    const user = await memoryDB.createUser({
+    const user = await databaseService.createUser({
       name,
       email,
       password,
@@ -34,13 +35,13 @@ exports.register = async (req, res) => {
     });
     
     // Generate token
-    const token = memoryDB.generateJWT(user);
+    const token = databaseService.generateJWT(user);
     
     res.status(201).json({
       success: true,
       token,
       user: {
-        id: user._id,
+        id: user.id,
         name: user.name,
         email: user.email,
         role: user.role
@@ -72,7 +73,7 @@ exports.login = async (req, res) => {
     }
     
     // Check for user
-    const user = await memoryDB.findUserByEmail(email);
+    const user = await databaseService.findUserByEmail(email);
     
     if (!user) {
       return res.status(401).json({
@@ -82,7 +83,7 @@ exports.login = async (req, res) => {
     }
     
     // Check if password matches
-    const isMatch = await memoryDB.comparePassword(password, user.password);
+    const isMatch = await databaseService.comparePassword(password, user.password);
     
     if (!isMatch) {
       return res.status(401).json({
@@ -92,16 +93,16 @@ exports.login = async (req, res) => {
     }
     
     // Update last login
-    await memoryDB.updateUser(user._id, { last_login: new Date() });
+    await databaseService.updateUser(user.id, { last_login: new Date() });
     
     // Generate token
-    const token = memoryDB.generateJWT(user);
+    const token = databaseService.generateJWT(user);
     
     res.status(200).json({
       success: true,
       token,
       user: {
-        id: user._id,
+        id: user.id,
         name: user.name,
         email: user.email,
         role: user.role
@@ -135,7 +136,7 @@ exports.getMe = async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        id: user._id,
+        id: user.id,
         name: user.name,
         email: user.email,
         role: user.role,
@@ -167,7 +168,7 @@ exports.updateDetails = async (req, res) => {
     if (email) fieldsToUpdate.email = email;
     if (receive_reports !== undefined) fieldsToUpdate.receive_reports = receive_reports;
     
-    const user = await memoryDB.updateUser(req.user._id, fieldsToUpdate);
+    const user = await databaseService.updateUser(req.user.id, fieldsToUpdate);
     
     if (!user) {
       return res.status(404).json({
@@ -179,7 +180,7 @@ exports.updateDetails = async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        id: user._id,
+        id: user.id,
         name: user.name,
         email: user.email,
         role: user.role,
@@ -214,7 +215,7 @@ exports.updatePassword = async (req, res) => {
     }
     
     // Check current password
-    const isMatch = await memoryDB.comparePassword(currentPassword, user.password);
+    const isMatch = await databaseService.comparePassword(currentPassword, user.password);
     
     if (!isMatch) {
       return res.status(401).json({
@@ -228,10 +229,10 @@ exports.updatePassword = async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(newPassword, salt);
     
-    await memoryDB.updateUser(user._id, { password: hashedPassword });
+    await databaseService.updateUser(user.id, { password: hashedPassword });
     
     // Generate new token
-    const token = memoryDB.generateJWT(user);
+    const token = databaseService.generateJWT(user);
     
     res.status(200).json({
       success: true,

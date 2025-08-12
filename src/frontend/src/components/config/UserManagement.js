@@ -41,13 +41,15 @@ import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
-  Search as SearchIcon
+  Search as SearchIcon,
+  Lock as LockIcon
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 import axios from 'axios';
 
 // Context
 import AlertContext from '../../context/AlertContext';
+import AuthContext from '../../context/AuthContext';
 
 // Styled components
 const StyledTableRow = styled(TableRow)(({ theme }) => ({
@@ -62,6 +64,10 @@ const StyledTableRow = styled(TableRow)(({ theme }) => ({
 
 const UserManagement = () => {
   const { error, success } = useContext(AlertContext);
+  const { user } = useContext(AuthContext);
+  
+  // Check if user has permission to access user management
+  const hasPermission = user && (user.role === 'admin' || user.role === 'manager');
   
   // State for users data
   const [users, setUsers] = useState([]);
@@ -96,6 +102,58 @@ const UserManagement = () => {
 
   // Available shift times (should match the ones configured in NotificationSettings)
   const [availableShiftTimes, setAvailableShiftTimes] = useState(['0600', '1400', '2200']);
+
+  // Invitation State
+  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+  const [invitesLoading, setInvitesLoading] = useState(false);
+  const [pendingInvitations, setPendingInvitations] = useState([]);
+  const [inviteForm, setInviteForm] = useState({
+    email: '',
+    role: 'viewer',
+    receive_shift_reports: false
+  });
+
+  const fetchPendingInvitations = async () => {
+    try {
+      setInvitesLoading(true);
+      const res = await axios.get('/api/invitations');
+      setPendingInvitations(res.data.data || []);
+    } catch (err) {
+      console.error('Failed to fetch invitations:', err);
+    } finally {
+      setInvitesLoading(false);
+    }
+  };
+
+  const handleOpenInviteDialog = () => {
+    setInviteForm({ email: '', role: 'viewer', receive_shift_reports: false });
+    setInviteDialogOpen(true);
+  };
+
+  const handleSendInvitation = async () => {
+    try {
+      if (!inviteForm.email) {
+        error('Please enter an email');
+        return;
+      }
+      await axios.post('/api/invitations/send', inviteForm);
+      success('Invitation sent');
+      setInviteDialogOpen(false);
+      fetchPendingInvitations();
+    } catch (err) {
+      error(err.response?.data?.message || 'Failed to send invitation');
+    }
+  };
+
+  const handleCancelInvitation = async (id) => {
+    try {
+      await axios.delete(`/api/invitations/${id}`);
+      success('Invitation cancelled');
+      fetchPendingInvitations();
+    } catch (err) {
+      error(err.response?.data?.message || 'Failed to cancel invitation');
+    }
+  };
   
   // State for delete confirmation dialog
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
@@ -176,7 +234,7 @@ const UserManagement = () => {
         userData.password = userForm.password;
       }
       
-      await axios.put(`/api/users/${selectedUser._id}`, userData);
+      await axios.put(`/api/users/${selectedUser.id}`, userData);
       
       success('User updated successfully');
       handleCloseDialog();
@@ -189,7 +247,7 @@ const UserManagement = () => {
   // Delete user
   const deleteUser = async () => {
     try {
-      await axios.delete(`/api/users/${selectedUser._id}`);
+      await axios.delete(`/api/users/${selectedUser.id}`);
       
       success('User deleted successfully');
       setOpenDeleteDialog(false);
@@ -321,9 +379,33 @@ const UserManagement = () => {
   };
 
   useEffect(() => {
-    fetchUsers();
-    fetchShiftTimes();
-  }, [page, rowsPerPage, searchQuery]);
+    if (hasPermission) {
+      fetchUsers();
+      fetchShiftTimes();
+      fetchPendingInvitations();
+    }
+  }, [page, rowsPerPage, searchQuery, hasPermission]);
+
+  // Show unauthorized message if user doesn't have permission
+  if (!hasPermission) {
+    return (
+      <Box sx={{ textAlign: 'center', py: 8 }}>
+        <LockIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
+        <Typography variant="h5" gutterBottom color="text.secondary">
+          Access Restricted
+        </Typography>
+        <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+          You need administrator or manager privileges to access user management.
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Current role: <Chip label={user?.role || 'Unknown'} size="small" />
+        </Typography>
+        <Alert severity="info" sx={{ mt: 3, maxWidth: 500, mx: 'auto' }}>
+          Contact your system administrator to request access to user management features.
+        </Alert>
+      </Box>
+    );
+  }
 
   return (
     <Box>
@@ -346,13 +428,22 @@ const UserManagement = () => {
           }}
           sx={{ width: 300 }}
         />
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={handleOpenAddDialog}
-        >
-          Add User
-        </Button>
+        <Box>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={handleOpenAddDialog}
+          >
+            Add User
+          </Button>
+          <Button
+            variant="outlined"
+            sx={{ ml: 2 }}
+            onClick={handleOpenInviteDialog}
+          >
+            Invite User
+          </Button>
+        </Box>
       </Box>
 
       {/* Users Table */}
@@ -385,7 +476,7 @@ const UserManagement = () => {
                 </TableRow>
               ) : (
                 users.map((user) => (
-                  <StyledTableRow key={user._id}>
+                  <StyledTableRow key={user.id}>
                     <TableCell>{user.name}</TableCell>
                     <TableCell>{user.email}</TableCell>
                     <TableCell>
@@ -625,6 +716,51 @@ const UserManagement = () => {
         </DialogActions>
       </Dialog>
 
+      {/* Pending Invitations Section */}
+      {pendingInvitations.length > 0 && (
+        <Paper sx={{ mb: 3, p: 2 }}>
+          <Typography variant="h6" gutterBottom>
+            Pending Invitations
+          </Typography>
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Email</TableCell>
+                  <TableCell>Role</TableCell>
+                  <TableCell>Invited By</TableCell>
+                  <TableCell>Sent</TableCell>
+                  <TableCell>Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {pendingInvitations.map((invitation) => (
+                  <TableRow key={invitation.id}>
+                    <TableCell>{invitation.email}</TableCell>
+                    <TableCell>
+                      <Chip label={invitation.role} size="small" />
+                    </TableCell>
+                    <TableCell>{invitation.inviter?.name || 'System'}</TableCell>
+                    <TableCell>
+                      {format(new Date(invitation.created_at), 'MMM dd, yyyy')}
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        size="small"
+                        color="error"
+                        onClick={() => handleCancelInvitation(invitation.id)}
+                      >
+                        Cancel
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
+      )}
+
       {/* Delete Confirmation Dialog */}
       <Dialog open={openDeleteDialog} onClose={() => setOpenDeleteDialog(false)}>
         <DialogTitle>Confirm Delete</DialogTitle>
@@ -637,6 +773,67 @@ const UserManagement = () => {
           <Button onClick={() => setOpenDeleteDialog(false)}>Cancel</Button>
           <Button onClick={deleteUser} color="error" variant="contained">
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Invite User Dialog */}
+      <Dialog open={inviteDialogOpen} onClose={() => setInviteDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Invite New User</DialogTitle>
+        <DialogContent>
+          <Grid container spacing={3} sx={{ mt: 1 }}>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Email"
+                name="email"
+                type="email"
+                value={inviteForm.email}
+                onChange={(e) => setInviteForm(prev => ({ ...prev, email: e.target.value }))}
+                required
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                select
+                label="Role"
+                name="role"
+                value={inviteForm.role}
+                onChange={(e) => setInviteForm(prev => ({ ...prev, role: e.target.value }))}
+                required
+              >
+                {roles.map((role) => (
+                  <MenuItem key={role.value} value={role.value}>
+                    {role.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            <Grid item xs={12}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={inviteForm.receive_shift_reports}
+                    onChange={(e) => setInviteForm(prev => ({ ...prev, receive_shift_reports: e.target.checked }))}
+                    name="receive_shift_reports"
+                  />
+                }
+                label="Enable Shift Report Emails"
+              />
+              <FormHelperText>
+                When enabled, this user will receive automated shift reports via email
+              </FormHelperText>
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setInviteDialogOpen(false)}>Cancel</Button>
+          <Button
+            onClick={handleSendInvitation}
+            variant="contained"
+          >
+            Send Invitation
           </Button>
         </DialogActions>
       </Dialog>

@@ -11,6 +11,7 @@ import Login from './components/auth/Login';
 import Register from './components/auth/Register';
 import ForgotPassword from './components/auth/ForgotPassword';
 import ResetPassword from './components/auth/ResetPassword';
+import AcceptInvitation from './components/auth/AcceptInvitation';
 
 // Dashboard Components
 import Dashboard from './components/dashboard/Dashboard';
@@ -129,6 +130,7 @@ function App() {
                 <Route path="/register" element={<Register />} />
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/reset-password/:token" element={<ResetPassword />} />
+                <Route path="/accept-invitation" element={<AcceptInvitation />} />
                 
                 {/* Protected Routes */}
                 <Route path="/" element={<PrivateRoute><TopNavLayout /></PrivateRoute>}>

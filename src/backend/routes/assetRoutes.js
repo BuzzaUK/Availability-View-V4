@@ -10,7 +10,7 @@ const {
   updateAsset,
   deleteAsset,
   getAssetEvents,
-  getAssetStats
+  getAssetAnalytics
 } = require('../controllers/assetController');
 
 // Public routes
@@ -24,7 +24,7 @@ router.delete('/:id', authenticateJWT, authorizeRoles('admin'), deleteAsset);
 
 // Asset events and statistics
 router.get('/:id/events', authenticateJWT, getAssetEvents);
-router.get('/:id/stats', authenticateJWT, getAssetStats);
+router.get('/:id/analytics', authenticateJWT, getAssetAnalytics);
 
 // ESP32 device routes
 router.post('/state-update', authenticateDevice, (req, res) => {

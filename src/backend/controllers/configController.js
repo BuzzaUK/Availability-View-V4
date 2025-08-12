@@ -1,11 +1,11 @@
-const memoryDB = require('../utils/memoryDB');
+const databaseService = require('../services/databaseService');
 
 // @desc    Get configuration
 // @route   GET /api/config
 // @access  Private
 exports.getConfig = async (req, res) => {
   try {
-    const config = memoryDB.getConfig();
+    const config = await databaseService.getApplicationSettings();
     
     res.status(200).json({
       success: true,
@@ -40,7 +40,7 @@ exports.updateConfig = async (req, res) => {
     if (report_schedule !== undefined) updates.report_schedule = report_schedule;
     if (report_recipients !== undefined) updates.report_recipients = report_recipients;
 
-    const config = memoryDB.updateConfig(updates);
+    const config = await databaseService.updateApplicationSettings(updates);
 
     res.status(200).json({
       success: true,
@@ -60,11 +60,11 @@ exports.updateConfig = async (req, res) => {
 // @access  Private
 exports.getDowntimeReasons = async (req, res) => {
   try {
-    const config = memoryDB.getConfig();
+    const downtimeReasons = await databaseService.getDowntimeReasons();
     
     res.status(200).json({
       success: true,
-      data: config.downtime_reasons || []
+      data: downtimeReasons || []
     });
   } catch (error) {
     res.status(500).json({
@@ -89,16 +89,11 @@ exports.addDowntimeReason = async (req, res) => {
       });
     }
 
-    const config = memoryDB.getConfig();
-    const newReason = {
-      _id: Date.now(), // Simple ID generation
+    const newReason = await databaseService.addDowntimeReason({
       name,
       description: description || '',
       color: color || '#FF9800'
-    };
-
-    const updatedReasons = [...(config.downtime_reasons || []), newReason];
-    const updatedConfig = memoryDB.updateConfig({ downtime_reasons: updatedReasons });
+    });
 
     res.status(201).json({
       success: true,
@@ -119,29 +114,25 @@ exports.addDowntimeReason = async (req, res) => {
 exports.updateDowntimeReason = async (req, res) => {
   try {
     const { name, description, color } = req.body;
-    const reasonId = parseInt(req.params.id);
+    const reasonId = req.params.id;
 
-    const config = memoryDB.getConfig();
-    const reasons = config.downtime_reasons || [];
-    const reasonIndex = reasons.findIndex(reason => reason._id == reasonId);
+    const updates = {};
+    if (name !== undefined) updates.name = name;
+    if (description !== undefined) updates.description = description;
+    if (color !== undefined) updates.color = color;
 
-    if (reasonIndex === -1) {
+    const updatedReason = await databaseService.updateDowntimeReason(reasonId, updates);
+
+    if (!updatedReason) {
       return res.status(404).json({
         success: false,
         message: 'Downtime reason not found'
       });
     }
 
-    // Update the reason
-    if (name !== undefined) reasons[reasonIndex].name = name;
-    if (description !== undefined) reasons[reasonIndex].description = description;
-    if (color !== undefined) reasons[reasonIndex].color = color;
-
-    const updatedConfig = memoryDB.updateConfig({ downtime_reasons: reasons });
-
     res.status(200).json({
       success: true,
-      data: reasons[reasonIndex]
+      data: updatedReason
     });
   } catch (error) {
     res.status(500).json({
@@ -157,22 +148,16 @@ exports.updateDowntimeReason = async (req, res) => {
 // @access  Private (Admin only)
 exports.deleteDowntimeReason = async (req, res) => {
   try {
-    const reasonId = parseInt(req.params.id);
+    const reasonId = req.params.id;
 
-    const config = memoryDB.getConfig();
-    const reasons = config.downtime_reasons || [];
-    const reasonIndex = reasons.findIndex(reason => reason._id == reasonId);
+    const deleted = await databaseService.deleteDowntimeReason(reasonId);
 
-    if (reasonIndex === -1) {
+    if (!deleted) {
       return res.status(404).json({
         success: false,
         message: 'Downtime reason not found'
       });
     }
-
-    // Remove the reason
-    reasons.splice(reasonIndex, 1);
-    const updatedConfig = memoryDB.updateConfig({ downtime_reasons: reasons });
 
     res.status(200).json({
       success: true,
@@ -192,11 +177,11 @@ exports.deleteDowntimeReason = async (req, res) => {
 // @access  Private
 exports.getShiftSchedules = async (req, res) => {
   try {
-    const config = memoryDB.getConfig();
+    const shiftSchedules = await databaseService.getShiftSchedules();
     
     res.status(200).json({
       success: true,
-      data: config.shift_schedules || []
+      data: shiftSchedules || []
     });
   } catch (error) {
     res.status(500).json({
@@ -221,16 +206,11 @@ exports.addShiftSchedule = async (req, res) => {
       });
     }
 
-    const config = memoryDB.getConfig();
-    const newSchedule = {
-      _id: Date.now(), // Simple ID generation
+    const newSchedule = await databaseService.addShiftSchedule({
       name,
       start_time,
       end_time
-    };
-
-    const updatedSchedules = [...(config.shift_schedules || []), newSchedule];
-    const updatedConfig = memoryDB.updateConfig({ shift_schedules: updatedSchedules });
+    });
 
     res.status(201).json({
       success: true,
@@ -251,29 +231,25 @@ exports.addShiftSchedule = async (req, res) => {
 exports.updateShiftSchedule = async (req, res) => {
   try {
     const { name, start_time, end_time } = req.body;
-    const scheduleId = parseInt(req.params.id);
+    const scheduleId = req.params.id;
 
-    const config = memoryDB.getConfig();
-    const schedules = config.shift_schedules || [];
-    const scheduleIndex = schedules.findIndex(schedule => schedule._id == scheduleId);
+    const updates = {};
+    if (name !== undefined) updates.name = name;
+    if (start_time !== undefined) updates.start_time = start_time;
+    if (end_time !== undefined) updates.end_time = end_time;
 
-    if (scheduleIndex === -1) {
+    const updatedSchedule = await databaseService.updateShiftSchedule(scheduleId, updates);
+
+    if (!updatedSchedule) {
       return res.status(404).json({
         success: false,
         message: 'Shift schedule not found'
       });
     }
 
-    // Update the schedule
-    if (name !== undefined) schedules[scheduleIndex].name = name;
-    if (start_time !== undefined) schedules[scheduleIndex].start_time = start_time;
-    if (end_time !== undefined) schedules[scheduleIndex].end_time = end_time;
-
-    const updatedConfig = memoryDB.updateConfig({ shift_schedules: schedules });
-
     res.status(200).json({
       success: true,
-      data: schedules[scheduleIndex]
+      data: updatedSchedule
     });
   } catch (error) {
     res.status(500).json({
@@ -289,22 +265,16 @@ exports.updateShiftSchedule = async (req, res) => {
 // @access  Private (Admin only)
 exports.deleteShiftSchedule = async (req, res) => {
   try {
-    const scheduleId = parseInt(req.params.id);
+    const scheduleId = req.params.id;
 
-    const config = memoryDB.getConfig();
-    const schedules = config.shift_schedules || [];
-    const scheduleIndex = schedules.findIndex(schedule => schedule._id == scheduleId);
+    const deleted = await databaseService.deleteShiftSchedule(scheduleId);
 
-    if (scheduleIndex === -1) {
+    if (!deleted) {
       return res.status(404).json({
         success: false,
         message: 'Shift schedule not found'
       });
     }
-
-    // Remove the schedule
-    schedules.splice(scheduleIndex, 1);
-    const updatedConfig = memoryDB.updateConfig({ shift_schedules: schedules });
 
     res.status(200).json({
       success: true,
@@ -324,11 +294,11 @@ exports.deleteShiftSchedule = async (req, res) => {
 // @access  Private (Admin/Manager only)
 exports.getReportRecipients = async (req, res) => {
   try {
-    const config = memoryDB.getConfig();
+    const reportRecipients = await databaseService.getReportRecipients();
     
     res.status(200).json({
       success: true,
-      data: config.report_recipients || []
+      data: reportRecipients || []
     });
   } catch (error) {
     res.status(500).json({
@@ -353,15 +323,10 @@ exports.addReportRecipient = async (req, res) => {
       });
     }
 
-    const config = memoryDB.getConfig();
-    const newRecipient = {
-      _id: Date.now(), // Simple ID generation
+    const newRecipient = await databaseService.addReportRecipient({
       email,
       name: name || ''
-    };
-
-    const updatedRecipients = [...(config.report_recipients || []), newRecipient];
-    const updatedConfig = memoryDB.updateConfig({ report_recipients: updatedRecipients });
+    });
 
     res.status(201).json({
       success: true,
@@ -381,29 +346,26 @@ exports.addReportRecipient = async (req, res) => {
 // @access  Private (Admin only)
 exports.updateReportRecipient = async (req, res) => {
   try {
-    const { email, name } = req.body;
-    const recipientId = parseInt(req.params.id);
+    const { name, email, phone } = req.body;
+    const recipientId = req.params.id;
 
-    const config = memoryDB.getConfig();
-    const recipients = config.report_recipients || [];
-    const recipientIndex = recipients.findIndex(recipient => recipient._id == recipientId);
+    const updates = {};
+    if (name !== undefined) updates.name = name;
+    if (email !== undefined) updates.email = email;
+    if (phone !== undefined) updates.phone = phone;
 
-    if (recipientIndex === -1) {
+    const updatedRecipient = await databaseService.updateReportRecipient(recipientId, updates);
+
+    if (!updatedRecipient) {
       return res.status(404).json({
         success: false,
         message: 'Report recipient not found'
       });
     }
 
-    // Update the recipient
-    if (email !== undefined) recipients[recipientIndex].email = email;
-    if (name !== undefined) recipients[recipientIndex].name = name;
-
-    const updatedConfig = memoryDB.updateConfig({ report_recipients: recipients });
-
     res.status(200).json({
       success: true,
-      data: recipients[recipientIndex]
+      data: updatedRecipient
     });
   } catch (error) {
     res.status(500).json({
@@ -419,22 +381,16 @@ exports.updateReportRecipient = async (req, res) => {
 // @access  Private (Admin only)
 exports.deleteReportRecipient = async (req, res) => {
   try {
-    const recipientId = parseInt(req.params.id);
+    const recipientId = req.params.id;
 
-    const config = memoryDB.getConfig();
-    const recipients = config.report_recipients || [];
-    const recipientIndex = recipients.findIndex(recipient => recipient._id == recipientId);
+    const deleted = await databaseService.deleteReportRecipient(recipientId);
 
-    if (recipientIndex === -1) {
+    if (!deleted) {
       return res.status(404).json({
         success: false,
         message: 'Report recipient not found'
       });
     }
-
-    // Remove the recipient
-    recipients.splice(recipientIndex, 1);
-    const updatedConfig = memoryDB.updateConfig({ report_recipients: recipients });
 
     res.status(200).json({
       success: true,
@@ -454,23 +410,18 @@ exports.deleteReportRecipient = async (req, res) => {
 // @access  Private (Admin only)
 exports.updateReportSchedule = async (req, res) => {
   try {
-    const { frequency, time, enabled } = req.body;
+    const { enabled, frequency, time } = req.body;
 
     const updates = {};
-    if (frequency !== undefined) updates['report_schedule.frequency'] = frequency;
-    if (time !== undefined) updates['report_schedule.time'] = time;
-    if (enabled !== undefined) updates['report_schedule.enabled'] = enabled;
+    if (enabled !== undefined) updates.enabled = enabled;
+    if (frequency !== undefined) updates.frequency = frequency;
+    if (time !== undefined) updates.time = time;
 
-    const config = memoryDB.updateConfig({ 
-      report_schedule: {
-        ...memoryDB.getConfig().report_schedule,
-        ...req.body
-      }
-    });
+    const updatedSchedule = await databaseService.updateReportSchedule(updates);
 
     res.status(200).json({
       success: true,
-      data: config.report_schedule
+      data: updatedSchedule
     });
   } catch (error) {
     res.status(500).json({

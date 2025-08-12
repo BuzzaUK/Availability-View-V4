@@ -1,0 +1,46 @@
+{
+  "name": "ESP32 Asset Monitor",
+  "description": "Industrial asset monitoring dashboard for ESP32 devices",
+  "repository": "https://github.com/your-username/esp32-asset-monitor",
+  "logo": "https://node-js-sample.herokuapp.com/node.png",
+  "keywords": ["node", "express", "heroku", "esp32", "iot", "monitoring"],
+  "image": "heroku/nodejs",
+  "addons": [
+    {
+      "plan": "heroku-postgresql:mini",
+      "as": "DATABASE"
+    }
+  ],
+  "env": {
+    "NODE_ENV": {
+      "description": "Environment mode",
+      "value": "production"
+    },
+    "JWT_SECRET": {
+      "description": "Secret key for JWT tokens",
+      "generator": "secret"
+    },
+    "ADMIN_EMAIL": {
+      "description": "Admin user email",
+      "value": "admin@example.com"
+    },
+    "ADMIN_PASSWORD": {
+      "description": "Admin user password",
+      "value": "admin123"
+    }
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "basic"
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/nodejs"
+    }
+  ],
+  "scripts": {
+    "postdeploy": "npm run db:init"
+  }
+}

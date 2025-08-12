@@ -1,526 +1,462 @@
 const express = require('express');
-const http = require('http');
-const socketIo = require('socket.io');
 const cors = require('cors');
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '.env') });
+const http = require('http');
+const socketIo = require('socket.io');
+require('dotenv').config({ path: __dirname + '/.env' });
 
-// Debug: Test environment variables immediately after dotenv config
-console.log('🔍 DOTENV DEBUG - Environment variables loaded:');
-console.log('EMAIL_HOST:', process.env.EMAIL_HOST);
-console.log('EMAIL_PORT:', process.env.EMAIL_PORT);
-console.log('EMAIL_USER:', process.env.EMAIL_USER);
-console.log('EMAIL_PASSWORD:', process.env.EMAIL_PASSWORD ? '***HIDDEN***' : 'NOT SET');
-console.log('JWT_SECRET:', process.env.JWT_SECRET ? '***HIDDEN***' : 'NOT SET');
-console.log('PORT:', process.env.PORT);
-
-// Using in-memory database for development
-console.log('Using in-memory database for development - server starting...');
-
-// Import routes
-const assetRoutes = require('./routes/assetRoutes');
-const authRoutes = require('./routes/authRoutes');
-const configRoutes = require('./routes/configRoutes');
-const analyticsRoutes = require('./routes/analyticsRoutes');
-const archiveRoutes = require('./routes/archiveRoutes');
-const eventRoutes = require('./routes/eventRoutes');
-const reportRoutes = require('./routes/reportRoutes');
-const settingsRoutes = require('./routes/settingsRoutes');
-const userRoutes = require('./routes/userRoutes');
-const backupRoutes = require('./routes/backupRoutes');
-const loggerRoutes = require('./routes/loggerRoutes');
-const notificationRoutes = require('./routes/notificationRoutes');
-
-// Import middleware
+// Import services and middleware
+const databaseService = require('./services/databaseService');
+const shiftScheduler = require('./services/shiftScheduler');
+const csvEnhancementService = require('./services/csvEnhancementService');
 const { authenticateJWT } = require('./middleware/authMiddleware');
 
-// Import shift scheduler
-const shiftScheduler = require('./services/shiftScheduler');
+// Import routes
+const authRoutes = require('./routes/authRoutes');
+const userRoutes = require('./routes/userRoutes');
+const assetRoutes = require('./routes/assetRoutes');
+const eventRoutes = require('./routes/eventRoutes');
+const reportRoutes = require('./routes/reportRoutes');
+const analyticsRoutes = require('./routes/analyticsRoutes');
+const settingsRoutes = require('./routes/settingsRoutes');
+const configRoutes = require('./routes/configRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
+const archiveRoutes = require('./routes/archiveRoutes');
+const backupRoutes = require('./routes/backupRoutes');
+const csvRoutes = require('./routes/csvRoutes');
+const shiftRoutes = require('./routes/shiftRoutes');
+const loggerRoutes = require('./routes/loggerRoutes');
+const invitationRoutes = require('./routes/invitationRoutes');
 
+// Initialize Express app
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: '*',
-    methods: ['GET', 'POST']
+    origin: process.env.NODE_ENV === 'production' 
+      ? process.env.FRONTEND_URL 
+      : "http://localhost:3000",
+    methods: ["GET", "POST"]
   }
 });
 
 // Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production' 
+    ? process.env.FRONTEND_URL 
+    : "http://localhost:3000",
+  credentials: true
+}));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// API health check endpoint
-app.get('/api/health', (req, res) => {
-  res.status(200).json({ status: 'ok', message: 'Server is running' });
+// Make io available to routes
+app.use((req, res, next) => {
+  req.io = io;
+  next();
 });
 
 // API Routes
-app.use('/api/assets', assetRoutes);
 app.use('/api/auth', authRoutes);
-app.use('/api/config', authenticateJWT, configRoutes);
-app.use('/api/analytics', authenticateJWT, analyticsRoutes);
-app.use('/api/archives', authenticateJWT, archiveRoutes);
-app.use('/api/events', eventRoutes);
-app.use('/api/reports', authenticateJWT, reportRoutes);
-app.use('/api/settings', authenticateJWT, settingsRoutes);
-app.use('/api/shifts', require('./routes/shiftRoutes'));
 app.use('/api/users', authenticateJWT, userRoutes);
-app.use('/api/backups', authenticateJWT, backupRoutes);
-app.use('/api/notifications', notificationRoutes);
+app.use('/api/assets', authenticateJWT, assetRoutes);
+app.use('/api/events', authenticateJWT, eventRoutes);
+app.use('/api/reports', authenticateJWT, reportRoutes);
+app.use('/api/analytics', authenticateJWT, analyticsRoutes);
+app.use('/api/settings', authenticateJWT, settingsRoutes);
+app.use('/api/config', authenticateJWT, configRoutes);
+app.use('/api/notifications', authenticateJWT, notificationRoutes);
+app.use('/api/archives', authenticateJWT, archiveRoutes);
+app.use('/api/backup', authenticateJWT, backupRoutes);
+app.use('/api/csv', authenticateJWT, csvRoutes);
+app.use('/api/shifts', authenticateJWT, shiftRoutes);
+app.use('/api/loggers', authenticateJWT, loggerRoutes);
+app.use('/api/invitations', invitationRoutes);
 
-// Device endpoints (ESP32) - No authentication required
-
-// Public endpoint to list all devices (for device management)
-app.get('/api/device/list', (req, res) => {
-  try {
-    const memoryDB = require('./utils/memoryDB');
-    const loggers = memoryDB.getAllLoggers();
-    
-    // Format loggers for frontend compatibility
-    const formattedLoggers = loggers.map(logger => ({
-      ...logger,
-      name: logger.logger_name,
-      description: logger.description || '',
-      location: logger.location || '',
-      wifi_ssid: logger.wifi_ssid || '',
-      wifi_password: logger.wifi_password || '',
-      server_url: logger.server_url || 'http://localhost:5000',
-      heartbeat_interval: logger.heartbeat_interval || 30
-    }));
-    
-    res.json(formattedLoggers);
-  } catch (error) {
-    console.error('Error fetching device list:', error);
-    res.status(500).json({ error: 'Failed to fetch device list' });
-  }
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
 });
 
-app.post('/api/device/register', (req, res) => {
+// ESP32 device registration endpoint
+app.post('/api/device/register', async (req, res) => {
   try {
     const { logger_id, logger_name, firmware_version, ip_address } = req.body;
-    const memoryDB = require('./utils/memoryDB');
-
+    
+    console.log('🔍 DEVICE REGISTRATION - Received data:', { logger_id, logger_name, firmware_version, ip_address });
+    
     if (!logger_id) {
+      console.log('❌ DEVICE REGISTRATION - Missing logger_id');
       return res.status(400).json({ error: 'Logger ID is required' });
     }
 
-    // Check if logger ID already exists
-    const existingLogger = memoryDB.findLoggerByLoggerId(logger_id);
-    if (existingLogger) {
-      // Update existing logger with new info
-      const updatedLogger = memoryDB.updateLogger(existingLogger._id, {
-        firmware_version: firmware_version || existingLogger.firmware_version,
-        ip_address: ip_address || existingLogger.ip_address,
+    // Check if logger already exists
+    let logger = await databaseService.findLoggerByLoggerId(logger_id);
+    
+    if (logger) {
+      // Update existing logger
+      const updateData = {
         status: 'online',
+        last_seen: new Date(),
+        ip_address: ip_address || logger.ip_address,
+        firmware_version: firmware_version || logger.firmware_version
+      };
+      
+      if (logger_name && logger_name !== logger.logger_name) {
+        updateData.logger_name = logger_name;
+      }
+      
+      logger = await databaseService.updateLogger(logger.id, updateData);
+      console.log(`✅ DEVICE REGISTRATION - Updated existing logger: ${logger_id}`);
+    } else {
+      // Create new logger (assign to admin user for now)
+      const adminUser = await databaseService.findUserByEmail('admin@example.com');
+      if (!adminUser) {
+        console.log('❌ DEVICE REGISTRATION - Admin user not found');
+        return res.status(500).json({ error: 'Admin user not found' });
+      }
+
+      const loggerData = {
+        logger_id,
+        logger_name: logger_name || `Logger ${logger_id}`,
+        user_account_id: adminUser.id,
+        status: 'online',
+        ip_address: ip_address || 'unknown',
+        firmware_version: firmware_version || '1.0.0',
         last_seen: new Date()
-      });
-      return res.status(200).json({ 
-        message: 'Logger updated successfully',
-        logger: updatedLogger 
-      });
+      };
+
+      logger = await databaseService.createLogger(loggerData);
+      console.log(`✅ DEVICE REGISTRATION - Created new logger: ${logger_id}`);
     }
 
-    // For new loggers, we need to assign them to a default user
-    // In a real system, you'd have a proper device registration flow
-    // For now, we'll assign to the first available user or create a default one
-    const users = memoryDB.getAllUsers();
-    let defaultUser = users.find(u => u.email === 'admin@example.com');
-    
-    if (!defaultUser) {
-      // Create a default admin user for device registration
-      defaultUser = memoryDB.createUser({
-        name: 'System Admin',
-        email: 'admin@example.com',
-        password: 'hashed_password', // This would be properly hashed
-        role: 'admin'
-      });
-    }
-
-    const loggerData = {
-      logger_id,
-      user_account_id: defaultUser._id,
-      logger_name: logger_name || `Logger ${logger_id}`,
-      firmware_version: firmware_version || '1.0.0',
-      ip_address: ip_address || 'unknown',
-      status: 'online',
-      last_seen: new Date()
-    };
-
-    const newLogger = memoryDB.createLogger(loggerData);
-    console.log(`Device registered: ${logger_id} (${logger_name})`);
-    
-    res.status(201).json({ 
+    res.json({ 
+      success: true,
       message: 'Logger registered successfully',
-      logger: newLogger 
+      logger: {
+        id: logger.id,
+        logger_id: logger.logger_id,
+        logger_name: logger.logger_name,
+        status: logger.status
+      }
     });
+
   } catch (error) {
-    console.error('Error registering device:', error);
+    console.error('❌ DEVICE REGISTRATION - Error:', error);
     res.status(500).json({ error: 'Failed to register device' });
   }
 });
 
-// Public endpoint to update device (for device management)
-app.put('/api/device/update/:id', (req, res) => {
+// ESP32 asset state update endpoint
+app.post('/api/asset-state', async (req, res) => {
   try {
-    const { id } = req.params;
-    const updateData = req.body;
-    const memoryDB = require('./utils/memoryDB');
+    const { logger_id, pin_number, state, is_running, timestamp } = req.body;
     
-    // Map frontend fields to backend fields
-    if (updateData.name) {
-      updateData.logger_name = updateData.name;
+    console.log('🔍 ASSET STATE UPDATE - Received data:', { logger_id, pin_number, state, is_running, timestamp });
+    
+    if (!logger_id || pin_number === undefined) {
+      console.log('❌ ASSET STATE UPDATE - Missing required fields');
+      return res.status(400).json({ error: 'Missing required fields: logger_id, pin_number' });
     }
-    
-    const updatedLogger = memoryDB.updateLogger(id, updateData);
-    if (!updatedLogger) {
+
+    // Handle both state formats: 'state' (string) or 'is_running' (boolean)
+    let assetState;
+    if (state !== undefined) {
+      assetState = state;
+    } else if (is_running !== undefined) {
+      assetState = is_running ? 'RUNNING' : 'STOPPED';
+    } else {
+      console.log('❌ ASSET STATE UPDATE - Missing state information');
+      return res.status(400).json({ error: 'Missing state information: provide either state or is_running' });
+    }
+
+    // Find the logger
+    const logger = await databaseService.findLoggerByLoggerId(logger_id);
+    if (!logger) {
+      console.log('❌ ASSET STATE UPDATE - Logger not found:', logger_id);
       return res.status(404).json({ error: 'Logger not found' });
     }
-    
+
+    // Update logger status and last seen
+    await databaseService.updateLoggerStatus(logger_id, 'online');
+
+    // Find the asset for this pin
+    const asset = await databaseService.findAssetByLoggerAndPin(logger.id, pin_number);
+    if (!asset) {
+      console.log(`⚠️ ASSET STATE UPDATE - No asset configured for pin ${pin_number}, creating event anyway`);
+      
+      // Create event even if no asset is configured (for raw pin monitoring)
+      const eventData = {
+        logger_id: logger.id,
+        event_type: 'STATE_CHANGE',
+        previous_state: 'UNKNOWN',
+        new_state: assetState,
+        timestamp: new Date(timestamp || Date.now()),
+        metadata: { 
+          source: 'esp32', 
+          pin_number,
+          note: `Pin ${pin_number} state change (no asset configured)`
+        }
+      };
+
+      await databaseService.createEvent(eventData);
+
+      // Emit real-time update via WebSocket
+      io.emit('pinStateChange', {
+        loggerId: logger_id,
+        pinNumber: pin_number,
+        newState: assetState,
+        timestamp: eventData.timestamp,
+        note: 'No asset configured for this pin'
+      });
+
+      return res.json({ 
+        success: true, 
+        message: 'Pin state recorded (no asset configured)',
+        pin_number,
+        state: assetState
+      });
+    }
+
+    console.log('✅ ASSET STATE UPDATE - Found asset:', asset.name);
+
+    // Update asset state if it has changed
+    if (asset.current_state !== assetState) {
+      const previousState = asset.current_state;
+      const currentTime = new Date(timestamp || Date.now());
+      const lastStateChange = new Date(asset.last_state_change);
+      
+      // Calculate duration since last state change (in seconds)
+      const durationSeconds = Math.floor((currentTime - lastStateChange) / 1000);
+      
+      // Update runtime/downtime statistics
+      let updateData = {
+        current_state: assetState,
+        last_state_change: currentTime
+      };
+
+      // Only accumulate time if we have a valid previous state and duration
+      if (previousState && durationSeconds > 0) {
+        if (previousState === 'RUNNING') {
+          // Asset was running, add to runtime
+          updateData.runtime = (asset.runtime || 0) + durationSeconds;
+          console.log(`📊 Adding ${durationSeconds}s to runtime (was RUNNING)`);
+        } else if (previousState === 'STOPPED') {
+          // Asset was stopped, add to downtime
+          updateData.downtime = (asset.downtime || 0) + durationSeconds;
+          console.log(`📊 Adding ${durationSeconds}s to downtime (was STOPPED)`);
+        }
+      }
+
+      // Increment stop count if transitioning to STOPPED
+      if (assetState === 'STOPPED' && previousState === 'RUNNING') {
+        updateData.total_stops = (asset.total_stops || 0) + 1;
+        console.log(`📊 Incrementing stop count to ${updateData.total_stops}`);
+      }
+
+      // Calculate and update availability percentage
+      const totalRuntime = updateData.runtime || asset.runtime || 0;
+      const totalDowntime = updateData.downtime || asset.downtime || 0;
+      const totalTime = totalRuntime + totalDowntime;
+      
+      if (totalTime > 0) {
+        updateData.availability_percentage = ((totalRuntime / totalTime) * 100).toFixed(2);
+      }
+
+      // Update asset with accumulated statistics
+      await databaseService.updateAsset(asset.id, updateData);
+
+      // Create event record in SQL database with duration
+      const eventData = {
+        asset_id: asset.id,
+        logger_id: logger.id,
+        event_type: 'STATE_CHANGE',
+        previous_state: previousState,
+        new_state: assetState,
+        duration: durationSeconds,
+        timestamp: currentTime,
+        metadata: { source: 'esp32', pin_number }
+      };
+
+      await databaseService.createEvent(eventData);
+
+      // Emit real-time update via WebSocket
+      io.emit('assetStateChange', {
+        assetId: asset.id,
+        assetName: asset.name,
+        loggerId: logger_id,
+        pinNumber: pin_number,
+        previousState,
+        newState: assetState,
+        duration: durationSeconds,
+        timestamp: eventData.timestamp,
+        statistics: {
+          runtime: totalRuntime,
+          downtime: totalDowntime,
+          total_stops: updateData.total_stops || asset.total_stops || 0,
+          availability: updateData.availability_percentage || 0
+        }
+      });
+
+      console.log(`✅ ASSET STATE UPDATE - Asset ${asset.name} changed from ${previousState} to ${assetState} (duration: ${durationSeconds}s)`);
+    } else {
+      console.log(`🔍 ASSET STATE UPDATE - Asset ${asset.name} state unchanged (${assetState})`);
+    }
+
     res.json({ 
-      message: 'Logger updated successfully',
-      logger: updatedLogger 
+      success: true, 
+      message: 'Asset state updated successfully',
+      asset: {
+        id: asset.id,
+        name: asset.name,
+        state: assetState
+      }
     });
+
   } catch (error) {
-    console.error('Error updating device:', error);
-    res.status(500).json({ error: 'Failed to update device' });
+    console.error('❌ ASSET STATE UPDATE - Error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Public endpoint to delete device (for device management)
-app.delete('/api/device/delete/:id', (req, res) => {
+// ESP32 heartbeat endpoint
+app.post('/api/device/heartbeat', async (req, res) => {
   try {
-    const { id } = req.params;
-    const memoryDB = require('./utils/memoryDB');
+    const { logger_id, status, timestamp, free_heap } = req.body;
     
-    const deleted = memoryDB.deleteLogger(id);
-    if (!deleted) {
-      return res.status(404).json({ error: 'Logger not found' });
-    }
+    console.log('🔍 DEVICE HEARTBEAT - Received from:', logger_id);
     
-    res.json({ message: 'Logger deleted successfully' });
-  } catch (error) {
-    console.error('Error deleting device:', error);
-    res.status(500).json({ error: 'Failed to delete device' });
-  }
-});
-
-app.post('/api/device/heartbeat', (req, res) => {
-  try {
-    const { logger_id, status, firmware_version, wifi_rssi, free_heap, uptime } = req.body;
-    const memoryDB = require('./utils/memoryDB');
-    const clientIP = req.ip || req.connection.remoteAddress;
-
     if (!logger_id) {
+      console.log('❌ DEVICE HEARTBEAT - Missing logger_id');
       return res.status(400).json({ error: 'Logger ID is required' });
     }
 
-    const logger = memoryDB.findLoggerByLoggerId(logger_id);
+    // Find the logger
+    const logger = await databaseService.findLoggerByLoggerId(logger_id);
     if (!logger) {
-      return res.status(404).json({ error: 'Logger not registered. Please register first.' });
+      console.log('❌ DEVICE HEARTBEAT - Logger not found:', logger_id);
+      return res.status(404).json({ error: 'Logger not found' });
     }
 
-    // Update logger status and metadata
-    const updateData = {
-      status: status || 'online',
-      last_seen: new Date(),
-      ip_address: clientIP
-    };
-
-    if (firmware_version && firmware_version !== logger.firmware_version) {
-      updateData.firmware_version = firmware_version;
-    }
-
-    const updatedLogger = memoryDB.updateLogger(logger._id, updateData);
+    // Update logger status and last seen
+    await databaseService.updateLoggerStatus(logger_id, status || 'online');
     
-    console.log(`Heartbeat from ${logger_id}: ${status || 'online'} (RSSI: ${wifi_rssi}, Heap: ${free_heap})`);
-
+    console.log(`✅ DEVICE HEARTBEAT - Updated logger ${logger_id} status`);
+    
     res.json({ 
+      success: true,
       message: 'Heartbeat received',
-      logger_id: logger.logger_id,
-      status: updatedLogger.status,
-      last_seen: updatedLogger.last_seen
+      timestamp: new Date().toISOString()
     });
   } catch (error) {
-    console.error('Error processing device heartbeat:', error);
+    console.error('❌ DEVICE HEARTBEAT - Error:', error);
     res.status(500).json({ error: 'Failed to process heartbeat' });
   }
 });
 
-app.get('/api/device/config/:logger_id', (req, res) => {
+// Fix endpoint to associate Bagger asset with ESP32_001 logger
+app.post('/api/fix-bagger-logger', async (req, res) => {
   try {
-    const { logger_id } = req.params;
-    const memoryDB = require('./utils/memoryDB');
-    
-    const logger = memoryDB.findLoggerByLoggerId(logger_id);
+    // Find the ESP32_001 logger
+    const logger = await databaseService.findLoggerByLoggerId('ESP32_001');
     if (!logger) {
-      return res.status(404).json({ error: 'Logger not registered' });
+      return res.status(404).json({ error: 'ESP32_001 logger not found' });
     }
 
-    // Get assets for this logger
-    const assets = memoryDB.getAssetsByLoggerId(logger._id);
-    
-    // Format configuration for ESP32
-    const config = {
-      logger_id: logger.logger_id,
-      logger_name: logger.logger_name,
-      assets: assets.map(asset => ({
-        pin_number: asset.pin_number,
-        asset_name: asset.name,
-        short_stop_threshold: asset.short_stop_threshold,
-        long_stop_threshold: asset.long_stop_threshold
-      })),
-      heartbeat_interval: 30000, // 30 seconds
-      server_url: `${req.protocol}://${req.get('host')}`
-    };
+    // Find the Bagger asset
+    const asset = await databaseService.findAssetByName('Bagger');
+    if (!asset) {
+      return res.status(404).json({ error: 'Bagger asset not found' });
+    }
 
-    res.json(config);
-  } catch (error) {
-    console.error('Error fetching device config:', error);
-    res.status(500).json({ error: 'Failed to fetch device configuration' });
-  }
-});
-
-// Debug endpoint to check database state
-app.get('/api/debug/database', (req, res) => {
-  try {
-    const memoryDB = require('./utils/memoryDB');
-    const debug = {
-      users: memoryDB.users,
-      loggers: memoryDB.getAllLoggers(),
-      assets: memoryDB.getAllAssets()
-    };
-    res.json(debug);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Debug endpoint to check current user
-app.get('/api/debug/user', authenticateJWT, (req, res) => {
-  try {
-    res.json({
-      currentUser: req.user,
-      token: req.headers.authorization
+    // Update the asset to be associated with the ESP32_001 logger
+    const updatedAsset = await databaseService.updateAsset(asset.id, {
+      logger_id: logger.id
     });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
 
-// Debug endpoint to clear all events
-app.post('/api/debug/clear-events', (req, res) => {
-  try {
-    const memoryDB = require('./utils/memoryDB');
-    const count = memoryDB.clearAllEvents();
+    console.log(`✅ Fixed: Associated Bagger asset with ESP32_001 logger`);
+
     res.json({ 
       success: true, 
-      message: `Cleared ${count} events from database` 
+      message: 'Bagger asset now associated with ESP32_001 logger',
+      asset: {
+        id: updatedAsset.id,
+        name: updatedAsset.name,
+        pin_number: updatedAsset.pin_number,
+        logger_id: updatedAsset.logger_id
+      }
     });
+
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('❌ Error fixing Bagger logger association:', error);
+    res.status(500).json({ error: 'Failed to fix asset association' });
   }
 });
 
-// Authenticated logger routes (for web dashboard)
-app.use('/api/loggers', authenticateJWT, loggerRoutes);
-
-// ESP32 asset state update endpoint
-app.post('/api/asset-state', (req, res) => {
-  const { logger_id, pin_number, is_running, timestamp } = req.body;
-  
-  if (!logger_id || pin_number === undefined) {
-    return res.status(400).json({ 
-      success: false, 
-      error: 'logger_id and pin_number are required' 
-    });
-  }
-
-  try {
-    const memoryDB = require('./utils/memoryDB');
-    
-    // Find the logger
-    const logger = memoryDB.findLoggerByLoggerId(logger_id);
-    if (!logger) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'Logger not registered' 
-      });
-    }
-
-    // Update logger status
-    memoryDB.updateLoggerStatus(logger_id, 'online');
-
-    // Find the asset by logger and pin
-    const assets = memoryDB.getAssetsByLoggerId(logger._id);
-    const asset = assets.find(a => a.pin_number == pin_number);
-    
-    if (!asset) {
-      console.log(`No asset found for logger ${logger_id} pin ${pin_number}`);
-      return res.status(404).json({ 
-        success: false, 
-        error: 'Asset not found for this logger and pin' 
-      });
-    }
-
-    const newState = is_running ? 'RUNNING' : 'STOPPED';
-    const eventTimestamp = timestamp ? new Date(timestamp) : new Date();
-    
-    console.log(`Received update from Logger ${logger_id} - ${asset.name}: ${newState}`);
-
-    // Calculate duration since last state change
-    const lastStateChange = new Date(asset.last_state_change);
-    const duration = Math.floor((eventTimestamp - lastStateChange) / 1000); // seconds
-
-    // Calculate updated runtime/downtime based on previous state
-    let updatedRuntime = asset.runtime || 0;
-    let updatedDowntime = asset.downtime || 0;
-    let updatedTotalStops = asset.total_stops || 0;
-
-    // Always accumulate time based on the PREVIOUS state (what the asset was doing since last update)
-    if (duration > 0) {
-      if (asset.current_state === 'RUNNING') {
-        updatedRuntime += duration * 1000; // Convert to milliseconds for consistency
-      } else if (asset.current_state === 'STOPPED') {
-        updatedDowntime += duration * 1000; // Convert to milliseconds for consistency
-      }
-    }
-
-    // If transitioning to STOPPED, increment stop count
-    if (newState === 'STOPPED' && asset.current_state === 'RUNNING') {
-      updatedTotalStops += 1;
-    }
-
-    // Calculate availability percentage
-    const totalTime = updatedRuntime + updatedDowntime;
-    const availabilityPercentage = totalTime > 0 ? (updatedRuntime / totalTime) * 100 : 0;
-
-    // Update asset state with new runtime/downtime values
-    console.log(`📊 Before update - ${asset.name}: runtime=${asset.runtime}ms, downtime=${asset.downtime}ms, stops=${asset.total_stops}`);
-    console.log(`📊 Updating with: runtime=${updatedRuntime}ms, downtime=${updatedDowntime}ms, stops=${updatedTotalStops}`);
-    
-    const updatedAsset = memoryDB.updateAsset(asset._id, {
-      current_state: newState,
-      last_state_change: eventTimestamp,
-      runtime: updatedRuntime,
-      downtime: updatedDowntime,
-      total_stops: updatedTotalStops,
-      availability_percentage: availabilityPercentage
-    });
-    
-    console.log(`📊 After update - ${updatedAsset.name}: runtime=${updatedAsset.runtime}ms, downtime=${updatedAsset.downtime}ms, stops=${updatedAsset.total_stops}`);
-
-    if (newState !== asset.current_state) {
-      // Create event record only on state change
-      const eventData = {
-        asset: asset._id,
-        asset_name: asset.name,
-        logger_id: logger._id,
-        event_type: newState === 'RUNNING' ? 'START' : 'STOP',
-        state: newState,
-        duration: duration,
-        runtime: asset.current_state === 'RUNNING' ? duration : 0,
-        downtime: asset.current_state === 'STOPPED' ? duration : 0,
-        timestamp: eventTimestamp
-      };
-
-      // Determine if it's a short stop
-      if (newState === 'STOPPED') {
-        eventData.is_short_stop = duration <= (asset.short_stop_threshold || 300);
-      }
-
-      const event = memoryDB.createEvent(eventData);
-      
-      // Emit the state change to all connected clients only on actual change
-      io.emit('asset_state_change', {
-        asset_id: asset._id,
-        asset_name: asset.name,
-        logger_id: logger.logger_id,
-        logger_name: logger.logger_name,
-        pin_number: asset.pin_number,
-        state: newState,
-        duration: duration,
-        is_short_stop: eventData.is_short_stop || false,
-        timestamp: eventTimestamp.toISOString(),
-        raw_timestamp: timestamp
-      });
-    }
-
-    // Note: asset_update events are only for configuration changes, not state changes
-    // Real-time state changes are handled by asset_state_change events
-    
-    res.status(200).json({ 
-      success: true,
-      asset_name: asset.name,
-      state: newState,
-      duration: duration
-    });
-  } catch (error) {
-    console.error('Error processing asset state update:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error' 
-    });
-  }
-});
-
-// Serve static assets in production
+// Serve static files from React build (for production)
 if (process.env.NODE_ENV === 'production') {
-  // Set static folder
-  app.use(express.static(path.join(__dirname, '..', 'frontend', 'build')));
-
+  app.use(express.static(path.join(__dirname, '../frontend/build')));
+  
   app.get('*', (req, res) => {
-    res.sendFile(path.resolve(__dirname, '..', 'frontend', 'build', 'index.html'));
+    res.sendFile(path.join(__dirname, '../frontend/build', 'index.html'));
   });
 }
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
-  console.log('New client connected');
+  console.log('Client connected:', socket.id);
+  
   socket.on('disconnect', () => {
-    console.log('Client disconnected');
-  });
-});
-
-// --- BEGIN: Periodic Asset Runtime/Downtime Update ---
-// REMOVE the previous setInterval block that creates events and updates runtime/downtime on every interval
-// --- END: Periodic Asset Runtime/Downtime Update ---
-
-// Initialize shift scheduler
-async function initializeServices() {
-  try {
-    await shiftScheduler.initialize();
-    console.log('All services initialized successfully');
-  } catch (error) {
-    console.error('Error initializing services:', error);
-  }
-}
-
-// Graceful shutdown handling
-process.on('SIGTERM', async () => {
-  console.log('SIGTERM received, shutting down gracefully...');
-  await shiftScheduler.shutdown();
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
-  });
-});
-
-process.on('SIGINT', async () => {
-  console.log('SIGINT received, shutting down gracefully...');
-  await shiftScheduler.shutdown();
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
+    console.log('Client disconnected:', socket.id);
   });
 });
 
 // Start server
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, '0.0.0.0', async () => {
-  console.log(`Server running on port ${PORT} and listening on all interfaces`);
-  
-  // Initialize services after server starts
-  await initializeServices();
+
+// Wait for database initialization before starting server
+const startServer = async () => {
+  try {
+    // Wait for database service to initialize
+    let attempts = 0;
+    const maxAttempts = 30; // 30 seconds timeout
+    
+    while (!databaseService.initialized && attempts < maxAttempts) {
+      console.log(`⏳ Waiting for database initialization... (${attempts + 1}/${maxAttempts})`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      attempts++;
+    }
+    
+    if (!databaseService.initialized) {
+      throw new Error('Database initialization timeout');
+    }
+    
+    server.listen(PORT, () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`💾 Database: ${process.env.NODE_ENV === 'production' ? 'PostgreSQL' : 'SQLite'}`);
+      
+      // Start background services
+      shiftScheduler.initialize();
+      csvEnhancementService.initialize();
+    });
+    
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+};
+
+startServer();
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully');
+  server.close(() => {
+    console.log('Process terminated');
+  });
 });

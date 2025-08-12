@@ -5,7 +5,11 @@ const {
   createEvent,
   updateEvent,
   deleteEvent,
-  exportEvents
+  exportEvents,
+  archiveEvents,
+  getEventArchives,
+  restoreEventArchive,
+  deleteEventArchive
 } = require('../controllers/eventsController');
 
 const router = express.Router();
@@ -21,6 +25,19 @@ router.route('/')
 
 router.route('/export')
   .get(exportEvents);
+
+// Archive routes
+router.route('/archive')
+  .post(archiveEvents);
+
+router.route('/archives')
+  .get(getEventArchives);
+
+router.route('/archives/:id/restore')
+  .post(restoreEventArchive);
+
+router.route('/archives/:id')
+  .delete(deleteEventArchive);
 
 router.route('/:id')
   .get(getEvent)

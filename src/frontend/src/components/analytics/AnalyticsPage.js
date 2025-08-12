@@ -76,7 +76,7 @@ const AnalyticsPage = () => {
   // Get selected asset name for display
   const getSelectedAssetName = () => {
     if (!filters.asset) return null;
-    const asset = assets.find(a => a._id === filters.asset);
+    const asset = assets.find(a => a.id === filters.asset);
     return asset ? asset.name : 'Unknown Asset';
   };
 
@@ -240,7 +240,7 @@ const AnalyticsPage = () => {
             >
               <MenuItem value="">All Assets</MenuItem>
               {assets.map((asset) => (
-                <MenuItem key={asset._id} value={asset._id}>
+                <MenuItem key={asset.id} value={asset.id}>
                   {asset.name}
                 </MenuItem>
               ))}

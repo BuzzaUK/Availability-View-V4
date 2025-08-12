@@ -39,8 +39,6 @@ import SocketContext from '../../context/SocketContext';
 import SettingsContext from '../../context/SettingsContext';
 import AuthContext from '../../context/AuthContext';
 
-
-
 // Register Chart.js components
 ChartJS.register(
   ArcElement,
@@ -71,7 +69,10 @@ const Dashboard = () => {
   const [refreshCountdown, setRefreshCountdown] = useState(30);
   const [showDebug, setShowDebug] = useState(false);
   const [assetStates, setAssetStates] = useState({});
+  const [currentTime, setCurrentTime] = useState(Date.now()); // For real-time calculations
   const navigate = useNavigate();
+
+  // Remove the every-second update effect - we'll only update on auto-refresh
 
   // Navigate to Analytics with the selected asset pre-filtered
   const handleAnalyticsClick = (assetId) => {
@@ -86,7 +87,7 @@ const Dashboard = () => {
     // This useEffect is reserved for future socket implementation
   }, []);
 
-  // Calculate metrics from real asset data
+  // Calculate metrics from real asset data with real-time updates
   const calculateMetrics = useCallback(() => {
     if (!assets || assets.length === 0) {
       return {
@@ -98,10 +99,13 @@ const Dashboard = () => {
       };
     }
 
+
+
     let totalRuntime = 0;
     let totalDowntime = 0;
     let totalStops = 0;
     let runningAssets = 0;
+    const now = new Date(currentTime); // Use the state-based current time
 
     const assetMetrics = assets.map(asset => {
       const currentState = assetStates[asset.name];
@@ -111,20 +115,38 @@ const Dashboard = () => {
         runningAssets++;
       }
 
-      totalRuntime += asset.runtime || 0;
-      totalDowntime += asset.downtime || 0;
+      // Use accumulated database values (stored in seconds) and convert to milliseconds
+      let currentRuntimeMs = (asset.runtime || 0) * 1000; // Convert seconds to milliseconds
+      let currentDowntimeMs = (asset.downtime || 0) * 1000; // Convert seconds to milliseconds
+      
+      // Add time since last state change for real-time display
+      if (asset.last_state_change) {
+        const lastStateChange = new Date(asset.last_state_change);
+        const timeSinceLastChangeMs = Math.max(0, now - lastStateChange);
+        
+        if (status === 'RUNNING') {
+          currentRuntimeMs += timeSinceLastChangeMs;
+        } else if (status === 'STOPPED') {
+          currentDowntimeMs += timeSinceLastChangeMs;
+        }
+      }
+
+      totalRuntime += currentRuntimeMs;
+      totalDowntime += currentDowntimeMs;
       totalStops += asset.total_stops || 0;
 
-      const totalTime = (asset.runtime || 0) + (asset.downtime || 0);
-      const availability = totalTime > 0 ? (asset.runtime || 0) / totalTime : 0;
+      const totalTime = currentRuntimeMs + currentDowntimeMs;
+      const availability = totalTime > 0 ? currentRuntimeMs / totalTime : 0;
 
       return {
-        id: asset._id,
+        id: asset.id,
         name: asset.name,
         status: status,
         availability: availability,
-        runtime: formatMilliseconds(asset.runtime || 0),
-        downtime: formatMilliseconds(asset.downtime || 0),
+        runtime: formatMilliseconds(currentRuntimeMs),
+        downtime: formatMilliseconds(currentDowntimeMs),
+        runtimeMs: currentRuntimeMs,
+        downtimeMs: currentDowntimeMs,
         totalStops: asset.total_stops || 0,
         pin_number: asset.pin_number
       };
@@ -139,7 +161,7 @@ const Dashboard = () => {
       totalStops,
       assets: assetMetrics
     };
-  }, [assets, assetStates]);
+  }, [assets, assetStates, currentTime]);
 
   const formatMilliseconds = (ms) => {
     if (!ms) return '00:00:00';
@@ -182,33 +204,48 @@ const Dashboard = () => {
     };
   };
 
-  const getRuntimeDowntimeChartData = (runtime, downtime) => {
-    // Convert time strings to minutes for comparison
-    const parseTime = (timeStr) => {
-      if (!timeStr || timeStr === '00:00:00') return 0;
-      const [hours, minutes, seconds] = timeStr.split(':').map(Number);
-      return hours * 60 + minutes + seconds / 60;
-    };
-    
-    const runtimeMinutes = parseTime(runtime);
-    const downtimeMinutes = parseTime(downtime);
+  // New function to get the maximum time value for scaling
+  const getMaxTimeValue = (runtimeMs, downtimeMs) => {
+    return Math.max(runtimeMs, downtimeMs);
+  };
+
+  // New function to create runtime chart data
+  const getRuntimeChartData = (runtimeMs, maxTimeMs) => {
+    const runtimeMinutes = runtimeMs / 60000; // Convert to minutes
+    const maxMinutes = maxTimeMs / 60000;
     
     return {
-      labels: ['Runtime', 'Downtime'],
-      datasets: [{
-        label: 'Time',
-        data: [runtimeMinutes, downtimeMinutes],
-        backgroundColor: [
-          'rgba(16, 185, 129, 0.7)', // More opaque green for runtime
-          'rgba(239, 68, 68, 0.7)', // More opaque red for downtime
-        ],
-        borderColor: [
-          'rgba(16, 185, 129, 1)',
-          'rgba(239, 68, 68, 1)',
-        ],
-        borderWidth: 1,
-        borderRadius: 4,
-      }],
+      labels: ['Runtime'],
+      datasets: [
+        {
+          label: 'Runtime',
+          data: [runtimeMinutes],
+          backgroundColor: 'rgba(16, 185, 129, 0.8)', // Green
+          borderColor: 'rgba(16, 185, 129, 1)',
+          borderWidth: 1,
+          borderRadius: 4,
+        }
+      ],
+    };
+  };
+
+  // New function to create downtime chart data
+  const getDowntimeChartData = (downtimeMs, maxTimeMs) => {
+    const downtimeMinutes = downtimeMs / 60000; // Convert to minutes
+    const maxMinutes = maxTimeMs / 60000;
+    
+    return {
+      labels: ['Downtime'],
+      datasets: [
+        {
+          label: 'Downtime',
+          data: [downtimeMinutes],
+          backgroundColor: 'rgba(239, 68, 68, 0.8)', // Red
+          borderColor: 'rgba(239, 68, 68, 1)',
+          borderWidth: 1,
+          borderRadius: 4,
+        }
+      ],
     };
   };
 
@@ -298,7 +335,6 @@ const Dashboard = () => {
       },
       y: {
         display: false,
-        stacked: true,
       }
     },
     layout: {
@@ -309,72 +345,97 @@ const Dashboard = () => {
     }
   };
 
-  const runtimeDowntimeChartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        display: false,
-      },
-      tooltip: {
-        callbacks: {
-          label: function(context) {
-            const value = context.parsed.y;
-            const hours = Math.floor(value / 60);
-            const minutes = Math.floor(value % 60);
-            return `${context.label}: ${hours}h ${minutes}m`;
-          }
+  // Improved chart options for runtime/downtime horizontal bars with better time scaling
+  const getTimeChartOptions = (maxTimeMs) => {
+    // Determine the best unit and scale based on the maximum time
+    let maxValue, unit, stepSize, tickCallback, tooltipCallback;
+    
+    if (maxTimeMs < 60000) { // Less than 1 minute - use seconds
+      maxValue = Math.max(Math.ceil(maxTimeMs / 1000), 10); // Minimum 10 seconds scale
+      stepSize = maxValue <= 30 ? 5 : 10; // 5s steps for small values, 10s for larger
+      unit = 'seconds';
+      tickCallback = function(value) {
+        return `${Math.round(value)}s`;
+      };
+      tooltipCallback = function(context) {
+        const value = context.parsed.x;
+        return `${context.dataset.label}: ${Math.round(value)}s`;
+      };
+    } else if (maxTimeMs < 3600000) { // Less than 1 hour - use minutes
+      maxValue = Math.max(Math.ceil(maxTimeMs / 60000), 5);
+      stepSize = maxValue <= 10 ? 1 : maxValue <= 30 ? 5 : 10; // More granular steps
+      unit = 'minutes';
+      tickCallback = function(value) {
+        return `${Math.round(value)}m`;
+      };
+      tooltipCallback = function(context) {
+        const value = context.parsed.x;
+        return `${context.dataset.label}: ${Math.round(value)}m`;
+      };
+    } else { // 1 hour or more - use hours and minutes
+      maxValue = Math.ceil(maxTimeMs / 60000);
+      stepSize = maxValue <= 120 ? 15 : 30; // 15min or 30min steps
+      unit = 'hours';
+      tickCallback = function(value) {
+        const hours = Math.floor(value / 60);
+        const minutes = Math.floor(value % 60);
+        if (hours > 0) {
+          return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
         }
-      }
-    },
-    scales: {
-      x: {
-        display: true,
-        grid: {
+        return `${minutes}m`;
+      };
+      tooltipCallback = function(context) {
+        const value = context.parsed.x;
+        const hours = Math.floor(value / 60);
+        const minutes = Math.floor(value % 60);
+        return `${context.dataset.label}: ${hours}h ${minutes}m`;
+      };
+    }
+    
+    return {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
           display: false,
         },
-        ticks: {
-          font: {
-            size: 10,
-          },
-          color: '#64748b',
+        tooltip: {
+          callbacks: {
+            label: tooltipCallback
+          }
         }
       },
-      y: {
-        beginAtZero: true,
-        display: true,
-        grid: {
+      scales: {
+        x: {
+          beginAtZero: true,
+          max: maxValue,
           display: true,
-          color: 'rgba(0, 0, 0, 0.1)',
+          grid: {
+            display: true,
+            color: 'rgba(0, 0, 0, 0.15)',
+          },
+          ticks: {
+            stepSize: stepSize,
+            callback: tickCallback,
+            font: {
+              size: 10,
+            },
+            color: '#64748b',
+            maxTicksLimit: 8, // Limit number of ticks for readability
+          }
         },
-        ticks: {
-          stepSize: function(context) {
-            const max = context.chart.scales.y.max;
-            if (max <= 60) return 10; // 10 minute intervals for small values
-            if (max <= 300) return 30; // 30 minute intervals for medium values
-            return 60; // 1 hour intervals for large values
-          },
-          callback: function(value) {
-            const hours = Math.floor(value / 60);
-            const minutes = Math.floor(value % 60);
-            if (hours > 0) {
-              return `${hours}h${minutes > 0 ? ` ${minutes}m` : ''}`;
-            }
-            return `${minutes}m`;
-          },
-          font: {
-            size: 10,
-          },
-          color: '#64748b',
+        y: {
+          display: false,
+        }
+      },
+      layout: {
+        padding: {
+          top: 5,
+          bottom: 5,
         }
       }
-    },
-    layout: {
-      padding: {
-        top: 5,
-        bottom: 5,
-      }
-    }
+    };
   };
 
   // Update countdown when settings change
@@ -383,8 +444,6 @@ const Dashboard = () => {
       setRefreshCountdown(settings.refreshInterval);
     }
   }, [settings?.refreshInterval, settings?.autoRefresh]);
-
-
 
   // Auto-refresh countdown
   useEffect(() => {
@@ -402,6 +461,8 @@ const Dashboard = () => {
             // Call fetchAllData directly to avoid dependency loops
             fetchAllData().then(() => {
               console.log('✅ Auto-refresh completed successfully', new Date().toISOString());
+              // Update current time to refresh calculations
+              setCurrentTime(Date.now());
             }).catch(error => {
               console.error('❌ Auto-refresh failed:', error, new Date().toISOString());
             });
@@ -440,7 +501,6 @@ const Dashboard = () => {
             <strong>User:</strong> {user?.email || 'None'}<br/>
             <strong>Settings Auto-Refresh:</strong> {settings?.autoRefresh ? 'Enabled' : 'Disabled'}<br/>
             <strong>Settings Refresh Interval:</strong> {settings?.refreshInterval || 'Not Set'}<br/>
-            <strong>Current Countdown:</strong> {refreshCountdown}s
           </Typography>
         </Alert>
       )}
@@ -457,27 +517,6 @@ const Dashboard = () => {
             onClick={() => setShowDebug(!showDebug)}
           >
             {showDebug ? 'Hide Debug' : 'Show Debug'}
-          </Button>
-          {settings?.autoRefresh && (
-            <Chip 
-              icon={<RefreshIcon />}
-              label={`Auto-refresh in: ${refreshCountdown}s`}
-              variant="outlined"
-              color="primary"
-              size="small"
-            />
-          )}
-          <Button
-            variant="outlined"
-            startIcon={<RefreshIcon />}
-            onClick={() => {
-              // Force refresh by fetching fresh data and resetting countdown
-              fetchAllData();
-              setRefreshCountdown(settings?.refreshInterval || 30);
-            }}
-            disabled={false}
-          >
-            Refresh Now
           </Button>
         </Box>
       </Box>
@@ -555,157 +594,154 @@ const Dashboard = () => {
       
       <Grid container spacing={3}>
         {metrics.assets && metrics.assets.length > 0 ? (
-          metrics.assets.map((asset) => (
-            <Grid item xs={12} md={4} key={asset.id}>
-              <Card sx={{ 
-                height: '100%',
-                border: `2px solid ${getStatusColor(asset.status)}`,
-                borderRadius: 2,
-                '&:hover': {
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
-                }
-              }}>
-                <CardContent sx={{ p: 3 }}>
-                  {/* Asset Header */}
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                    <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                      {asset.name}
-                      {asset.pin_number && (
-                        <Typography variant="caption" sx={{ color: '#64748b', ml: 1 }}>
-                          (Pin {asset.pin_number})
+          metrics.assets.map((asset) => {
+            const maxTimeMs = getMaxTimeValue(asset.runtimeMs, asset.downtimeMs);
+            const timeChartOptions = getTimeChartOptions(maxTimeMs);
+            
+            return (
+              <Grid item xs={12} md={4} key={asset.id}>
+                <Card sx={{ 
+                  height: '100%',
+                  border: `2px solid ${getStatusColor(asset.status)}`,
+                  borderRadius: 2,
+                  '&:hover': {
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                  }
+                }}>
+                  <CardContent sx={{ p: 3 }}>
+                    {/* Asset Header */}
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                      <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                        {asset.name}
+                        {asset.pin_number && (
+                          <Typography variant="caption" sx={{ color: '#64748b', ml: 1 }}>
+                            (Pin {asset.pin_number})
+                          </Typography>
+                        )}
+                      </Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Chip
+                          label={asset.status}
+                          size="small"
+                          sx={{
+                            backgroundColor: getStatusColor(asset.status),
+                            color: 'white',
+                            fontWeight: 500
+                          }}
+                        />
+                        <Box
+                          sx={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: '50%',
+                            backgroundColor: getStatusColor(asset.status),
+                          }}
+                        />
+                      </Box>
+                    </Box>
+
+                    {/* Asset Metrics - Removed duplicate text readings, keeping only Total Stops */}
+                    <Box sx={{ mb: 2 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                        <Typography variant="body1" sx={{ color: '#64748b', fontSize: '1rem' }}>
+                          Total Stops:
                         </Typography>
-                      )}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Chip
-                        label={asset.status}
-                        size="small"
-                        sx={{
-                          backgroundColor: getStatusColor(asset.status),
-                          color: 'white',
-                          fontWeight: 500
-                        }}
-                      />
-                      <Box
-                        sx={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: '50%',
-                          backgroundColor: getStatusColor(asset.status),
-                        }}
-                      />
-                    </Box>
-                  </Box>
-
-                  {/* Asset Metrics */}
-                  <Box sx={{ mb: 3 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography variant="body1" sx={{ color: '#64748b', fontSize: '1rem' }}>
-                        Availability:
-                      </Typography>
-                      <Typography variant="body1" sx={{ fontWeight: 600, fontSize: '1.1rem' }}>
-                        {(asset.availability * 100).toFixed(1)}%
-                      </Typography>
-                    </Box>
-                    
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography variant="body1" sx={{ color: '#64748b', fontSize: '1rem' }}>
-                        Runtime:
-                      </Typography>
-                      <Typography variant="body1" sx={{ fontWeight: 600, color: '#10b981', fontSize: '1.1rem' }}>
-                        {formatTime(asset.runtime)}
-                      </Typography>
-                    </Box>
-                    
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography variant="body1" sx={{ color: '#64748b', fontSize: '1rem' }}>
-                        Downtime:
-                      </Typography>
-                      <Typography variant="body1" sx={{ fontWeight: 600, color: '#ef4444', fontSize: '1.1rem' }}>
-                        {formatTime(asset.downtime)}
-                      </Typography>
-                    </Box>
-                    
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-                      <Typography variant="body1" sx={{ color: '#64748b', fontSize: '1rem' }}>
-                        Total Stops:
-                      </Typography>
-                      <Typography variant="body1" sx={{ fontWeight: 600, fontSize: '1.1rem' }}>
-                        {asset.totalStops}
-                      </Typography>
-                    </Box>
-                  </Box>
-
-                  {/* Availability Chart */}
-                  <Box sx={{ mb: 2 }}>
-                    <Typography variant="body2" sx={{ color: '#64748b', mb: 1, textAlign: 'center', fontWeight: 500 }}>
-                      Availability
-                    </Typography>
-                    <Box sx={{ 
-                      height: 60, 
-                      position: 'relative'
-                    }}>
-                      <Bar 
-                        data={getAvailabilityChartData(asset.availability)} 
-                        options={availabilityChartOptions}
-                      />
-                    </Box>
-                    <Box sx={{ textAlign: 'center', mt: 1 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 600, color: '#3b82f6' }}>
-                        {(asset.availability * 100).toFixed(1)}%
-                      </Typography>
-                    </Box>
-                  </Box>
-
-                  {/* Runtime vs Downtime Chart */}
-                  <Box>
-                    <Typography variant="body2" sx={{ color: '#64748b', mb: 1, textAlign: 'center', fontWeight: 500 }}>
-                      Runtime vs Downtime
-                    </Typography>
-                    <Box sx={{ 
-                      height: 120,
-                      position: 'relative'
-                    }}>
-                      <Bar 
-                        data={getRuntimeDowntimeChartData(asset.runtime, asset.downtime)} 
-                        options={runtimeDowntimeChartOptions}
-                      />
-                    </Box>
-                    <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mt: 1 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <Box sx={{ width: 12, height: 12, backgroundColor: 'rgba(16, 185, 129, 0.8)', borderRadius: 1 }} />
-                        <Typography variant="caption" sx={{ color: '#64748b' }}>Runtime</Typography>
-                      </Box>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <Box sx={{ width: 12, height: 12, backgroundColor: 'rgba(239, 68, 68, 0.8)', borderRadius: 1 }} />
-                        <Typography variant="caption" sx={{ color: '#64748b' }}>Downtime</Typography>
+                        <Typography variant="body1" sx={{ fontWeight: 600, fontSize: '1.1rem' }}>
+                          {asset.totalStops}
+                        </Typography>
                       </Box>
                     </Box>
-                  </Box>
 
-                  {/* Analytics Button */}
-                  <Box sx={{ mt: 2 }}>
-                    <Button
-                      variant="outlined"
-                      fullWidth
-                      startIcon={<AnalyticsIcon />}
-                      onClick={() => handleAnalyticsClick(asset.id)}
-                      sx={{
-                        borderColor: '#3b82f6',
-                        color: '#3b82f6',
-                        '&:hover': {
-                          backgroundColor: 'rgba(59, 130, 246, 0.04)',
-                          borderColor: '#2563eb'
-                        }
-                      }}
-                    >
-                      View Analytics
-                    </Button>
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
-          ))
+                    {/* Availability Chart - Fixed height and layout */}
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="body2" sx={{ color: '#64748b', mb: 1, textAlign: 'center', fontWeight: 500 }}>
+                        Availability
+                      </Typography>
+                      <Box sx={{ 
+                        height: 50, 
+                        position: 'relative',
+                        mb: 1
+                      }}>
+                        <Bar 
+                          data={getAvailabilityChartData(asset.availability)} 
+                          options={availabilityChartOptions}
+                        />
+                      </Box>
+                      <Box sx={{ textAlign: 'center' }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, color: '#3b82f6' }}>
+                          {(asset.availability * 100).toFixed(1)}%
+                        </Typography>
+                      </Box>
+                    </Box>
+
+                    {/* Runtime Chart */}
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="body2" sx={{ color: '#64748b', mb: 1, textAlign: 'center', fontWeight: 500 }}>
+                        Runtime
+                      </Typography>
+                      <Box sx={{ 
+                        height: 50,
+                        position: 'relative',
+                        mb: 1
+                      }}>
+                        <Bar 
+                          data={getRuntimeChartData(asset.runtimeMs, maxTimeMs)} 
+                          options={timeChartOptions}
+                        />
+                      </Box>
+                      <Box sx={{ textAlign: 'center' }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, color: '#10b981' }}>
+                          {formatTime(asset.runtime)}
+                        </Typography>
+                      </Box>
+                    </Box>
+
+                    {/* Downtime Chart */}
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="body2" sx={{ color: '#64748b', mb: 1, textAlign: 'center', fontWeight: 500 }}>
+                        Downtime
+                      </Typography>
+                      <Box sx={{ 
+                        height: 50,
+                        position: 'relative',
+                        mb: 1
+                      }}>
+                        <Bar 
+                          data={getDowntimeChartData(asset.downtimeMs, maxTimeMs)} 
+                          options={timeChartOptions}
+                        />
+                      </Box>
+                      <Box sx={{ textAlign: 'center' }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, color: '#ef4444' }}>
+                          {formatTime(asset.downtime)}
+                        </Typography>
+                      </Box>
+                    </Box>
+
+                    {/* Analytics Button */}
+                    <Box sx={{ mt: 2 }}>
+                      <Button
+                        variant="outlined"
+                        fullWidth
+                        startIcon={<AnalyticsIcon />}
+                        onClick={() => handleAnalyticsClick(asset.id)}
+                        sx={{
+                          borderColor: '#3b82f6',
+                          color: '#3b82f6',
+                          '&:hover': {
+                            backgroundColor: 'rgba(59, 130, 246, 0.04)',
+                            borderColor: '#2563eb'
+                          }
+                        }}
+                      >
+                        View Analytics
+                      </Button>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+            );
+          })
         ) : (
           <Grid item xs={12}>
             <Paper sx={{ p: 3, textAlign: 'center' }}>
@@ -719,4 +755,5 @@ const Dashboard = () => {
     </Box>
   );
 };
+
 export default Dashboard;

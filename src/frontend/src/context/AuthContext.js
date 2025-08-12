@@ -146,6 +146,21 @@ export const AuthProvider = ({ children }) => {
   // Clear any auth errors
   const clearError = () => setError(null);
 
+  // Login with existing JWT (used after invitation acceptance)
+  const loginWithToken = async (jwtToken) => {
+    localStorage.setItem('token', jwtToken);
+    setToken(jwtToken);
+    setIsAuthenticated(true);
+    try {
+      const res = await axios.get('/api/auth/me', {
+        headers: { Authorization: `Bearer ${jwtToken}` }
+      });
+      setUser(res.data.data);
+    } catch (err) {
+      console.error('Failed to load user after token login:', err);
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -161,6 +176,7 @@ export const AuthProvider = ({ children }) => {
         changePassword,
         requestPasswordReset,
         resetPassword,
+        loginWithToken,
         clearError
       }}
     >

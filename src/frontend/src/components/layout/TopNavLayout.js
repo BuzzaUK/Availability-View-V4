@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { styled } from '@mui/material/styles';
 import {
@@ -14,8 +14,8 @@ import {
   Divider,
   ListItemIcon,
   Badge,
-  Button,
-  Chip
+  Chip,
+  Button
 } from '@mui/material';
 import {
   Dashboard as DashboardIcon,
@@ -35,6 +35,7 @@ import {
 // Context
 import AuthContext from '../../context/AuthContext';
 import SocketContext from '../../context/SocketContext';
+import SettingsContext from '../../context/SettingsContext';
 import AlertDisplay from './AlertDisplay';
 
 // Styled components
@@ -75,11 +76,16 @@ const TopNavLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useContext(AuthContext);
-  const { connected, currentShift } = useContext(SocketContext);
+  const { connected, currentShift, fetchAllData } = useContext(SocketContext);
+  const { settings } = useContext(SettingsContext);
   
   // User menu state
   const [anchorEl, setAnchorEl] = useState(null);
   const menuOpen = Boolean(anchorEl);
+  
+  // Refresh state
+  const [refreshCountdown, setRefreshCountdown] = useState(30);
+  const [showRefreshNotice, setShowRefreshNotice] = useState(false);
 
   // Navigation tabs
   const navigationTabs = [
@@ -132,9 +138,46 @@ const TopNavLayout = () => {
     navigate('/login');
   };
 
+  // Handle manual refresh
   const handleRefresh = () => {
-    window.location.reload();
+    fetchAllData();
+    setShowRefreshNotice(true);
+    setTimeout(() => setShowRefreshNotice(false), 2000);
+    setRefreshCountdown(settings?.refreshInterval || 30);
   };
+
+  // Update countdown when settings change
+  useEffect(() => {
+    if (settings?.refreshInterval) {
+      setRefreshCountdown(settings.refreshInterval);
+    }
+  }, [settings?.refreshInterval]);
+
+  // Auto-refresh countdown effect
+  useEffect(() => {
+    if (settings?.autoRefresh) {
+      const interval = setInterval(() => {
+        setRefreshCountdown(prev => {
+          const newValue = prev - 1;
+          
+          if (newValue <= 0) {
+            // Trigger refresh
+            fetchAllData();
+            setShowRefreshNotice(true);
+            setTimeout(() => setShowRefreshNotice(false), 2000);
+            return settings?.refreshInterval || 30;
+          }
+          
+          return newValue;
+        });
+      }, 1000);
+
+      return () => clearInterval(interval);
+    } else {
+      // Reset countdown when auto-refresh is disabled
+      setRefreshCountdown(settings?.refreshInterval || 30);
+    }
+  }, [settings?.autoRefresh, settings?.refreshInterval, fetchAllData]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -176,33 +219,42 @@ const TopNavLayout = () => {
 
           {/* Right side - Status and User Menu */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            {/* Auto-refresh indicator */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography variant="body2" sx={{ color: '#94a3b8' }}>
-                Auto-refresh in:
-              </Typography>
-              <Chip 
-                icon={<RefreshIcon />}
-                label="30s"
-                size="small"
-                variant="outlined"
-                sx={{ 
-                  color: '#10b981',
-                  borderColor: '#10b981',
-                  '& .MuiChip-icon': { color: '#10b981' }
-                }}
-              />
-              <Button
-                size="small"
-                onClick={handleRefresh}
-                sx={{ 
-                  color: '#94a3b8',
-                  '&:hover': { color: '#ffffff' }
-                }}
-              >
-                Refresh Now
-              </Button>
-            </Box>
+            {/* Auto-refresh indicator - only show on Dashboard and Events pages */}
+            {(location.pathname === '/' || location.pathname === '/events') && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="body2" sx={{ color: '#94a3b8' }}>
+                  Auto-refresh in:
+                </Typography>
+                <Chip 
+                  icon={<RefreshIcon />}
+                  label={settings?.autoRefresh ? `${refreshCountdown}s` : 'Off'}
+                  size="small"
+                  variant="outlined"
+                  sx={{ 
+                    color: settings?.autoRefresh ? '#10b981' : '#94a3b8',
+                    borderColor: settings?.autoRefresh ? '#10b981' : '#94a3b8',
+                    '& .MuiChip-icon': { 
+                      color: settings?.autoRefresh ? '#10b981' : '#94a3b8' 
+                    }
+                  }}
+                />
+                <Button
+                  size="small"
+                  onClick={handleRefresh}
+                  sx={{ 
+                    color: '#94a3b8',
+                    '&:hover': { color: '#ffffff' }
+                  }}
+                >
+                  Refresh Now
+                </Button>
+                {showRefreshNotice && (
+                  <Typography variant="caption" sx={{ color: '#10b981' }}>
+                    ✓ Refreshed
+                  </Typography>
+                )}
+              </Box>
+            )}
 
             {/* Connection status */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -248,20 +300,20 @@ const TopNavLayout = () => {
               <AccountCircle />
             </IconButton>
             <Menu
+              id="menu-appbar"
               anchorEl={anchorEl}
+              anchorOrigin={{
+                vertical: 'bottom',
+                horizontal: 'right',
+              }}
+              keepMounted
+              transformOrigin={{
+                vertical: 'top',
+                horizontal: 'right',
+              }}
               open={menuOpen}
               onClose={handleClose}
-              transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-              anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
             >
-              {user && (
-                <MenuItem disabled>
-                  <Typography variant="body2">
-                    Signed in as <strong>{user.name}</strong>
-                  </Typography>
-                </MenuItem>
-              )}
-              <Divider />
               <MenuItem onClick={handleProfile}>
                 <ListItemIcon>
                   <Person fontSize="small" />
@@ -286,9 +338,11 @@ const TopNavLayout = () => {
         </Toolbar>
       </StyledAppBar>
 
-      {/* Main content */}
+      {/* Alert Display */}
+      <AlertDisplay />
+
+      {/* Main Content */}
       <MainContent>
-        <AlertDisplay />
         <Outlet />
       </MainContent>
     </Box>

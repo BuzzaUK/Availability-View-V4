@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const memoryDB = require('../utils/memoryDB');
+const databaseService = require('../services/databaseService');
 
 // Middleware to protect routes
 exports.authenticateJWT = async (req, res, next) => {
@@ -25,17 +25,16 @@ exports.authenticateJWT = async (req, res, next) => {
     console.log('JWT decoded:', decoded);
     console.log('Looking for user ID:', decoded.id);
     
-    // Get user from in-memory database
-    req.user = await memoryDB.findUserById(decoded.id);
-    
-    console.log('Found user:', req.user ? 'Yes' : 'No');
-    
-    if (!req.user) {
+    // Get user from database
+    const user = await databaseService.findUserById(decoded.id);
+    if (!user) {
       return res.status(401).json({
         success: false,
         message: 'User not found'
       });
     }
+    
+    req.user = user;
     
     next();
   } catch (error) {

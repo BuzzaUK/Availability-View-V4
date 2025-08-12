@@ -1,4 +1,4 @@
-const memoryDB = require('../utils/memoryDB');
+const databaseService = require('../services/databaseService');
 
 // Helper function to calculate time difference in minutes
 const getTimeDifferenceInMinutes = (startDate, endDate) => {
@@ -7,22 +7,24 @@ const getTimeDifferenceInMinutes = (startDate, endDate) => {
 
 // Helper function to get date range with defaults
 const getDateRangeFilter = (startDate, endDate) => {
-  const start = startDate ? new Date(startDate) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000); // Default to 7 days ago
-  const end = endDate ? new Date(endDate) : new Date(); // Default to now
+  const start = startDate ? new Date(startDate) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const end = endDate ? new Date(endDate) : new Date();
   return { start, end };
 };
 
-// Helper function to get user-scoped assets and events
-const getUserScopedData = (req) => {
+// Helper function to get user-scoped assets and events from SQL database
+const getUserScopedData = async (req) => {
   const userId = req.user?.id;
   
   if (!userId) {
     throw new Error('User not authenticated');
   }
 
-  // Get user's assets and events
-  const userAssets = memoryDB.getAssetsByUserId(userId);
-  const userEvents = memoryDB.getEventsByUserId(userId);
+  const userAssets = await databaseService.getAllAssets();
+  const eventsResult = await databaseService.getAllEvents();
+  
+  // Extract rows from findAndCountAll result
+  const userEvents = eventsResult.rows || eventsResult;
   
   return { userAssets, userEvents, userId };
 };
@@ -34,15 +36,13 @@ exports.getOverviewAnalytics = async (req, res) => {
   try {
     const { start_date, end_date } = req.query;
     const { start, end } = getDateRangeFilter(start_date, end_date);
-    const { userAssets, userEvents } = getUserScopedData(req);
+    const { userAssets, userEvents } = await getUserScopedData(req);
 
-    // Filter events by date range
     const events = userEvents.filter(event => {
       const eventDate = new Date(event.timestamp);
       return eventDate >= start && eventDate <= end;
     });
 
-    // Calculate overall metrics
     let totalRuntime = 0;
     let totalDowntime = 0;
     let totalStops = 0;
@@ -60,12 +60,12 @@ exports.getOverviewAnalytics = async (req, res) => {
     const totalTime = totalRuntime + totalDowntime;
     const overallAvailability = totalTime > 0 ? (totalRuntime / totalTime) * 100 : 0;
 
-    // Calculate event statistics
     const eventStats = {
       total: events.length,
       starts: events.filter(e => e.event_type === 'START').length,
       stops: events.filter(e => e.event_type === 'STOP').length,
-      shifts: events.filter(e => e.event_type === 'SHIFT').length
+      shifts: events.filter(e => e.event_type === 'SHIFT').length,
+      state_changes: events.filter(e => e.event_type === 'STATE_CHANGE').length
     };
 
     res.status(200).json({
@@ -100,21 +100,16 @@ exports.getOverviewAnalytics = async (req, res) => {
 // @access  Private
 exports.getOEEAnalytics = async (req, res) => {
   try {
-    const { start_date, end_date, asset_id } = req.query;
+    const { start_date, end_date, asset_id, groupBy = 'day' } = req.query;
     const { start, end } = getDateRangeFilter(start_date, end_date);
-    const { userAssets, userEvents } = getUserScopedData(req);
+    const { userAssets, userEvents } = await getUserScopedData(req);
 
     const assets = asset_id ? 
-      userAssets.filter(asset => asset._id == asset_id) : 
+      userAssets.filter(asset => asset.id == asset_id || asset._id == asset_id) : 
       userAssets;
 
-    const allEvents = memoryDB.getAllEvents();
-    
-    // Generate time-series data based on groupBy parameter
-    const { groupBy = 'day' } = req.query;
     const oeeData = [];
     
-    // Generate date range based on groupBy
     const generateDateRange = (start, end, groupBy) => {
       const dates = [];
       const current = new Date(start);
@@ -155,27 +150,28 @@ exports.getOEEAnalytics = async (req, res) => {
           break;
       }
       
-      // Filter events for this time period
-      const periodEvents = allEvents.filter(event => {
+      const periodEvents = userEvents.filter(event => {
         const eventDate = new Date(event.timestamp);
         return eventDate >= date && eventDate < nextDate;
       });
       
       let totalRuntime = 0;
       let totalDowntime = 0;
-      let plannedProductionTime = 8 * 60 * 60; // 8 hours in seconds
+      let plannedProductionTime = 8 * 60 * 60;
       
       periodEvents.forEach(event => {
-        if (event.event_type === 'START' || event.state === 'RUNNING') {
-          totalRuntime += event.duration || 0;
-        } else if (event.event_type === 'STOP' || event.state === 'STOPPED') {
-          totalDowntime += event.duration || 0;
+        if (event.event_type === 'STATE_CHANGE') {
+          if (event.new_state === 'RUNNING') {
+            totalRuntime += event.duration || 0;
+          } else if (event.new_state === 'STOPPED') {
+            totalDowntime += event.duration || 0;
+          }
         }
       });
       
       const availability = plannedProductionTime > 0 ? (totalRuntime / plannedProductionTime) : 0;
-      const performance = 0.85; // Mock performance rate as decimal
-      const quality = 0.95; // Mock quality rate as decimal
+      const performance = 0.85;
+      const quality = 0.95;
       const oee = availability * performance * quality;
       
       oeeData.push({
@@ -206,65 +202,65 @@ exports.getOEEAnalytics = async (req, res) => {
   }
 };
 
-// @desc    Get Downtime Analytics
+// @desc    Get downtime analytics
 // @route   GET /api/analytics/downtime
 // @access  Private
 exports.getDowntimeAnalytics = async (req, res) => {
   try {
     const { start_date, end_date, asset_id } = req.query;
     const { start, end } = getDateRangeFilter(start_date, end_date);
-
-    const allEvents = memoryDB.getAllEvents();
+    const { userEvents } = await getUserScopedData(req);
     
-    let downtimeEvents = allEvents.filter(event => {
+    let downtimeEvents = userEvents.filter(event => {
       const eventDate = new Date(event.timestamp);
-      return (event.event_type === 'STOP' || event.state === 'STOPPED') && 
-             eventDate >= start && eventDate <= end;
+      return eventDate >= start && eventDate <= end &&
+             (event.event_type === 'STOP' || 
+              (event.event_type === 'STATE_CHANGE' && event.new_state === 'STOPPED'));
     });
 
     if (asset_id) {
-      downtimeEvents = downtimeEvents.filter(event => event.asset == asset_id);
+      downtimeEvents = downtimeEvents.filter(event => event.asset_id == asset_id);
     }
 
-    // Group by reason/note
-    const downtimeByReason = downtimeEvents.reduce((acc, event) => {
-      const reason = event.note || 'Unknown';
-      if (!acc[reason]) {
-        acc[reason] = {
+    const downtimeByReason = {};
+    let totalDowntime = 0;
+
+    downtimeEvents.forEach(event => {
+      const duration = event.duration || 0;
+      const reason = event.stop_reason || 'Unknown';
+      
+      if (!downtimeByReason[reason]) {
+        downtimeByReason[reason] = {
           reason,
-          count: 0,
           total_duration: 0,
-          events: []
+          count: 0,
+          percentage: 0
         };
       }
-      acc[reason].count++;
-      acc[reason].total_duration += event.duration || 0;
-      acc[reason].events.push(event);
-      return acc;
-    }, {});
+      
+      downtimeByReason[reason].total_duration += duration;
+      downtimeByReason[reason].count++;
+      totalDowntime += duration;
+    });
 
-    const downtimeReasons = Object.values(downtimeByReason).map(item => ({
-      reason: item.reason,
-      count: item.count,
-      duration: parseFloat((item.total_duration * 1000).toFixed(2)), // Convert to milliseconds for frontend
-      total_duration: parseFloat(item.total_duration.toFixed(2)),
-      average_duration: parseFloat((item.total_duration / item.count).toFixed(2)),
-      percentage: parseFloat(((item.total_duration / downtimeEvents.reduce((sum, e) => sum + (e.duration || 0), 0)) * 100).toFixed(2))
-    }));
+    Object.values(downtimeByReason).forEach(item => {
+      item.percentage = totalDowntime > 0 ? (item.total_duration / totalDowntime) * 100 : 0;
+      item.avg_duration = item.count > 0 ? item.total_duration / item.count : 0;
+    });
+
+    const downtimeData = Object.values(downtimeByReason)
+      .sort((a, b) => b.total_duration - a.total_duration);
 
     res.status(200).json({
       success: true,
       data: {
-        total_downtime_events: downtimeEvents.length,
-        total_downtime_duration: parseFloat(downtimeEvents.reduce((sum, e) => sum + (e.duration || 0), 0).toFixed(2)),
-        downtime_by_reason: downtimeReasons,
-        recent_events: downtimeEvents
-          .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-          .slice(0, 10)
-      },
-      date_range: {
-        start: start.toISOString(),
-        end: end.toISOString()
+        total_downtime: totalDowntime,
+        total_events: downtimeEvents.length,
+        downtime_by_reason: downtimeData,
+        date_range: {
+          start: start.toISOString(),
+          end: end.toISOString()
+        }
       }
     });
   } catch (error) {
@@ -276,59 +272,63 @@ exports.getDowntimeAnalytics = async (req, res) => {
   }
 };
 
-// @desc    Get State Distribution
+// @desc    Get state distribution analytics
 // @route   GET /api/analytics/state-distribution
 // @access  Private
 exports.getStateDistribution = async (req, res) => {
   try {
     const { start_date, end_date, asset_id } = req.query;
     const { start, end } = getDateRangeFilter(start_date, end_date);
+    const { userEvents } = await getUserScopedData(req);
 
-    const allEvents = memoryDB.getAllEvents();
-    
-    let events = allEvents.filter(event => {
+    let events = userEvents.filter(event => {
       const eventDate = new Date(event.timestamp);
       return eventDate >= start && eventDate <= end;
     });
 
     if (asset_id) {
-      events = events.filter(event => event.asset == asset_id);
+      events = events.filter(event => event.asset_id == asset_id);
     }
 
-    // Group by state
-    const stateDistribution = events.reduce((acc, event) => {
-      const state = event.state || 'UNKNOWN';
-      if (!acc[state]) {
-        acc[state] = {
+    const stateDistribution = {};
+    let totalDuration = 0;
+
+    events.forEach(event => {
+      const state = event.new_state || event.event_type;
+      const duration = event.duration || 0;
+      
+      if (!stateDistribution[state]) {
+        stateDistribution[state] = {
           state,
+          total_duration: 0,
           count: 0,
-          total_duration: 0
+          percentage: 0
         };
       }
-      acc[state].count++;
-      acc[state].total_duration += event.duration || 0;
-      return acc;
-    }, {});
+      
+      stateDistribution[state].total_duration += duration;
+      stateDistribution[state].count++;
+      totalDuration += duration;
+    });
 
-    const totalDuration = Object.values(stateDistribution).reduce((sum, item) => sum + item.total_duration, 0);
+    Object.values(stateDistribution).forEach(item => {
+      item.percentage = totalDuration > 0 ? (item.total_duration / totalDuration) * 100 : 0;
+      item.avg_duration = item.count > 0 ? item.total_duration / item.count : 0;
+    });
 
-    const distributionData = Object.values(stateDistribution).map(item => ({
-      state: item.state,
-      count: item.count,
-      duration: parseFloat((item.total_duration * 1000).toFixed(2)), // Convert to milliseconds for frontend
-      percentage: parseFloat(((item.total_duration / totalDuration) * 100).toFixed(2))
-    }));
+    const distributionData = Object.values(stateDistribution)
+      .sort((a, b) => b.total_duration - a.total_duration);
 
     res.status(200).json({
       success: true,
       data: {
-        distribution: distributionData,
+        total_duration: totalDuration,
         total_events: events.length,
-        total_duration: parseFloat(totalDuration.toFixed(2))
-      },
-      date_range: {
-        start: start.toISOString(),
-        end: end.toISOString()
+        state_distribution: distributionData,
+        date_range: {
+          start: start.toISOString(),
+          end: end.toISOString()
+        }
       }
     });
   } catch (error) {
@@ -340,74 +340,88 @@ exports.getStateDistribution = async (req, res) => {
   }
 };
 
-// @desc    Get Performance Metrics
-// @route   GET /api/analytics/performance-metrics
+// @desc    Get performance metrics
+// @route   GET /api/analytics/performance
 // @access  Private
 exports.getPerformanceMetrics = async (req, res) => {
   try {
     const { start_date, end_date, asset_id } = req.query;
     const { start, end } = getDateRangeFilter(start_date, end_date);
-    const { userAssets, userEvents } = getUserScopedData(req);
+    const { userAssets, userEvents } = await getUserScopedData(req);
 
     const assets = asset_id ? 
-      userAssets.filter(asset => asset._id == asset_id) : 
+      userAssets.filter(asset => asset.id == asset_id || asset._id == asset_id) : 
       userAssets;
 
-    const allEvents = memoryDB.getAllEvents();
-    
-    const performanceData = assets.map(asset => {
-      const assetEvents = allEvents.filter(event => {
-        const eventDate = new Date(event.timestamp);
-        return event.asset == asset._id && eventDate >= start && eventDate <= end;
-      });
+    const events = userEvents.filter(event => {
+      const eventDate = new Date(event.timestamp);
+      return eventDate >= start && eventDate <= end;
+    });
 
-      let totalRuntime = 0;
-      let totalDowntime = 0;
-      let totalStops = 0;
-      let totalCycles = assetEvents.length;
+    let totalRuntime = 0;
+    let totalDowntime = 0;
+    let totalStops = 0;
+
+    const assetMetrics = assets.map(asset => {
+      const assetEvents = events.filter(event => event.asset_id == asset.id);
+      
+      let assetRuntime = 0;
+      let assetDowntime = 0;
+      let assetStops = 0;
 
       assetEvents.forEach(event => {
-        if (event.event_type === 'START' || event.state === 'RUNNING') {
-          totalRuntime += event.duration || 0;
-        } else if (event.event_type === 'STOP' || event.state === 'STOPPED') {
-          totalDowntime += event.duration || 0;
-          totalStops++;
+        if (event.event_type === 'STATE_CHANGE') {
+          if (event.new_state === 'RUNNING') {
+            assetRuntime += event.duration || 0;
+          } else if (event.new_state === 'STOPPED') {
+            assetDowntime += event.duration || 0;
+            assetStops++;
+          }
         }
       });
 
-      // Calculate MTBF (Mean Time Between Failures) in hours
-      const mtbf = totalStops > 0 ? (totalRuntime / 60) / totalStops : 0;
-      
-      // Calculate MTTR (Mean Time To Repair) in hours  
-      const mttr = totalStops > 0 ? (totalDowntime / 60) / totalStops : 0;
+      totalRuntime += assetRuntime;
+      totalDowntime += assetDowntime;
+      totalStops += assetStops;
 
-      // Calculate availability percentage
-      const totalTime = totalRuntime + totalDowntime;
-      const availability = totalTime > 0 ? (totalRuntime / totalTime) * 100 : 0;
-
-      // Calculate OEE (simplified version)
-      const oee = availability; // In real implementation, multiply by Performance and Quality rates
+      const assetTotalTime = assetRuntime + assetDowntime;
+      const availability = assetTotalTime > 0 ? (assetRuntime / assetTotalTime) * 100 : 0;
+      const mtbf = assetStops > 0 ? (assetRuntime / 3600) / assetStops : 0;
+      const mttr = assetStops > 0 ? (assetDowntime / 3600) / assetStops : 0;
 
       return {
-        asset_id: asset._id,
+        asset_id: asset.id,
         asset_name: asset.name,
-        runtime_hours: parseFloat((totalRuntime / 60).toFixed(2)),
-        downtime_hours: parseFloat((totalDowntime / 60).toFixed(2)),
-        total_stops: totalStops,
+        availability: parseFloat(availability.toFixed(2)),
+        runtime_hours: parseFloat((assetRuntime / 3600).toFixed(2)),
+        downtime_hours: parseFloat((assetDowntime / 3600).toFixed(2)),
+        total_stops: assetStops,
         mtbf_hours: parseFloat(mtbf.toFixed(2)),
-        mttr_hours: parseFloat(mttr.toFixed(2)),
-        availability_percent: parseFloat(availability.toFixed(2)),
-        oee_percent: parseFloat(oee.toFixed(2)),
-        total_cycles: totalCycles
+        mttr_hours: parseFloat(mttr.toFixed(2))
       };
     });
 
+    const totalTime = totalRuntime + totalDowntime;
+    const overallAvailability = totalTime > 0 ? (totalRuntime / totalTime) * 100 : 0;
+    const overallMTBF = totalStops > 0 ? (totalRuntime / 3600) / totalStops : 0;
+    const overallMTTR = totalStops > 0 ? (totalDowntime / 3600) / totalStops : 0;
+
     res.status(200).json({
       success: true,
-      data: performanceData,
-      date_range: {
-        start: start.toISOString(),
-        end: end.toISOString()
+      data: {
+        overall_metrics: {
+          availability: parseFloat(overallAvailability.toFixed(2)),
+          total_runtime_hours: parseFloat((totalRuntime / 3600).toFixed(2)),
+          total_downtime_hours: parseFloat((totalDowntime / 3600).toFixed(2)),
+          total_stops: totalStops,
+          mtbf_hours: parseFloat(overallMTBF.toFixed(2)),
+          mttr_hours: parseFloat(overallMTTR.toFixed(2))
+        },
+        asset_metrics: assetMetrics,
+        date_range: {
+          start: start.toISOString(),
+          end: end.toISOString()
+        }
       }
     });
   } catch (error) {
@@ -419,69 +433,58 @@ exports.getPerformanceMetrics = async (req, res) => {
   }
 };
 
-// @desc    Get asset analytics
+// @desc    Get asset-specific analytics
 // @route   GET /api/analytics/assets
 // @access  Private
 exports.getAssetAnalytics = async (req, res) => {
   try {
     const { start_date, end_date, asset_id } = req.query;
     const { start, end } = getDateRangeFilter(start_date, end_date);
-    const { userAssets, userEvents } = getUserScopedData(req);
+    const { userAssets, userEvents } = await getUserScopedData(req);
 
-    let assets = userAssets;
-    
-    // Filter by specific asset if requested
-    if (asset_id) {
-      assets = assets.filter(asset => asset._id == asset_id);
-    }
-    
+    const assets = asset_id ? 
+      userAssets.filter(asset => asset.id == asset_id || asset._id == asset_id) : 
+      userAssets;
+
+    const events = userEvents.filter(event => {
+      const eventDate = new Date(event.timestamp);
+      return eventDate >= start && eventDate <= end;
+    });
+
     const assetAnalytics = assets.map(asset => {
-      // Get events for this asset in the date range
-      const assetEvents = userEvents.filter(event => {
-        const eventDate = new Date(event.timestamp);
-        return event.asset == asset._id && eventDate >= start && eventDate <= end;
-      });
-
-      // Calculate metrics from events
+      const assetEvents = events.filter(event => event.asset_id == asset.id);
+      
       let runtime = 0;
       let downtime = 0;
       let stops = 0;
 
       assetEvents.forEach(event => {
-        runtime += event.runtime || 0;
-        downtime += event.downtime || 0;
-        if (event.event_type === 'STOP') {
-          stops++;
+        if (event.event_type === 'STATE_CHANGE') {
+          if (event.new_state === 'RUNNING') {
+            runtime += event.duration || 0;
+          } else if (event.new_state === 'STOPPED') {
+            downtime += event.duration || 0;
+            stops++;
+          }
         }
       });
 
-      // Use asset's current metrics if no events in range
-      if (assetEvents.length === 0) {
-        runtime = asset.runtime || 0;
-        downtime = asset.downtime || 0;
-        stops = asset.total_stops || 0;
-      }
-
       const totalTime = runtime + downtime;
       const availability = totalTime > 0 ? (runtime / totalTime) * 100 : 0;
-
-      // Calculate MTBF and MTTR
-      const mtbf = stops > 0 ? (runtime / 60) / stops : 0;
-      const mttr = stops > 0 ? (downtime / 60) / stops : 0;
+      const mtbf = stops > 0 ? (runtime / 3600) / stops : 0;
+      const mttr = stops > 0 ? (downtime / 3600) / stops : 0;
 
       return {
-        asset_id: asset._id,
+        asset_id: asset.id,
         asset_name: asset.name,
-        pin_number: asset.pin_number,
-        current_state: asset.current_state,
+        current_state: asset.current_state || 'UNKNOWN',
         availability: parseFloat(availability.toFixed(2)),
-        runtime_hours: parseFloat((runtime / 60).toFixed(2)),
-        downtime_hours: parseFloat((downtime / 60).toFixed(2)),
+        runtime_hours: parseFloat((runtime / 3600).toFixed(2)),
+        downtime_hours: parseFloat((downtime / 3600).toFixed(2)),
         total_stops: stops,
         mtbf_hours: parseFloat(mtbf.toFixed(2)),
         mttr_hours: parseFloat(mttr.toFixed(2)),
-        events_count: assetEvents.length,
-        logger_id: asset.logger_id
+        events_count: assetEvents.length
       };
     });
 
@@ -509,46 +512,73 @@ exports.getShiftAnalytics = async (req, res) => {
   try {
     const { start_date, end_date, shift_id } = req.query;
     const { start, end } = getDateRangeFilter(start_date, end_date);
+    const { userEvents } = await getUserScopedData(req);
 
-    // Fix line 490
-    let shifts = memoryDB.getShifts();
-    
-    // Filter by specific shift if requested
-    if (shift_id) {
-      shifts = shifts.filter(shift => shift._id == shift_id);
-    }
-
-    // Filter shifts by date range
-    shifts = shifts.filter(shift => {
-      const shiftDate = new Date(shift.start_time);
-      return shiftDate >= start && shiftDate <= end;
+    let shiftEvents = userEvents.filter(event => {
+      const eventDate = new Date(event.timestamp);
+      return eventDate >= start && eventDate <= end;
     });
 
-    const shiftAnalytics = shifts.map(shift => {
-      const duration = shift.end_time ? 
-        getTimeDifferenceInMinutes(shift.start_time, shift.end_time) : 
-        getTimeDifferenceInMinutes(shift.start_time, new Date());
+    if (shift_id) {
+      shiftEvents = shiftEvents.filter(event => event.shift_id == shift_id);
+    }
+
+    const shiftData = {};
+
+    shiftEvents.forEach(event => {
+      const shiftId = event.shift_id || 'no_shift';
+      
+      if (!shiftData[shiftId]) {
+        shiftData[shiftId] = {
+          shift_id: shiftId,
+          total_events: 0,
+          runtime: 0,
+          downtime: 0,
+          stops: 0,
+          start_time: null,
+          end_time: null
+        };
+      }
+
+      shiftData[shiftId].total_events++;
+
+      if (event.event_type === 'STATE_CHANGE') {
+        if (event.new_state === 'RUNNING') {
+          shiftData[shiftId].runtime += event.duration || 0;
+        } else if (event.new_state === 'STOPPED') {
+          shiftData[shiftId].downtime += event.duration || 0;
+          shiftData[shiftId].stops++;
+        }
+      }
+
+      const eventTime = new Date(event.timestamp);
+      if (!shiftData[shiftId].start_time || eventTime < shiftData[shiftId].start_time) {
+        shiftData[shiftId].start_time = eventTime;
+      }
+      if (!shiftData[shiftId].end_time || eventTime > shiftData[shiftId].end_time) {
+        shiftData[shiftId].end_time = eventTime;
+      }
+    });
+
+    const shiftAnalytics = Object.values(shiftData).map(shift => {
+      const totalTime = shift.runtime + shift.downtime;
+      const availability = totalTime > 0 ? (shift.runtime / totalTime) * 100 : 0;
+      const duration = shift.start_time && shift.end_time ? 
+        getTimeDifferenceInMinutes(shift.start_time, shift.end_time) : 0;
 
       return {
-        shift_id: shift._id,
-        shift_number: shift.shift_number,
-        name: shift.name,
-        start_time: shift.start_time,
-        end_time: shift.end_time,
-        duration: parseFloat(duration.toFixed(2)),
-        active: shift.active,
-        availability: parseFloat((shift.availability || 0).toFixed(2)),
-        runtime: parseFloat((shift.runtime || 0).toFixed(2)),
-        downtime: parseFloat((shift.downtime || 0).toFixed(2)),
-        stops: shift.stops || 0,
-        asset_count: shift.asset_states ? shift.asset_states.length : 0,
-        notes: shift.notes
+        ...shift,
+        availability: parseFloat(availability.toFixed(2)),
+        runtime_hours: parseFloat((shift.runtime / 3600).toFixed(2)),
+        downtime_hours: parseFloat((shift.downtime / 3600).toFixed(2)),
+        duration_minutes: parseFloat(duration.toFixed(2)),
+        start_time: shift.start_time ? shift.start_time.toISOString() : null,
+        end_time: shift.end_time ? shift.end_time.toISOString() : null
       };
     });
 
     res.status(200).json({
       success: true,
-      count: shiftAnalytics.length,
       data: shiftAnalytics,
       date_range: {
         start: start.toISOString(),
@@ -557,10 +587,10 @@ exports.getShiftAnalytics = async (req, res) => {
     });
   } catch (error) {
     console.error('Error getting shift analytics:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to get shift analytics',
-      error: error.message 
+    res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message
     });
   }
 };
@@ -572,89 +602,62 @@ exports.getEventAnalytics = async (req, res) => {
   try {
     const { start_date, end_date, asset_id, event_type } = req.query;
     const { start, end } = getDateRangeFilter(start_date, end_date);
+    const { userEvents } = await getUserScopedData(req);
 
-    let events = memoryDB.getAllEvents();
-    
-    // Filter events by date range
-    events = events.filter(event => {
+    let events = userEvents.filter(event => {
       const eventDate = new Date(event.timestamp);
       return eventDate >= start && eventDate <= end;
     });
 
-    // Filter by asset if specified
     if (asset_id) {
-      events = events.filter(event => event.asset == asset_id);
+      events = events.filter(event => event.asset_id == asset_id);
     }
 
-    // Filter by event type if specified
     if (event_type) {
       events = events.filter(event => event.event_type === event_type);
     }
 
-    // Group events by type
-    const eventsByType = events.reduce((acc, event) => {
-      const type = event.event_type || 'UNKNOWN';
-      if (!acc[type]) {
-        acc[type] = [];
+    const eventsByType = {};
+    events.forEach(event => {
+      const type = event.event_type;
+      if (!eventsByType[type]) {
+        eventsByType[type] = {
+          type,
+          count: 0,
+          total_duration: 0,
+          avg_duration: 0
+        };
       }
-      acc[type].push(event);
-      return acc;
-    }, {});
-
-    // Calculate statistics for each event type
-    const eventTypeStats = Object.keys(eventsByType).map(type => {
-      const typeEvents = eventsByType[type];
-      const totalDuration = typeEvents.reduce((sum, event) => sum + (event.duration || 0), 0);
-      const avgDuration = typeEvents.length > 0 ? totalDuration / typeEvents.length : 0;
-
-      return {
-        event_type: type,
-        count: typeEvents.length,
-        total_duration: parseFloat(totalDuration.toFixed(2)),
-        average_duration: parseFloat(avgDuration.toFixed(2))
-      };
+      eventsByType[type].count++;
+      eventsByType[type].total_duration += event.duration || 0;
     });
 
-    // Group events by asset
-    const eventsByAsset = events.reduce((acc, event) => {
-      const assetId = event.asset || 'unknown';
-      if (!acc[assetId]) {
-        acc[assetId] = [];
-      }
-      acc[assetId].push(event);
-      return acc;
-    }, {});
-
-    const assetEventStats = Object.keys(eventsByAsset).map(assetId => {
-      const assetEvents = eventsByAsset[assetId];
-      const asset = memoryDB.findAssetById(assetId);
-      
-      return {
-        asset_id: assetId,
-        asset_name: asset ? asset.name : 'Unknown',
-        event_count: assetEvents.length,
-        latest_event: assetEvents.length > 0 ? 
-          assetEvents.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0] : null
-      };
+    Object.values(eventsByType).forEach(item => {
+      item.avg_duration = item.count > 0 ? item.total_duration / item.count : 0;
     });
+
+    const recentEvents = events
+      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+      .slice(0, 10)
+      .map(event => ({
+        id: event.id,
+        timestamp: event.timestamp,
+        event_type: event.event_type,
+        asset_id: event.asset_id,
+        duration: event.duration,
+        stop_reason: event.stop_reason
+      }));
 
     res.status(200).json({
       success: true,
       data: {
-        summary: {
-          total_events: events.length,
-          unique_assets: Object.keys(eventsByAsset).length,
-          event_types: Object.keys(eventsByType).length
-        },
-        by_type: eventTypeStats,
-        by_asset: assetEventStats,
-        recent_events: events
-          .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-          .slice(0, 10) // Last 10 events
-      },
-      date_range: {
-        start: start.toISOString(),
-        end: end.toISOString()
+        total_events: events.length,
+        events_by_type: Object.values(eventsByType),
+        recent_events: recentEvents,
+        date_range: {
+          start: start.toISOString(),
+          end: end.toISOString()
+        }
       }
     });
   } catch (error) {
@@ -667,82 +670,117 @@ exports.getEventAnalytics = async (req, res) => {
 };
 
 // @desc    Get availability trends
-// @route   GET /api/analytics/trends
+// @route   GET /api/analytics/availability-trends
 // @access  Private
 exports.getAvailabilityTrends = async (req, res) => {
   try {
-    const { start_date, end_date, asset_id, interval = 'daily' } = req.query;
+    const { start_date, end_date, asset_id, groupBy = 'day' } = req.query;
     const { start, end } = getDateRangeFilter(start_date, end_date);
+    const { userEvents } = await getUserScopedData(req);
 
-    const assets = asset_id ? 
-      [memoryDB.findAssetById(asset_id)].filter(Boolean) : 
-      memoryDB.getAllAssets();
-
-    const allEvents = memoryDB.getAllEvents();
-    
-    // Filter events by date range
-    const events = allEvents.filter(event => {
+    let events = userEvents.filter(event => {
       const eventDate = new Date(event.timestamp);
       return eventDate >= start && eventDate <= end;
     });
 
-    // Generate time intervals based on the requested interval
-    const intervals = [];
-    const intervalMs = interval === 'hourly' ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
-    
-    for (let time = start.getTime(); time < end.getTime(); time += intervalMs) {
-      intervals.push(new Date(time));
+    if (asset_id) {
+      events = events.filter(event => event.asset_id == asset_id);
     }
 
-    const trends = intervals.map(intervalStart => {
-      const intervalEnd = new Date(intervalStart.getTime() + intervalMs);
+    const generatePeriods = (start, end, groupBy) => {
+      const periods = [];
+      const current = new Date(start);
       
-      const intervalEvents = events.filter(event => {
+      while (current < end) {
+        const periodStart = new Date(current);
+        let periodEnd = new Date(current);
+        
+        switch (groupBy) {
+          case 'hour':
+            periodEnd.setHours(periodEnd.getHours() + 1);
+            break;
+          case 'day':
+            periodEnd.setDate(periodEnd.getDate() + 1);
+            break;
+          case 'week':
+            periodEnd.setDate(periodEnd.getDate() + 7);
+            break;
+          case 'month':
+            periodEnd.setMonth(periodEnd.getMonth() + 1);
+            break;
+          default:
+            periodEnd.setDate(periodEnd.getDate() + 1);
+        }
+        
+        if (periodEnd > end) {
+          periodEnd = new Date(end);
+        }
+        
+        periods.push({ start: periodStart, end: periodEnd });
+        
+        switch (groupBy) {
+          case 'hour':
+            current.setHours(current.getHours() + 1);
+            break;
+          case 'day':
+            current.setDate(current.getDate() + 1);
+            break;
+          case 'week':
+            current.setDate(current.getDate() + 7);
+            break;
+          case 'month':
+            current.setMonth(current.getMonth() + 1);
+            break;
+          default:
+            current.setDate(current.getDate() + 1);
+        }
+      }
+      
+      return periods;
+    };
+
+    const periods = generatePeriods(start, end, groupBy);
+
+    const trendData = periods.map(period => {
+      const periodEvents = events.filter(event => {
         const eventDate = new Date(event.timestamp);
-        return eventDate >= intervalStart && eventDate < intervalEnd;
+        return eventDate >= period.start && eventDate < period.end;
       });
 
-      // Calculate metrics for this interval
       let totalRuntime = 0;
       let totalDowntime = 0;
       let totalStops = 0;
 
-      assets.forEach(asset => {
-        const assetEvents = intervalEvents.filter(event => event.asset == asset._id);
-        
-        assetEvents.forEach(event => {
-          totalRuntime += event.runtime || 0;
-          totalDowntime += event.downtime || 0;
-          if (event.event_type === 'STOP') {
-            totalStops++;
-          }
-        });
+      periodEvents.forEach(event => {
+        if (event.event_type === 'START' || event.state === 'RUNNING') {
+          totalRuntime += event.duration || 0;
+        } else if (event.event_type === 'STOP' || event.state === 'STOPPED') {
+          totalDowntime += event.duration || 0;
+          totalStops++;
+        }
       });
 
       const totalTime = totalRuntime + totalDowntime;
       const availability = totalTime > 0 ? (totalRuntime / totalTime) * 100 : 0;
 
       return {
-        timestamp: intervalStart.toISOString(),
+        period: period.start.toISOString(),
         availability: parseFloat(availability.toFixed(2)),
-        runtime: parseFloat(totalRuntime.toFixed(2)),
-        downtime: parseFloat(totalDowntime.toFixed(2)),
-        stops: totalStops,
-        events_count: intervalEvents.length
+        runtime_hours: parseFloat((totalRuntime / 3600).toFixed(2)),
+        downtime_hours: parseFloat((totalDowntime / 3600).toFixed(2)),
+        total_stops: totalStops,
+        events_count: periodEvents.length
       };
     });
 
     res.status(200).json({
       success: true,
-      data: {
-        trends,
-        interval,
-        asset_count: assets.length
-      },
+      data: trendData,
       date_range: {
         start: start.toISOString(),
         end: end.toISOString()
-      }
+      },
+      groupBy
     });
   } catch (error) {
     res.status(500).json({
@@ -759,26 +797,22 @@ exports.getAvailabilityTrends = async (req, res) => {
 exports.getAvailabilityAnalytics = async (req, res) => {
   try {
     const { start_date, end_date, asset_id } = req.query;
-    const { userAssets } = getUserScopedData(req);
+    const { userAssets, userEvents } = await getUserScopedData(req);
 
-    // Filter assets if specific asset requested
     const assets = asset_id ? 
-      userAssets.filter(asset => asset._id == asset_id) : 
+      userAssets.filter(asset => asset.id == asset_id || asset._id == asset_id) : 
       userAssets;
 
-    // Calculate overall KPIs using asset data (same as dashboard)
-    let totalRuntime = 0; // in milliseconds
-    let totalDowntime = 0; // in milliseconds
+    let totalRuntime = 0;
+    let totalDowntime = 0;
     let totalStops = 0;
     let activeAssets = 0;
 
-    // Analyze each asset using stored asset data
     const assetAnalytics = assets.map(asset => {
-      const assetRuntime = asset.runtime || 0; // milliseconds
-      const assetDowntime = asset.downtime || 0; // milliseconds
+      const assetRuntime = asset.runtime || 0;
+      const assetDowntime = asset.downtime || 0;
       const assetStops = asset.total_stops || 0;
 
-      // Add to totals
       totalRuntime += assetRuntime;
       totalDowntime += assetDowntime;
       totalStops += assetStops;
@@ -787,20 +821,18 @@ exports.getAvailabilityAnalytics = async (req, res) => {
         activeAssets++;
       }
 
-      // Calculate asset-specific metrics
       const assetTotalTime = assetRuntime + assetDowntime;
       const assetAvailability = assetTotalTime > 0 ? (assetRuntime / assetTotalTime) * 100 : 0;
       
-      // Calculate MTBF and MTTR (simplified calculation based on total time and stops)
-      const assetMTBF = assetStops > 0 ? (assetRuntime / 3600000) / assetStops : 0; // Hours
-      const assetMTTR = assetStops > 0 ? (assetDowntime / 3600000) / assetStops : 0; // Hours
+      const assetMTBF = assetStops > 0 ? (assetRuntime / 3600) / assetStops : 0;
+      const assetMTTR = assetStops > 0 ? (assetDowntime / 3600) / assetStops : 0;
 
       return {
-        asset_id: asset._id,
+        asset_id: asset.id || asset._id,
         asset_name: asset.name,
         availability: parseFloat(assetAvailability.toFixed(2)),
-        runtime_hours: parseFloat((assetRuntime / 3600000).toFixed(2)), // Convert ms to hours
-        downtime_hours: parseFloat((assetDowntime / 3600000).toFixed(2)), // Convert ms to hours
+        runtime_hours: parseFloat((assetRuntime / 3600).toFixed(2)),
+        downtime_hours: parseFloat((assetDowntime / 3600).toFixed(2)),
         total_stops: assetStops,
         mtbf_hours: parseFloat(assetMTBF.toFixed(2)),
         mttr_hours: parseFloat(assetMTTR.toFixed(2)),
@@ -808,45 +840,38 @@ exports.getAvailabilityAnalytics = async (req, res) => {
       };
     });
 
-    // Calculate overall metrics using asset data (same as dashboard)
     const totalTime = totalRuntime + totalDowntime;
     const overallAvailability = totalTime > 0 ? (totalRuntime / totalTime) * 100 : 0;
-    const avgMTBF = assets.length > 0 && totalStops > 0 ? (totalRuntime / 3600000) / totalStops : 0;
-    const avgMTTR = assets.length > 0 && totalStops > 0 ? (totalDowntime / 3600000) / totalStops : 0;
+    const avgMTBF = assets.length > 0 && totalStops > 0 ? (totalRuntime / 3600) / totalStops : 0;
+    const avgMTTR = assets.length > 0 && totalStops > 0 ? (totalDowntime / 3600) / totalStops : 0;
 
-    // For micro stops analysis, we need to look at events for detailed breakdown
-    const { userEvents } = getUserScopedData(req);
     const { start, end } = getDateRangeFilter(start_date, end_date);
     
-    // Filter events by date range for micro stops analysis
     const events = userEvents.filter(event => {
       const eventDate = new Date(event.timestamp);
       return eventDate >= start && eventDate <= end;
     });
 
-    // Calculate micro stops from events (stops under 3 minutes)
     let microStops = 0;
-    let microStopTime = 0; // in seconds
+    let microStopTime = 0;
 
     const stopEvents = events.filter(event => 
-      (event.event_type === 'STOP' || event.state === 'STOPPED') &&
-      (!asset_id || event.asset == asset_id)
+      (event.event_type === 'STATE_CHANGE' && event.new_state === 'STOPPED') &&
+      (!asset_id || event.asset_id == asset_id)
     );
 
     stopEvents.forEach(event => {
-      const duration = event.duration || 0; // seconds
-      if (duration < 180) { // Under 3 minutes
+      const duration = event.duration || 0;
+      if (duration < 180) {
         microStops++;
         microStopTime += duration;
       }
     });
 
-    // Calculate additional KPIs
     const utilizationRate = totalTime > 0 ? (totalRuntime / totalTime) * 100 : overallAvailability;
-    const stopFrequency = totalRuntime > 0 ? (totalStops / (totalRuntime / 3600000)) : 0; // Stops per hour
+    const stopFrequency = totalRuntime > 0 ? (totalStops / (totalRuntime / 3600)) : 0;
     const microStopPercentage = totalStops > 0 ? (microStops / totalStops) * 100 : 0;
 
-    // Generate micro stops trend data for chart
     const microStopTrend = [];
     const dayMs = 24 * 60 * 60 * 1000;
     for (let time = start.getTime(); time < end.getTime(); time += dayMs) {
@@ -856,8 +881,8 @@ exports.getAvailabilityAnalytics = async (req, res) => {
       const dayEvents = events.filter(event => {
         const eventDate = new Date(event.timestamp);
         return eventDate >= dayStart && eventDate < dayEnd && 
-               (event.event_type === 'STOP' || event.state === 'STOPPED') &&
-               (event.duration || 0) < 180; // Under 3 minutes
+               (event.event_type === 'STATE_CHANGE' && event.new_state === 'STOPPED') &&
+               (event.duration || 0) < 180;
       });
 
       const dayMicroStops = dayEvents.length;
@@ -877,11 +902,11 @@ exports.getAvailabilityAnalytics = async (req, res) => {
           total_assets: assets.length,
           active_assets: activeAssets,
           overall_availability: parseFloat(overallAvailability.toFixed(2)),
-          total_runtime_hours: parseFloat((totalRuntime / 3600000).toFixed(2)), // Convert ms to hours
-          total_downtime_hours: parseFloat((totalDowntime / 3600000).toFixed(2)), // Convert ms to hours
+          total_runtime_hours: parseFloat((totalRuntime / 3600).toFixed(2)),
+          total_downtime_hours: parseFloat((totalDowntime / 3600).toFixed(2)),
           total_stops: totalStops,
           micro_stops: microStops,
-          micro_stop_time_hours: parseFloat((microStopTime / 3600).toFixed(2)), // Convert seconds to hours
+          micro_stop_time_hours: parseFloat((microStopTime / 3600).toFixed(2)),
           avg_mtbf_hours: parseFloat(avgMTBF.toFixed(2)),
           avg_mttr_hours: parseFloat(avgMTTR.toFixed(2)),
           utilization_rate: parseFloat(utilizationRate.toFixed(2)),

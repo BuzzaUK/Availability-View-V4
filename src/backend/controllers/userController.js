@@ -1,4 +1,4 @@
-const memoryDB = require('../utils/memoryDB');
+const databaseService = require('../services/databaseService');
 
 // @desc    Get all users
 // @route   GET /api/users
@@ -7,14 +7,15 @@ const getUsers = async (req, res) => {
   try {
     const { page = 1, limit = 10, search = '', role = '' } = req.query;
     
-    let users = memoryDB.getUsers();
+    let users = await databaseService.getAllUsers();
     
     // Filter by search term
     if (search) {
-      users = users.filter(user => 
-        user.name.toLowerCase().includes(search.toLowerCase()) ||
-        user.email.toLowerCase().includes(search.toLowerCase())
-      );
+      users = users.filter(user => {
+        const fullName = `${user.name || ''} ${user.first_name || ''} ${user.last_name || ''}`.trim();
+        return fullName.toLowerCase().includes(search.toLowerCase()) ||
+               user.email.toLowerCase().includes(search.toLowerCase());
+      });
     }
     
     // Filter by role
@@ -54,7 +55,7 @@ const getUsers = async (req, res) => {
 // @access  Private (Admin, Manager)
 const getUserById = async (req, res) => {
   try {
-    const user = memoryDB.getUserById(req.params.id);
+    const user = await databaseService.findUserById(req.params.id);
     
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
@@ -75,18 +76,28 @@ const getUserById = async (req, res) => {
 // @access  Private (Admin)
 const createUser = async (req, res) => {
   try {
-    const { name, email, password, role = 'operator', isActive = true, shiftReportPreferences } = req.body;
+    const { name, first_name, last_name, email, password, role = 'operator', isActive = true, shiftReportPreferences } = req.body;
     
     // Validation
-    if (!name || !email || !password) {
+    if (!email || !password) {
       return res.status(400).json({ 
         success: false, 
-        message: 'Please provide name, email, and password' 
+        message: 'Please provide email and password' 
       });
     }
     
+    // Handle name field - split into first_name and last_name if provided
+    let userFirstName = first_name;
+    let userLastName = last_name;
+    
+    if (name && !first_name && !last_name) {
+      const nameParts = name.split(' ');
+      userFirstName = nameParts[0] || '';
+      userLastName = nameParts.slice(1).join(' ') || '';
+    }
+    
     // Check if user already exists
-    const existingUser = memoryDB.getUserByEmail(email);
+    const existingUser = await databaseService.findUserByEmail(email);
     if (existingUser) {
       return res.status(400).json({ 
         success: false, 
@@ -95,17 +106,12 @@ const createUser = async (req, res) => {
     }
     
     // Create user
-    const newUser = memoryDB.createUser({ 
-      name, 
+    const newUser = await databaseService.createUser({ 
+      name: `${userFirstName} ${userLastName}`.trim() || email.split('@')[0],
       email, 
       password, 
       role,
-      isActive,
-      shiftReportPreferences: shiftReportPreferences || {
-        enabled: false,
-        shifts: [],
-        emailFormat: 'pdf'
-      }
+      receive_reports: shiftReportPreferences?.enabled || false
     });
     
     // Remove password from response
@@ -124,9 +130,9 @@ const createUser = async (req, res) => {
 const updateUser = async (req, res) => {
   try {
     console.log('Update user request body:', req.body);
-    const { name, email, role, isActive, shiftReportPreferences } = req.body;
+    const { name, first_name, last_name, email, role, isActive, shiftReportPreferences } = req.body;
     
-    const user = memoryDB.getUserById(req.params.id);
+    const user = await databaseService.findUserById(req.params.id);
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
@@ -134,20 +140,27 @@ const updateUser = async (req, res) => {
     console.log('Current user data before update:', user);
     
     // Prepare update data
-    const updateData = { name, email, role };
-    if (isActive !== undefined) {
-      updateData.isActive = isActive;
-      console.log('Setting isActive to:', isActive);
+    const updateData = {};
+    
+    if (email !== undefined) updateData.email = email;
+    if (role !== undefined) updateData.role = role;
+    
+    // Handle name field
+    if (name) {
+      updateData.name = name;
+    } else if (first_name !== undefined || last_name !== undefined) {
+      updateData.name = `${first_name || ''} ${last_name || ''}`.trim();
     }
-    if (shiftReportPreferences) {
-      updateData.shiftReportPreferences = shiftReportPreferences;
-      console.log('Setting shiftReportPreferences to:', shiftReportPreferences);
+    
+    if (shiftReportPreferences?.enabled !== undefined) {
+      updateData.receive_reports = shiftReportPreferences.enabled;
+      console.log('Setting receive_reports to:', shiftReportPreferences.enabled);
     }
     
     console.log('Update data to apply:', updateData);
     
     // Update user
-    const updatedUser = memoryDB.updateUser(req.params.id, updateData);
+    const updatedUser = await databaseService.updateUser(req.params.id, updateData);
     
     console.log('Updated user result:', updatedUser);
     
@@ -166,13 +179,13 @@ const updateUser = async (req, res) => {
 // @access  Private (Admin)
 const deleteUser = async (req, res) => {
   try {
-    const user = memoryDB.getUserById(req.params.id);
+    const user = await databaseService.findUserById(req.params.id);
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
     
     // Prevent deleting the last admin
-    const users = memoryDB.getUsers();
+    const users = await databaseService.getAllUsers();
     const adminUsers = users.filter(u => u.role === 'admin');
     if (user.role === 'admin' && adminUsers.length === 1) {
       return res.status(400).json({ 
@@ -181,7 +194,7 @@ const deleteUser = async (req, res) => {
       });
     }
     
-    memoryDB.deleteUser(req.params.id);
+    await databaseService.deleteUser(req.params.id);
     
     res.json({ success: true, message: 'User deleted successfully' });
   } catch (error) {

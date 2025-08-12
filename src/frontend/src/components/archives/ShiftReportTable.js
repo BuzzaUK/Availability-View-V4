@@ -37,7 +37,7 @@ const ShiftReportTable = ({ reports }) => {
 
   // Helper function to get asset name by ID
   const getAssetName = (assetId) => {
-    const asset = assets.find(a => a._id === assetId);
+    const asset = assets.find(a => a.id === assetId);
     return asset ? asset.name : 'All Assets';
   };
 

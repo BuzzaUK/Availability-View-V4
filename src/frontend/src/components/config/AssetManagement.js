@@ -200,7 +200,7 @@ const AssetManagement = () => {
       if (token) {
         headers.Authorization = `Bearer ${token}`;
       }
-      await axios.put(`/api/assets/${selectedAsset._id}`, assetForm, { headers });
+      await axios.put(`/api/assets/${selectedAsset.id}`, assetForm, { headers });
       
       success('Asset updated successfully');
       handleCloseDialog();
@@ -217,7 +217,9 @@ const AssetManagement = () => {
       if (token) {
         headers.Authorization = `Bearer ${token}`;
       }
-      await axios.delete(`/api/assets/${selectedAsset._id}`, { headers });
+      // Use selectedAsset.id instead of selectedAsset._id for database mode
+      const assetId = selectedAsset.id || selectedAsset._id;
+      await axios.delete(`/api/assets/${assetId}`, { headers });
       
       success('Asset deleted successfully');
       setOpenDeleteDialog(false);
@@ -464,7 +466,7 @@ const AssetManagement = () => {
               </TableRow>
             ) : (
               assets.map((asset) => (
-                <StyledTableRow key={asset._id}>
+                <StyledTableRow key={asset.id}>
                   <TableCell component="th" scope="row">
                     {asset.name}
                   </TableCell>

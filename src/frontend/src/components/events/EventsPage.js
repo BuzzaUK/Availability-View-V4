@@ -7,27 +7,34 @@ import Grid from '@mui/material/Grid';
 import TextField from '@mui/material/TextField';
 import MenuItem from '@mui/material/MenuItem';
 import Button from '@mui/material/Button';
-import IconButton from '@mui/material/IconButton';
+import Chip from '@mui/material/Chip';
+import Collapse from '@mui/material/Collapse';
 import InputAdornment from '@mui/material/InputAdornment';
-import SearchIcon from '@mui/icons-material/Search';
+import CircularProgress from '@mui/material/CircularProgress';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContentText from '@mui/material/DialogContentText';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Checkbox from '@mui/material/Checkbox';
+
 import FilterListIcon from '@mui/icons-material/FilterList';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import ClearIcon from '@mui/icons-material/Clear';
 import DownloadIcon from '@mui/icons-material/Download';
-import Collapse from '@mui/material/Collapse';
-import Chip from '@mui/material/Chip';
-import Alert from '@mui/material/Alert';
-// Date utilities
-import { format } from 'date-fns';
-import axios from 'axios';
+import ArchiveIcon from '@mui/icons-material/Archive';
+import SearchIcon from '@mui/icons-material/Search';
+import ClearIcon from '@mui/icons-material/Clear';
 
-// Components
 import EventsTable from './EventsTable';
 
-// Context
 import SocketContext from '../../context/SocketContext';
 import AlertContext from '../../context/AlertContext';
 import SettingsContext from '../../context/SettingsContext';
+
+import { format } from 'date-fns';
+
+import axios from 'axios';
 
 // Styled components
 const FiltersContainer = styled(Box)(({ theme }) => ({
@@ -58,8 +65,18 @@ const EventsPage = () => {
     search: '',
   });
   
+  // State for current shift filtering
+  const [currentShiftOnly, setCurrentShiftOnly] = useState(true);
+  
   // State for filter visibility
   const [showFilters, setShowFilters] = useState(false);
+  
+  // Archive dialog state
+  const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
+  const [archiveName, setArchiveName] = useState('');
+  const [archiveDescription, setArchiveDescription] = useState('');
+  const [archiving, setArchiving] = useState(false);
+  const [archiveAsEndOfShift, setArchiveAsEndOfShift] = useState(false); // Add this line
   
   // Auto-refresh state
   const [refreshCountdown, setRefreshCountdown] = useState(30);
@@ -94,11 +111,12 @@ const EventsPage = () => {
       const params = {
         page: page + 1, // API uses 1-based indexing
         limit: rowsPerPage,
+        currentShiftOnly: currentShiftOnly.toString(),
         ...(filters.asset && { asset: filters.asset }),
         ...(filters.eventType && { eventType: filters.eventType }),
         ...(filters.state && { state: filters.state }),
-        ...(filters.startDate && { startDate: filters.startDate.toISOString() }),
-        ...(filters.endDate && { endDate: filters.endDate.toISOString() }),
+        ...(!currentShiftOnly && filters.startDate && { startDate: filters.startDate.toISOString() }),
+        ...(!currentShiftOnly && filters.endDate && { endDate: filters.endDate.toISOString() }),
         ...(filters.search && { search: filters.search }),
       };
       
@@ -116,7 +134,7 @@ const EventsPage = () => {
   // Fetch events when page, rowsPerPage, or filters change
   useEffect(() => {
     fetchEvents();
-  }, [page, rowsPerPage]);
+  }, [page, rowsPerPage, currentShiftOnly]);
 
   // Update countdown when settings change
   useEffect(() => {
@@ -261,6 +279,39 @@ const EventsPage = () => {
     }
   };
 
+  // Archive current events
+  const handleArchiveEvents = async () => {
+    if (!archiveName.trim()) {
+      error('Please provide an archive name');
+      return;
+    }
+
+    setArchiving(true);
+    try {
+      const response = await axios.post('/api/events/archive', {
+        name: archiveName.trim(),
+        description: archiveDescription.trim(),
+        events: events,
+        isEndOfShift: archiveAsEndOfShift // Add this new state variable
+      });
+
+      if (response.data.success) {
+        success(response.data.message);
+        setArchiveDialogOpen(false);
+        setArchiveName('');
+        setArchiveDescription('');
+        setArchiveAsEndOfShift(false); // Reset the checkbox
+        // Refresh events to show the updated list
+        await fetchEvents();
+      }
+    } catch (err) {
+      console.error('Error archiving events:', err);
+      error('Failed to archive events: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setArchiving(false);
+    }
+  };
+
   return (
     <Box sx={{ flexGrow: 1 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
@@ -268,16 +319,17 @@ const EventsPage = () => {
           Events
         </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          {/* Auto-refresh chip matching Dashboard style */}
-          {settings?.autoRefresh && (
-            <Chip 
-              icon={<RefreshIcon />}
-              label={`Auto-refresh in: ${refreshCountdown}s`}
-              variant="outlined"
-              color="primary"
-              size="small"
-            />
-          )}
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={currentShiftOnly}
+                onChange={(e) => setCurrentShiftOnly(e.target.checked)}
+                color="primary"
+              />
+            }
+            label="Current Shift Only"
+            sx={{ mr: 2 }}
+          />
           <Button
             variant="outlined"
             startIcon={<FilterListIcon />}
@@ -288,12 +340,12 @@ const EventsPage = () => {
           </Button>
           <Button
             variant="outlined"
-            startIcon={<RefreshIcon />}
-            onClick={handleManualRefresh}
-            disabled={loading}
+            startIcon={<ArchiveIcon />}
+            onClick={() => setArchiveDialogOpen(true)}
+            disabled={loading || events.length === 0}
             sx={{ mr: 1 }}
           >
-            Refresh Now
+            Archive
           </Button>
           <Button
             variant="outlined"
@@ -306,7 +358,7 @@ const EventsPage = () => {
         </Box>
       </Box>
 
-      {/* Filters and other components */}
+      {/* Filters */}
       <Collapse in={showFilters}>
         <FiltersContainer>
           <Paper sx={{ p: 3, mb: 3 }}>
@@ -324,7 +376,7 @@ const EventsPage = () => {
                 >
                   <MenuItem value="">All Assets</MenuItem>
                   {assets.map((asset) => (
-                    <MenuItem key={asset._id} value={asset._id}>
+                    <MenuItem key={asset.id} value={asset.id}>
                       {asset.name}
                     </MenuItem>
                   ))}
@@ -401,6 +453,8 @@ const EventsPage = () => {
                   size="small"
                   variant="outlined"
                   InputLabelProps={{ shrink: true }}
+                  disabled={currentShiftOnly}
+                  helperText={currentShiftOnly ? "Disabled in Current Shift mode" : ""}
                 />
               </Grid>
               
@@ -417,6 +471,8 @@ const EventsPage = () => {
                   size="small"
                   variant="outlined"
                   InputLabelProps={{ shrink: true }}
+                  disabled={currentShiftOnly}
+                  helperText={currentShiftOnly ? "Disabled in Current Shift mode" : ""}
                 />
               </Grid>
               
@@ -460,6 +516,70 @@ const EventsPage = () => {
           handleChangeRowsPerPage={handleChangeRowsPerPage}
         />
       </Paper>
+
+      {/* Archive Confirmation Dialog (keep only this one, inside the component) */}
+      <Dialog
+        open={archiveDialogOpen}
+        onClose={() => setArchiveDialogOpen(false)}
+        aria-labelledby="archive-dialog-title"
+        aria-describedby="archive-dialog-description"
+      >
+        <DialogTitle id="archive-dialog-title">
+          Archive Current Events
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText id="archive-dialog-description" sx={{ mb: 2 }}>
+            Are you sure you want to archive the current {events.length} events? 
+            {archiveAsEndOfShift 
+              ? "This will move them to the archive and clear them from the active events list." 
+              : "During an active shift, events will be archived but remain in the active list until shift end."
+            }
+            You can access archived events from the Archive Management page.
+          </DialogContentText>
+          <TextField
+            fullWidth
+            label="Archive Name"
+            value={archiveName}
+            onChange={(e) => setArchiveName(e.target.value)}
+            placeholder={`Events Archive - ${format(new Date(), 'yyyy-MM-dd HH:mm:ss')}`}
+            sx={{ mb: 2 }}
+          />
+          <TextField
+            fullWidth
+            label="Description (Optional)"
+            value={archiveDescription}
+            onChange={(e) => setArchiveDescription(e.target.value)}
+            placeholder={`Archived ${events.length} events`}
+            multiline
+            rows={3}
+            sx={{ mb: 2 }}
+          />
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={archiveAsEndOfShift}
+                onChange={(e) => setArchiveAsEndOfShift(e.target.checked)}
+                color="primary"
+              />
+            }
+            label="End of Shift Archive (clear events from active list)"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setArchiveDialogOpen(false)} disabled={archiving}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleArchiveEvents} 
+            variant="contained" 
+            color="primary"
+            disabled={archiving}
+            startIcon={archiving ? <CircularProgress size={20} /> : <ArchiveIcon />}
+          >
+            {archiving ? 'Archiving...' : 'Archive Events'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

@@ -1,10 +1,10 @@
-const memoryDB = require('../utils/memoryDB');
+const databaseService = require('../services/databaseService');
 
 // Get notification settings
 const getNotificationSettings = async (req, res) => {
   try {
-    // Get settings from memoryDB, fallback to environment variables
-    let notificationSettings = memoryDB.getNotificationSettings();
+    // Get settings from databaseService, fallback to environment variables
+    let notificationSettings = await databaseService.getNotificationSettings();
     
     if (!notificationSettings) {
       // Create default settings if none exist
@@ -60,7 +60,7 @@ const getNotificationSettings = async (req, res) => {
       };
       
       // Save the default settings
-      notificationSettings = memoryDB.updateNotificationSettings(notificationSettings);
+      notificationSettings = await databaseService.updateNotificationSettings(notificationSettings);
     }
 
     res.json(notificationSettings);
@@ -91,10 +91,10 @@ const updateNotificationSettings = async (req, res) => {
       });
     }
     
-    // Save settings to memoryDB
-    console.log('🔍 SETTINGS UPDATE - Calling memoryDB.updateNotificationSettings...');
-    const updatedSettings = memoryDB.updateNotificationSettings(settings);
-    console.log('🔍 SETTINGS UPDATE - Result from memoryDB:', updatedSettings ? 'SUCCESS' : 'FAILED');
+    // Save settings to database
+    console.log('🔍 SETTINGS UPDATE - Calling databaseService.updateNotificationSettings...');
+    const updatedSettings = await databaseService.updateNotificationSettings(settings);
+    console.log('🔍 SETTINGS UPDATE - Result from databaseService:', updatedSettings ? 'SUCCESS' : 'FAILED');
     
     if (!updatedSettings) {
       console.log('🔍 SETTINGS UPDATE - No settings returned from memoryDB');
@@ -249,8 +249,8 @@ const testSmsNotification = async (req, res) => {
 // Get general settings
 const getSettings = async (req, res) => {
   try {
-    // Get settings from memoryDB
-    let settings = memoryDB.getSettings();
+    // Get settings from databaseService
+    let settings = await databaseService.getGeneralSettings();
     
     if (!settings) {
       // Create default settings if none exist
@@ -272,7 +272,7 @@ const getSettings = async (req, res) => {
       };
       
       // Save the default settings
-      settings = memoryDB.updateSettings(settings);
+      settings = await databaseService.updateGeneralSettings(settings);
     }
 
     res.json({ success: true, data: settings });
@@ -301,14 +301,14 @@ const updateSettings = async (req, res) => {
       });
     }
     
-    // Save settings to memoryDB
-    console.log('🔍 GENERAL SETTINGS UPDATE - Calling memoryDB.updateSettings...');
-    const updatedSettings = memoryDB.updateSettings(settings);
-    console.log('🔍 GENERAL SETTINGS UPDATE - Result from memoryDB:', updatedSettings ? 'SUCCESS' : 'FAILED');
+    // Save settings to databaseService
+    console.log('🔍 GENERAL SETTINGS UPDATE - Calling databaseService.updateGeneralSettings...');
+    const updatedSettings = await databaseService.updateGeneralSettings(settings);
+    console.log('🔍 GENERAL SETTINGS UPDATE - Result from databaseService:', updatedSettings ? 'SUCCESS' : 'FAILED');
     
     if (!updatedSettings) {
-      console.log('🔍 GENERAL SETTINGS UPDATE - No settings returned from memoryDB');
-      throw new Error('Failed to update settings in memory database');
+      console.log('🔍 GENERAL SETTINGS UPDATE - No settings returned from databaseService');
+      throw new Error('Failed to update settings in database');
     }
     
     console.log('🔍 GENERAL SETTINGS UPDATE - Sending success response');

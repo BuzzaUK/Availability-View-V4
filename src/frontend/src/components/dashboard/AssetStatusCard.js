@@ -234,7 +234,7 @@ const AssetStatusCard = ({ asset }) => {
               ID:
             </Typography>
             <Typography variant="body2">
-              {asset._id}
+              {asset.id}
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
