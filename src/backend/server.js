@@ -27,6 +27,7 @@ const csvRoutes = require('./routes/csvRoutes');
 const shiftRoutes = require('./routes/shiftRoutes');
 const loggerRoutes = require('./routes/loggerRoutes');
 const invitationRoutes = require('./routes/invitationRoutes');
+const naturalLanguageReportRoutes = require('./routes/naturalLanguageReportRoutes');
 
 // Initialize Express app
 const app = express();
@@ -72,6 +73,7 @@ app.use('/api/csv', authenticateJWT, csvRoutes);
 app.use('/api/shifts', authenticateJWT, shiftRoutes);
 app.use('/api/loggers', authenticateJWT, loggerRoutes);
 app.use('/api/invitations', invitationRoutes);
+app.use('/api/reports/natural-language', authenticateJWT, naturalLanguageReportRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -223,6 +225,24 @@ app.post('/api/asset-state', async (req, res) => {
     }
 
     console.log('✅ ASSET STATE UPDATE - Found asset:', asset.name);
+
+    // Check if we need to auto-start a shift (if no active shift exists)
+    const currentShift = await shiftScheduler.getCurrentShift();
+    if (!currentShift) {
+      console.log('🔄 No active shift detected, auto-starting new shift...');
+      try {
+        await shiftScheduler.startShiftManually(
+          `Auto-started - ${new Date().toLocaleString()}`,
+          'Automatically started due to asset activity'
+        );
+        
+        // Emit shift update to all connected clients
+        io.emit('shift_update', await shiftScheduler.getCurrentShift());
+        console.log('✅ Auto-started new shift due to asset activity');
+      } catch (error) {
+        console.error('❌ Failed to auto-start shift:', error.message);
+      }
+    }
 
     // Update asset state if it has changed
     if (asset.current_state !== assetState) {
@@ -407,8 +427,33 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // Socket.IO connection handling
-io.on('connection', (socket) => {
+io.on('connection', async (socket) => {
   console.log('Client connected:', socket.id);
+  
+  // Send current shift data to newly connected client
+  try {
+    const { Shift } = require('./models/database');
+    const activeShift = await Shift.findOne({ 
+      where: { status: 'active' }, 
+      order: [['created_at', 'DESC']] 
+    });
+    
+    if (activeShift) {
+      const shiftData = {
+        id: activeShift.id,
+        name: activeShift.shift_name,
+        start_time: activeShift.start_time,
+        status: activeShift.status
+      };
+      
+      console.log('📡 Sending current shift to new client:', shiftData.name);
+      socket.emit('shift_update', shiftData);
+    } else {
+      console.log('📡 No active shift to send to new client');
+    }
+  } catch (error) {
+    console.error('❌ Error sending current shift to client:', error.message);
+  }
   
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
@@ -452,6 +497,9 @@ const startServer = async () => {
 };
 
 startServer();
+
+// Export server and io for use in other modules
+module.exports = { server, io };
 
 // Graceful shutdown
 process.on('SIGTERM', () => {

@@ -1,4 +1,4 @@
-import React, { useContext } from 'react';
+import React, { useContext, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { styled, useTheme } from '@mui/material/styles';
 import Box from '@mui/material/Box';
@@ -29,6 +29,8 @@ import WifiOffIcon from '@mui/icons-material/WifiOff';
 // Context
 import AuthContext from '../../context/AuthContext';
 import SocketContext from '../../context/SocketContext';
+import AlertContext from '../../context/AlertContext';
+import axios from 'axios';
 
 // Styled drawer header
 const DrawerHeader = styled('div')(({ theme }) => ({
@@ -45,6 +47,8 @@ const Sidebar = ({ open, sidebarWidth, handleDrawerToggle }) => {
   const location = useLocation();
   const { user } = useContext(AuthContext);
   const { currentShift, connected } = useContext(SocketContext);
+  const { error, success } = useContext(AlertContext);
+  const [shiftLoading, setShiftLoading] = useState(false);
   
   // Navigation items
   const mainNavItems = [
@@ -71,6 +75,31 @@ const Sidebar = ({ open, sidebarWidth, handleDrawerToggle }) => {
     }
     return location.pathname === path || 
            (path !== '/' && location.pathname.startsWith(path));
+  };
+
+  // Start or End shift action
+  const handleShiftAction = async () => {
+    if (shiftLoading) return;
+    setShiftLoading(true);
+    try {
+      if (currentShift) {
+        await axios.post('/api/shifts/end', { notes: '' });
+        success('Shift ended successfully');
+      } else {
+        await axios.post('/api/shifts/start', {});
+        success('Shift started successfully');
+      }
+      // currentShift state will be updated via socket 'shift_update' event
+    } catch (e) {
+      const msg = e?.response?.data?.message || e.message || 'Operation failed';
+      if (currentShift) {
+        error('Failed to end shift: ' + msg);
+      } else {
+        error('Failed to start shift: ' + msg);
+      }
+    } finally {
+      setShiftLoading(false);
+    }
   };
 
   return (
@@ -153,11 +182,11 @@ const Sidebar = ({ open, sidebarWidth, handleDrawerToggle }) => {
       <List>
         <ListItem disablePadding>
           <Tooltip title={currentShift ? 'End Current Shift' : 'Start New Shift'}>
-            <ListItemButton>
+            <ListItemButton onClick={handleShiftAction} disabled={shiftLoading}>
               <ListItemIcon>
                 {currentShift ? <StopIcon sx={{ color: '#f44336' }} /> : <PlayArrowIcon sx={{ color: '#4caf50' }} />}
               </ListItemIcon>
-              <ListItemText primary={currentShift ? 'End Shift' : 'Start Shift'} />
+              <ListItemText primary={currentShift ? (shiftLoading ? 'Ending...' : 'End Shift') : (shiftLoading ? 'Starting...' : 'Start Shift')} />
             </ListItemButton>
           </Tooltip>
         </ListItem>

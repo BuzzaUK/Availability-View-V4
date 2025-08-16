@@ -152,7 +152,10 @@ const Dashboard = () => {
       };
     });
 
-    const systemAvailability = assets.length > 0 ? runningAssets / assets.length : 0;
+    // Calculate system availability as the average of individual asset availabilities
+    const systemAvailability = assetMetrics.length > 0 
+      ? assetMetrics.reduce((sum, asset) => sum + asset.availability, 0) / assetMetrics.length 
+      : 0;
 
     return {
       systemAvailability,

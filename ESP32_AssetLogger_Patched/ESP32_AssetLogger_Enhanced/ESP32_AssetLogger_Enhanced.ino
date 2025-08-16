@@ -28,10 +28,10 @@
 #include <Adafruit_SSD1306.h>
 
 // ===== CONFIGURATION =====
-#define LOGGER_ID "ESP32_001"
-#define LOGGER_NAME "Production Floor Logger"
-#define FIRMWARE_VERSION "2.0.0"
-#define WEB_APP_URL "http://192.168.0.63:5000"  // Replace with your actual IP
+#define LOGGER_ID "ESP32_001" 
+#define LOGGER_NAME "Production Floor Logger" 
+#define FIRMWARE_VERSION "2.0.0" 
+#define WEB_APP_URL "http://192.168.0.63:5000"  // Replace with your actual IP 
 
 // OLED Configuration
 #define SCREEN_WIDTH 128

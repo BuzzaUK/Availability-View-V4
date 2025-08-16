@@ -1,7 +1,8 @@
-const memoryDB = require('../utils/memoryDB');
 const path = require('path');
 const fs = require('fs');
 const { Parser } = require('json2csv');
+const sendEmail = require('../utils/sendEmail');
+const databaseService = require('../services/databaseService');
 
 // Helper function to ensure upload directory exists
 const ensureUploadDirExists = () => {
@@ -17,8 +18,8 @@ const ensureUploadDirExists = () => {
 // @access  Private
 exports.getArchives = async (req, res) => {
   try {
-    // Get all archives from memory database
-    let archives = memoryDB.getAllArchives();
+    // Get all archives from database
+    let archives = await databaseService.getAllArchives();
     
     // Pagination
     const page = parseInt(req.query.page, 10) || 1;
@@ -60,17 +61,23 @@ exports.getArchives = async (req, res) => {
     const paginatedArchives = archives.slice(startIndex, startIndex + limit);
     
     // Add asset names to archives
-    const assets = memoryDB.getAllAssets();
+    const assets = await databaseService.getAllAssets();
     const enrichedArchives = paginatedArchives.map(archive => {
-      const archiveAssets = archive.assets ? archive.assets.map(assetId => {
-        const asset = assets.find(a => a._id == assetId);
-        return asset ? { _id: asset._id, name: asset.name } : { _id: assetId, name: 'Unknown' };
+      const archiveData = archive.toJSON ? archive.toJSON() : archive;
+      const archiveAssets = archiveData.filters?.asset_ids ? archiveData.filters.asset_ids.map(assetId => {
+        const asset = assets.find(a => (a._id || a.id) == assetId);
+        return asset ? { _id: asset._id || asset.id, name: asset.name } : { _id: assetId, name: 'Unknown' };
       }) : [];
       
       return {
-        ...archive,
+        ...archiveData,
         assets: archiveAssets,
-        creator: archive.creator || { name: 'System', email: 'system@example.com' }
+        creator: { name: 'System', email: 'system@example.com' },
+        file_size_mb: archiveData.file_size ? (archiveData.file_size / (1024 * 1024)).toFixed(2) : '0.00',
+        event_count: archiveData.archived_data?.event_count || 0,
+        filename: archiveData.filters?.filename || archiveData.title,
+        start_date: archiveData.date_range_start,
+        end_date: archiveData.date_range_end
       };
     });
     
@@ -94,12 +101,165 @@ exports.getArchives = async (req, res) => {
   }
 };
 
+// @desc    Send email with archive details
+// @route   POST /api/archives/send-email
+// @access  Private
+exports.sendArchiveEmail = async (req, res) => {
+  try {
+    const { archiveId, recipientEmail, recipientName, subject, message } = req.body;
+    
+    // Validate required fields
+    if (!archiveId || !recipientEmail || !subject || !message) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: archiveId, recipientEmail, subject, and message are required'
+      });
+    }
+    
+    // Get archive details from database
+    let archive;
+    try {
+      archive = await databaseService.findArchiveById(archiveId);
+    } catch (error) {
+      // Fallback to memory database if SQL fails
+      archive = await databaseService.findArchiveById(archiveId);
+    }
+    
+    if (!archive) {
+      return res.status(404).json({
+        success: false,
+        message: 'Archive not found'
+      });
+    }
+    
+    // Extract event count from archived_data
+    let eventCount = 0;
+    let eventDetails = [];
+    
+    if (archive.archived_data) {
+      if (typeof archive.archived_data === 'string') {
+        const parsedData = JSON.parse(archive.archived_data);
+        eventCount = parsedData.event_count || parsedData.events?.length || 0;
+        eventDetails = parsedData.events || [];
+      } else {
+        eventCount = archive.archived_data.event_count || archive.archived_data.events?.length || 0;
+        eventDetails = archive.archived_data.events || [];
+      }
+    }
+
+    // Prepare event summary for email
+    let eventSummary = '';
+    if (eventDetails.length > 0) {
+      eventSummary = '\n\nEvent Summary:\n';
+      eventDetails.slice(0, 10).forEach((event, index) => {
+        const timestamp = new Date(event.timestamp).toLocaleString();
+        eventSummary += `${index + 1}. ${event.asset_name || 'Unknown Asset'} - ${event.event_type} (${event.previous_state} → ${event.new_state}) at ${timestamp}\n`;
+      });
+      if (eventDetails.length > 10) {
+        eventSummary += `... and ${eventDetails.length - 10} more events\n`;
+      }
+    }
+
+    // Prepare email content
+    const emailSubject = subject;
+    const emailBody = `
+Dear ${recipientName || 'User'},
+
+${message}
+
+---
+Archive Details:
+- Name: ${archive.title || archive.name}
+- Description: ${archive.description || 'No description'}
+- Event Count: ${eventCount}
+- Created: ${new Date(archive.created_at).toLocaleString()}${eventSummary}
+
+Best regards,
+Industrial Monitoring Dashboard
+    `;
+    
+    // Send email
+    await sendEmail({
+      to: recipientEmail,
+      subject: emailSubject,
+      text: emailBody,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #1976d2;">Event Archive Notification</h2>
+          <p>Dear ${recipientName || 'User'},</p>
+          <p>${message.replace(/\n/g, '<br>')}</p>
+          
+          <div style="background-color: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h3 style="margin-top: 0; color: #333;">Archive Details</h3>
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold; color: #555;">Name:</td>
+                <td style="padding: 8px 0;">${archive.title || archive.name}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold; color: #555;">Description:</td>
+                <td style="padding: 8px 0;">${archive.description || 'No description'}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold; color: #555;">Event Count:</td>
+                <td style="padding: 8px 0;">${eventCount}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold; color: #555;">Created:</td>
+                <td style="padding: 8px 0;">${new Date(archive.created_at).toLocaleString()}</td>
+              </tr>
+            </table>
+          </div>
+          
+          ${eventDetails.length > 0 ? `
+          <div style="background-color: #fff; padding: 20px; border: 1px solid #ddd; border-radius: 8px; margin: 20px 0;">
+            <h3 style="margin-top: 0; color: #333;">Event Summary (${Math.min(eventDetails.length, 10)} of ${eventDetails.length} events)</h3>
+            <div style="font-family: monospace; font-size: 12px; line-height: 1.4;">
+              ${eventDetails.slice(0, 10).map((event, index) => {
+                const timestamp = new Date(event.timestamp).toLocaleString();
+                return `<div style="padding: 4px 0; border-bottom: 1px solid #eee;">
+                  <strong>${index + 1}.</strong> ${event.asset_name || 'Unknown Asset'} - ${event.event_type}<br>
+                  <span style="color: #666; margin-left: 20px;">${event.previous_state} → ${event.new_state} at ${timestamp}</span>
+                </div>`;
+              }).join('')}
+              ${eventDetails.length > 10 ? `<div style="padding: 8px 0; color: #666; font-style: italic;">... and ${eventDetails.length - 10} more events</div>` : ''}
+            </div>
+          </div>` : ''}
+          
+          <p style="color: #666; font-size: 14px; margin-top: 30px;">
+            Best regards,<br>
+            <strong>Industrial Monitoring Dashboard</strong>
+          </p>
+        </div>
+      `
+    });
+    
+    res.status(200).json({
+      success: true,
+      message: `Email sent successfully to ${recipientEmail}`,
+      data: {
+        archiveId,
+        recipientEmail,
+        subject: emailSubject
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error sending archive email:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to send email: ' + error.message
+    });
+  }
+};
+
+
 // @desc    Get archive by ID
 // @route   GET /api/archives/:id
 // @access  Private
 exports.getArchiveById = async (req, res) => {
   try {
-    const archive = memoryDB.findArchiveById(req.params.id);
+    const archive = await databaseService.findArchiveById(req.params.id);
     
     if (!archive) {
       return res.status(404).json({
@@ -109,7 +269,7 @@ exports.getArchiveById = async (req, res) => {
     }
     
     // Add asset names to archive
-    const assets = memoryDB.getAllAssets();
+    const assets = await databaseService.getAllAssets();
     const archiveAssets = archive.assets ? archive.assets.map(assetId => {
       const asset = assets.find(a => a._id == assetId);
       return asset ? { _id: asset._id, name: asset.name } : { _id: assetId, name: 'Unknown' };
@@ -173,8 +333,8 @@ exports.createArchive = async (req, res) => {
       });
     }
     
-    // Get events from memory database
-    let events = memoryDB.getAllEvents();
+    // Get events from database
+    let events = await databaseService.getAllEvents();
     
     // Filter events by date range
     events = events.filter(event => {
@@ -195,7 +355,7 @@ exports.createArchive = async (req, res) => {
     }
     
     // Get asset information for events
-    const assets = memoryDB.getAllAssets();
+    const assets = await databaseService.getAllAssets();
     const eventsWithAssets = events.map(event => {
       const asset = assets.find(a => a._id == event.asset);
       return {
@@ -253,32 +413,42 @@ exports.createArchive = async (req, res) => {
     
     // Create archive record
     const archiveData = {
-      filename: uniqueFilename,
-      original_filename: filename,
-      description: description || '',
+      title: filename,
+      description: description || `Archive of ${eventsWithAssets.length} events from ${startDateObj.toDateString()} to ${endDateObj.toDateString()}`,
+      archive_type: 'EVENTS',
+      date_range_start: startDateObj,
+      date_range_end: endDateObj,
+      filters: {
+        asset_ids: asset_ids || [],
+        filename: uniqueFilename,
+        original_filename: filename
+      },
+      archived_data: {
+        events: eventsWithAssets,
+        event_count: eventsWithAssets.length,
+        assets: asset_ids || []
+      },
       file_path: filePath,
       file_size: fileSizeInBytes,
-      event_count: eventsWithAssets.length,
-      start_date: startDateObj,
-      end_date: endDateObj,
-      assets: asset_ids || [],
-      creator: req.user ? req.user._id : 'system',
-      created_at: new Date()
+      status: 'COMPLETED',
+      created_by: req.user ? req.user.id : 1
     };
     
-    const archive = memoryDB.createArchive(archiveData);
+    const archive = await databaseService.createArchive(archiveData);
     
     // Add asset names for response
-    const archiveAssets = archive.assets ? archive.assets.map(assetId => {
-      const asset = assets.find(a => a._id == assetId);
-      return asset ? { _id: asset._id, name: asset.name } : { _id: assetId, name: 'Unknown' };
+    const archiveAssets = archive.filters?.asset_ids ? archive.filters.asset_ids.map(assetId => {
+      const asset = assets.find(a => (a._id || a.id) == assetId);
+      return asset ? { _id: asset._id || asset.id, name: asset.name } : { _id: assetId, name: 'Unknown' };
     }) : [];
-    
+
     const responseArchive = {
-      ...archive,
+      ...archive.toJSON(),
       assets: archiveAssets,
       creator: { name: 'System', email: 'system@example.com' },
-      file_size_mb: fileSizeInMB
+      file_size_mb: fileSizeInMB,
+      event_count: archive.archived_data?.event_count || 0,
+      filename: archive.filters?.filename || archive.title
     };
     
     res.status(201).json({
@@ -300,7 +470,7 @@ exports.createArchive = async (req, res) => {
 // @access  Private
 exports.downloadArchive = async (req, res) => {
   try {
-    const archive = memoryDB.findArchiveById(req.params.id);
+    const archive = await databaseService.findArchiveById(req.params.id);
     
     if (!archive) {
       return res.status(404).json({
@@ -321,7 +491,8 @@ exports.downloadArchive = async (req, res) => {
     
     // Set headers for file download
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="${archive.original_filename || archive.filename}"`);
+    const filename = archive.filters?.original_filename || archive.filters?.filename || archive.title || `archive_${req.params.id}.csv`;
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     
     // Stream the file
     const fileStream = fs.createReadStream(filePath);
@@ -340,7 +511,7 @@ exports.downloadArchive = async (req, res) => {
 // @access  Private
 exports.deleteArchive = async (req, res) => {
   try {
-    const archive = memoryDB.findArchiveById(req.params.id);
+    const archive = await databaseService.findArchiveById(req.params.id);
     
     if (!archive) {
       return res.status(404).json({
@@ -360,7 +531,7 @@ exports.deleteArchive = async (req, res) => {
     }
     
     // Delete archive record from database
-    const deleted = memoryDB.deleteArchive(req.params.id);
+    const deleted = await databaseService.deleteArchive(req.params.id);
     
     if (!deleted) {
       return res.status(500).json({
@@ -397,7 +568,7 @@ exports.generateEndOfShiftReport = async (req, res) => {
     }
     
     // Get shift information
-    const shift = memoryDB.findShiftById(shift_id);
+    const shift = await databaseService.findShiftById(shift_id);
     
     if (!shift) {
       return res.status(404).json({
@@ -407,7 +578,7 @@ exports.generateEndOfShiftReport = async (req, res) => {
     }
     
     // Get all events for this shift
-    let events = memoryDB.getAllEvents();
+    let events = await databaseService.getAllEvents();
     
     // Filter events by shift timeframe
     const shiftStart = new Date(shift.start_time);
@@ -431,7 +602,7 @@ exports.generateEndOfShiftReport = async (req, res) => {
     }
     
     // Get asset information for events
-    const assets = memoryDB.getAllAssets();
+    const assets = await databaseService.getAllAssets();
     const eventsWithAssets = events.map(event => {
       const asset = assets.find(a => a._id == event.asset);
       return {
@@ -488,34 +659,46 @@ exports.generateEndOfShiftReport = async (req, res) => {
     
     // Create archive record
     const archiveData = {
-      filename: filename,
-      original_filename: `End of Shift Report - ${shiftName}.csv`,
-      description: `End of shift report for ${shiftName} (${shift.shift_number})`,
+      title: `End of Shift Report - ${shiftName}`,
+      description: `End of shift report for ${shiftName} (${shift.shift_number || 'N/A'}) with ${eventsWithAssets.length} events`,
+      archive_type: 'REPORTS',
+      date_range_start: shiftStart,
+      date_range_end: shiftEnd,
+      filters: {
+        shift_id: shift_id,
+        include_all_assets: include_all_assets,
+        asset_ids: asset_ids,
+        filename: filename,
+        original_filename: `End of Shift Report - ${shiftName}.csv`,
+        report_type: 'end_of_shift'
+      },
+      archived_data: {
+        events: eventsWithAssets,
+        event_count: eventsWithAssets.length,
+        shift: shift,
+        assets: include_all_assets ? assets.map(a => a.id || a._id) : asset_ids
+      },
       file_path: filePath,
       file_size: fileSizeInBytes,
-      event_count: eventsWithAssets.length,
-      start_date: shiftStart,
-      end_date: shiftEnd,
-      assets: include_all_assets ? assets.map(a => a._id) : asset_ids,
-      creator: req.user ? req.user._id : 'system',
-      created_at: new Date(),
-      shift_id: shift_id,
-      report_type: 'end_of_shift'
+      status: 'COMPLETED',
+      created_by: req.user ? req.user.id : 1
     };
     
-    const archive = memoryDB.createArchive(archiveData);
+    const archive = await databaseService.createArchive(archiveData);
     
     // Add asset names for response
-    const archiveAssets = archive.assets ? archive.assets.map(assetId => {
-      const asset = assets.find(a => a._id == assetId);
-      return asset ? { _id: asset._id, name: asset.name } : { _id: assetId, name: 'Unknown' };
+    const archiveAssets = archive.archived_data?.assets ? archive.archived_data.assets.map(assetId => {
+      const asset = assets.find(a => (a._id || a.id) == assetId);
+      return asset ? { _id: asset._id || asset.id, name: asset.name } : { _id: assetId, name: 'Unknown' };
     }) : [];
-    
+
     const responseArchive = {
-      ...archive,
+      ...archive.toJSON(),
       assets: archiveAssets,
       creator: { name: 'System', email: 'system@example.com' },
-      file_size_mb: (fileSizeInBytes / (1024 * 1024)).toFixed(2)
+      file_size_mb: (fileSizeInBytes / (1024 * 1024)).toFixed(2),
+      event_count: archive.archived_data?.event_count || 0,
+      filename: archive.filters?.filename || archive.title
     };
     
     res.status(201).json({

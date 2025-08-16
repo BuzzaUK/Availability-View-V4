@@ -1,4 +1,5 @@
 const nodemailer = require('nodemailer');
+const databaseService = require('../services/databaseService');
 
 /**
  * Send email using nodemailer
@@ -16,15 +17,25 @@ const nodemailer = require('nodemailer');
  * @param {Array} [options.attachments] - Nodemailer attachments
  */
 const sendEmail = async (options) => {
-  // Create transporter
-  const port = parseInt(process.env.EMAIL_PORT, 10);
+  // Get email settings from database
+  const settings = await databaseService.getNotificationSettings();
+  const emailSettings = settings.emailSettings;
+  
+  if (!emailSettings || !emailSettings.smtpServer || !emailSettings.username || !emailSettings.password) {
+    throw new Error('Email configuration not found or incomplete. Please configure email settings in the notification settings.');
+  }
+  
+  // Create transporter using database settings
   const transporter = nodemailer.createTransport({
-    host: process.env.EMAIL_HOST,
-    port: isNaN(port) ? undefined : port,
-    secure: port === 465, // true for 465, false for other ports
+    host: emailSettings.smtpServer,
+    port: parseInt(emailSettings.port, 10),
+    secure: parseInt(emailSettings.port, 10) === 465, // true for 465, false for other ports
     auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASSWORD
+      user: emailSettings.username,
+      pass: emailSettings.password
+    },
+    tls: {
+      rejectUnauthorized: false
     }
   });
 
@@ -32,7 +43,7 @@ const sendEmail = async (options) => {
   const to = options.email || options.to;
   const text = options.message || options.text || '';
   const html = options.html || '';
-  const from = options.from || `${process.env.EMAIL_FROM}`;
+  const from = options.from || emailSettings.fromEmail || emailSettings.username;
 
   if (!to) {
     throw new Error('Recipient email is required');

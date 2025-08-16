@@ -3,6 +3,67 @@ const databaseService = require('./databaseService');
 const reportService = require('./reportService');
 const s3Service = require('./s3Service');
 const sendEmail = require('../utils/sendEmail');
+const { sequelize } = require('../config/database');
+const { Event } = require('../models/database');
+const WebSocket = require('ws');
+
+// Enhanced debugging utility
+class ShiftDebugger {
+  static log(level, message, data = null) {
+    const timestamp = new Date().toISOString();
+    const logEntry = {
+      timestamp,
+      level,
+      message,
+      data,
+      source: 'ShiftScheduler'
+    };
+    
+    // Console logging with emojis
+    const emoji = {
+      'INFO': '📋',
+      'SUCCESS': '✅',
+      'WARNING': '⚠️',
+      'ERROR': '❌',
+      'DEBUG': '🔍',
+      'PROCESS': '🔄'
+    };
+    
+    console.log(`${emoji[level] || '📋'} [${timestamp}] ${message}`);
+    if (data) {
+      console.log('   Data:', JSON.stringify(data, null, 2));
+    }
+    
+    // Broadcast to frontend via WebSocket if available
+    this.broadcastToFrontend(logEntry);
+  }
+  
+  static broadcastToFrontend(logEntry) {
+    try {
+      // Get the server instance to emit Socket.IO events
+      const server = require('../server');
+      if (server && server.io) {
+        // Emit shift debug event to all connected clients
+        server.io.emit('shift_debug', {
+          timestamp: logEntry.timestamp,
+          level: logEntry.level,
+          message: logEntry.message,
+          context: logEntry.context,
+          emoji: logEntry.emoji
+        });
+      }
+    } catch (error) {
+      // Silently fail if Socket.IO is not available
+    }
+  }
+  
+  static info(message, data) { this.log('INFO', message, data); }
+  static success(message, data) { this.log('SUCCESS', message, data); }
+  static warning(message, data) { this.log('WARNING', message, data); }
+  static error(message, data) { this.log('ERROR', message, data); }
+  static debug(message, data) { this.log('DEBUG', message, data); }
+  static process(message, data) { this.log('PROCESS', message, data); }
+}
 
 class ShiftScheduler {
   constructor() {
@@ -19,6 +80,9 @@ class ShiftScheduler {
       // Setup shift detection based on settings
       await this.setupShiftSchedules();
       
+      // Setup continuous shift duration monitoring
+      this.setupShiftDurationMonitoring();
+      
       // Setup data retention cleanup (daily at 2 AM)
       this.setupDataRetentionCleanup();
       
@@ -31,14 +95,31 @@ class ShiftScheduler {
 
   async setupShiftSchedules() {
     try {
-      const autoDetection = process.env.AUTO_SHIFT_DETECTION === 'true';
+      // Get notification settings from database to check if shift reports are enabled
+      const notificationSettings = await databaseService.getNotificationSettings();
       
-      if (!autoDetection) {
-        console.log('⚠️ Automatic shift detection disabled');
+      if (!notificationSettings?.shiftSettings?.enabled) {
+        console.log('⚠️ Automatic shift detection disabled in notification settings');
         return;
       }
 
-      const shiftTimes = process.env.SHIFT_TIMES?.split(',') || ['08:00', '16:00', '00:00'];
+      // Get shift times from notification settings instead of environment variables
+      const shiftTimes = Array.isArray(notificationSettings.shiftSettings?.shiftTimes)
+        ? notificationSettings.shiftSettings.shiftTimes
+        : [];
+
+      if (!shiftTimes.length) {
+        console.warn('⚠️ No shift times configured in notification settings; skipping automatic shift scheduling');
+        return;
+      }
+      
+      // Convert HHMM format to HH:MM if needed
+      const formattedShiftTimes = shiftTimes.map(time => {
+        if (time.length === 4 && !time.includes(':')) {
+          return `${time.substring(0, 2)}:${time.substring(2)}`;
+        }
+        return time;
+      });
       
       // Clear existing schedules
       this.scheduledJobs.forEach(job => {
@@ -49,7 +130,7 @@ class ShiftScheduler {
       this.scheduledJobs.clear();
 
       // Setup shift detection for each configured time
-      shiftTimes.forEach((time, index) => {
+      formattedShiftTimes.forEach((time, index) => {
         const [hour, minute] = time.split(':');
         const cronExpression = `${minute} ${hour} * * *`; // Daily at specified time
         
@@ -57,16 +138,31 @@ class ShiftScheduler {
           await this.handleAutomaticShiftChange(index + 1, time);
         }, {
           scheduled: true,
-          timezone: 'America/New_York' // Adjust timezone as needed
+          timezone: 'Europe/London' // Match system timezone
         });
 
         this.scheduledJobs.set(`shift_${index}`, job);
         console.log(`📅 Scheduled automatic shift detection for ${time} (${cronExpression})`);
       });
 
+      console.log(`✅ Shift scheduler configured with ${formattedShiftTimes.length} shifts: ${formattedShiftTimes.join(', ')}`);
+
     } catch (error) {
       console.error('❌ Failed to setup shift schedules:', error.message);
     }
+  }
+
+  setupShiftDurationMonitoring() {
+    // Check every minute for shift duration exceeded
+    const durationMonitorJob = cron.schedule('* * * * *', async () => {
+      await this.checkShiftDurationAndTriggerArchiving();
+    }, {
+      scheduled: true,
+      timezone: 'Europe/London'
+    });
+
+    this.scheduledJobs.set('duration_monitor', durationMonitorJob);
+    console.log('📅 Scheduled continuous shift duration monitoring (every minute)');
   }
 
   setupDataRetentionCleanup() {
@@ -75,27 +171,84 @@ class ShiftScheduler {
       await this.performDataRetentionCleanup();
     }, {
       scheduled: true,
-      timezone: 'America/New_York'
+      timezone: 'Europe/London'
     });
 
     this.scheduledJobs.set('data_cleanup', cleanupJob);
     console.log('📅 Scheduled daily data retention cleanup at 2:00 AM');
   }
 
-  async handleAutomaticShiftChange(shiftNumber, shiftTime) {
+  async updateSchedules() {
     try {
-      console.log(`🔄 Processing automatic shift change: Shift ${shiftNumber} at ${shiftTime}`);
+      console.log('🔄 Updating shift schedules from notification settings...');
+      await this.setupShiftSchedules();
+      console.log('✅ Shift schedules updated successfully');
+    } catch (error) {
+      console.error('❌ Failed to update shift schedules:', error.message);
+    }
+  }
 
-      // End current shift if exists
+  async handleAutomaticShiftChange(shiftNumber, shiftTime) {
+    const debugContext = {
+      shiftNumber,
+      shiftTime,
+      currentShift: this.currentShift ? {
+        id: this.currentShift.id,
+        name: this.currentShift.shift_name,
+        status: this.currentShift.status
+      } : null,
+      timestamp: new Date().toISOString()
+    };
+    
+    try {
+      ShiftDebugger.process(`🔄 AUTOMATIC SHIFT CHANGE INITIATED`, debugContext);
+      
+      // Check if there's a current active shift
       if (this.currentShift && this.currentShift.status === 'active') {
+        ShiftDebugger.info(`Ending current active shift: ${this.currentShift.shift_name}`, {
+          currentShiftId: this.currentShift.id,
+          currentShiftStartTime: this.currentShift.start_time
+        });
+        
         await this.endCurrentShift(true); // true = automatic
+        ShiftDebugger.success('Current shift ended successfully');
+      } else {
+        ShiftDebugger.info('No active shift to end - proceeding to start new shift');
       }
 
       // Start new shift
+      ShiftDebugger.process(`Starting new automatic shift: Shift ${shiftNumber}`);
       await this.startNewShift(shiftNumber, shiftTime, true); // true = automatic
+      
+      ShiftDebugger.success(`🎯 AUTOMATIC SHIFT CHANGE COMPLETED SUCCESSFULLY`, {
+        newShiftId: this.currentShift?.id,
+        newShiftName: this.currentShift?.shift_name,
+        completedAt: new Date().toISOString()
+      });
+
+      // Emit shift change event to frontend
+      try {
+        const server = require('../server');
+        if (server && server.io) {
+          server.io.emit('shift_change', {
+            timestamp: new Date().toISOString(),
+            type: 'automatic',
+            previousShift: debugContext.currentShift?.id || null,
+            newShift: this.currentShift?.id || null,
+            status: 'completed'
+          });
+        }
+      } catch (error) {
+        // Silently fail if Socket.IO is not available
+      }
 
     } catch (error) {
-      console.error('❌ Automatic shift change handling failed:', error.message);
+      ShiftDebugger.error('❌ AUTOMATIC SHIFT CHANGE FAILED', {
+        error: error.message,
+        stack: error.stack,
+        context: debugContext
+      });
+      throw error;
     }
   }
 
@@ -121,6 +274,9 @@ class ShiftScheduler {
 
   async endShiftManually(notes = '') {
     try {
+      // Refresh current shift from database to ensure synchronization
+      await this.refreshCurrentShift();
+      
       if (!this.currentShift || this.currentShift.status !== 'active') {
         throw new Error('No active shift to end');
       }
@@ -137,57 +293,261 @@ class ShiftScheduler {
     }
   }
 
+  async refreshCurrentShift() {
+    try {
+      console.log('🔄 Refreshing current shift from database...');
+      const dbCurrentShift = await databaseService.getCurrentShift();
+      
+      if (dbCurrentShift && dbCurrentShift.status === 'active') {
+        this.currentShift = dbCurrentShift;
+        console.log(`✅ Current shift refreshed: ${dbCurrentShift.shift_name} (ID: ${dbCurrentShift.id})`);
+      } else {
+        this.currentShift = null;
+        console.log('✅ No active shift found in database');
+      }
+      
+      return this.currentShift;
+    } catch (error) {
+      console.error('❌ Failed to refresh current shift:', error.message);
+      throw error;
+    }
+  }
+
   async endCurrentShift(isAutomatic = false, notes = '') {
-    if (!this.currentShift) return;
+    if (!this.currentShift) {
+      ShiftDebugger.warning('No current shift to end');
+      return;
+    }
+
+    const endTime = new Date();
+    const shiftId = this.currentShift.id || this.currentShift._id;
+    const debugContext = {
+      shiftId,
+      shiftName: this.currentShift.shift_name,
+      isAutomatic,
+      notes,
+      startTime: this.currentShift.start_time,
+      endTime: endTime.toISOString()
+    };
 
     try {
-      const endTime = new Date();
-      const shiftId = this.currentShift.id || this.currentShift._id;
+      ShiftDebugger.process('🔄 COMPREHENSIVE END-OF-SHIFT PROCESSING INITIATED', debugContext);
       
-      // Add SHIFT_END event for all active assets
+      // Step 1: Add SHIFT_END event for all active assets
+      ShiftDebugger.process('📝 STEP 1: Adding SHIFT_END events for all assets');
       const assets = await databaseService.getAllAssets();
+      ShiftDebugger.debug(`Found ${assets.length} assets to process`, { assetCount: assets.length });
       for (const asset of assets) {
         await databaseService.createEvent({
-          asset_id: asset.id || asset._id,
+          asset_id: asset.id,
           logger_id: asset.logger_id,
           event_type: 'SHIFT_END',
           previous_state: asset.current_state || null,
           new_state: null,
           timestamp: endTime,
           shift_id: shiftId,
+          stop_reason: `Shift ended ${isAutomatic ? 'automatically' : 'manually'}`,
           metadata: {
             shift_name: this.currentShift.shift_name || this.currentShift.name,
-            auto_generated: isAutomatic,
-            note: `Shift ended ${isAutomatic ? 'automatically' : 'manually'}`
+            auto_generated: isAutomatic
           }
         });
       }
 
-      // Update shift record
+      ShiftDebugger.success(`Created SHIFT_END events for ${assets.length} assets`);
+
+      // Step 2: Update shift record
+      ShiftDebugger.process('📝 STEP 2: Updating shift record in database');
       const updatedShift = await databaseService.updateShift(shiftId, {
         status: 'completed',
         end_time: endTime,
         notes: notes || this.currentShift.notes
       });
+      ShiftDebugger.success('Shift record updated successfully', {
+        shiftId,
+        status: 'completed',
+        endTime: endTime.toISOString()
+      });
 
-      // Generate comprehensive shift report
-      await this.generateAndSendShiftReport(shiftId);
+      // Step 3: Archive all events from this shift
+      ShiftDebugger.process('📦 STEP 3: Archiving shift events');
+      const archiveResult = await this.archiveShiftEvents(shiftId, isAutomatic);
       
-      // Archive shift events automatically
-      await this.archiveShiftEvents(shiftId, isAutomatic);
+      if (archiveResult) {
+        ShiftDebugger.success('Events archived successfully', {
+          archiveId: archiveResult.id,
+          eventCount: archiveResult.archived_data?.event_count || 'unknown'
+        });
+        
+        // Emit archive creation event to frontend
+        try {
+          const server = require('../server');
+          if (server && server.io) {
+            server.io.emit('archive_created', {
+              timestamp: new Date().toISOString(),
+              archiveId: archiveResult.id,
+              archiveName: archiveResult.title,
+              eventCount: archiveResult.archived_data?.event_count || 0,
+              type: 'shift_end'
+            });
+          }
+        } catch (error) {
+          // Silently fail if Socket.IO is not available
+        }
+      } else {
+        ShiftDebugger.warning('No archive result returned - events may not have been archived');
+      }
+
+      // Step 4: Generate and archive shift reports if enabled
+      ShiftDebugger.process('📧 STEP 4: Checking shift report settings');
+      const settings = await databaseService.getNotificationSettings();
       
-      console.log(`✅ Shift ended: ${this.currentShift.name}`);
+      ShiftDebugger.debug('Notification settings retrieved', {
+        shiftSettingsEnabled: settings?.shiftSettings?.enabled,
+        autoSendEnabled: settings?.shiftSettings?.autoSend
+      });
+      
+      if (settings?.shiftSettings?.enabled && settings?.shiftSettings?.autoSend) {
+        ShiftDebugger.process('📧 Generating and archiving shift reports (auto-send enabled)');
+        try {
+          const reportOptions = {
+            includeCsv: true,
+            includeHtml: true,
+            includeAnalysis: true,
+            sendEmail: true
+          };
+          
+          ShiftDebugger.debug('Report generation options', reportOptions);
+          
+          // Generate report from the archived data and store in Shift Reports Archive
+          const reportResult = await reportService.generateAndArchiveShiftReport(archiveResult?.id || shiftId, reportOptions);
+          
+          if (reportResult && reportResult.reportArchive) {
+            ShiftDebugger.success('📧 Shift reports generated and archived successfully', {
+              reportArchiveId: reportResult.reportArchive.id,
+              reportsGenerated: Object.keys(reportResult.reports || {}).length
+            });
+            
+            // Emit report generation event to frontend
+            try {
+              const server = require('../server');
+              if (server && server.io) {
+                server.io.emit('report_generated', {
+                  timestamp: new Date().toISOString(),
+                  reportArchiveId: reportResult.reportArchive.id,
+                  reportTypes: Object.keys(reportResult.reports || {}),
+                  shiftId: shiftId,
+                  type: 'shift_end'
+                });
+              }
+            } catch (error) {
+              // Silently fail if Socket.IO is not available
+            }
+            
+            // Send email notifications if configured and reports were generated
+            if (reportOptions.sendEmail && reportResult.reports) {
+              ShiftDebugger.process('📧 Sending shift report email notifications');
+              await this.sendShiftReportNotifications(reportResult.reports, this.currentShift);
+              ShiftDebugger.success('Email notifications sent successfully');
+            }
+          } else {
+            ShiftDebugger.warning('Report generation completed but no result returned', reportResult);
+          }
+        } catch (reportError) {
+          ShiftDebugger.error('❌ Failed to generate and archive shift reports', {
+            error: reportError.message,
+            stack: reportError.stack
+          });
+          // Continue with the process even if reporting fails
+        }
+      } else {
+        ShiftDebugger.info('📧 Shift report auto-send is disabled - skipping report generation', {
+          shiftSettingsEnabled: settings?.shiftSettings?.enabled,
+          autoSendEnabled: settings?.shiftSettings?.autoSend
+        });
+      }
+
+      // Step 5: Reset Events table
+      ShiftDebugger.process('🔄 STEP 5: Resetting Events table');
+      
+      // Emit data processing status - starting reset
+      try {
+        const server = require('../server');
+        if (server && server.io) {
+          server.io.emit('data_processing_status', {
+            timestamp: new Date().toISOString(),
+            status: 'processing',
+            operation: 'events_table_reset',
+            message: 'Resetting events table for new shift'
+          });
+        }
+      } catch (error) {
+        // Silently fail if Socket.IO is not available
+      }
+      
+      await this.resetEventsTable(shiftId);
+      ShiftDebugger.success('Events table reset completed');
+      
+      // Emit data processing status - reset completed
+      try {
+        const server = require('../server');
+        if (server && server.io) {
+          server.io.emit('data_processing_status', {
+            timestamp: new Date().toISOString(),
+            status: 'completed',
+            operation: 'events_table_reset',
+            message: 'Events table reset completed successfully'
+          });
+        }
+      } catch (error) {
+        // Silently fail if Socket.IO is not available
+      }
+
+      // Step 6: Trigger dashboard reset via WebSocket
+       ShiftDebugger.process('📊 STEP 6: Triggering dashboard reset via WebSocket');
+       await this.triggerDashboardReset();
+       ShiftDebugger.success('Dashboard reset triggered successfully');
+       
+       const completionSummary = {
+        shiftId,
+        shiftName: this.currentShift.shift_name || this.currentShift.name,
+        duration: Math.round((endTime - new Date(this.currentShift.start_time)) / (1000 * 60)),
+        completedAt: new Date().toISOString(),
+        archiveCreated: !!archiveResult,
+        reportsGenerated: settings?.shiftSettings?.enabled && settings?.shiftSettings?.autoSend
+      };
+      
+      ShiftDebugger.success(`✅ COMPREHENSIVE END-OF-SHIFT PROCESSING COMPLETED`, completionSummary);
       this.currentShift = null;
       
     } catch (error) {
-      console.error('❌ Failed to end current shift:', error.message);
+      ShiftDebugger.error('❌ FAILED TO COMPLETE END-OF-SHIFT PROCESSING', {
+        error: error.message,
+        stack: error.stack,
+        context: debugContext
+      });
       throw error;
     }
   }
 
   async startNewShift(shiftNumber = null, shiftTime = null, isAutomatic = false, customName = null, notes = '') {
     try {
-      const startTime = new Date();
+      // Calculate proper start time
+      let startTime;
+      if (isAutomatic && shiftTime) {
+        // For automatic shifts, use the scheduled shift time as start time
+        const now = new Date();
+        const [hour, minute] = shiftTime.split(':');
+        startTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), parseInt(hour), parseInt(minute), 0, 0);
+        
+        // If the scheduled time is in the future (shouldn't happen for automatic shifts), use current time
+        if (startTime > now) {
+          startTime = now;
+        }
+      } else {
+        // For manual shifts, use current time
+        startTime = new Date();
+      }
       
       // Generate shift name
       let shiftName;
@@ -200,36 +560,25 @@ class ShiftScheduler {
       }
 
       // Create new shift
-      this.currentShift = await databaseService.createShift ? 
-        await databaseService.createShift({
-          shift_number: shiftNumber,
-          name: shiftName,
-          start_time: startTime,
-          active: true,
-          notes: notes,
-          auto_generated: isAutomatic
-        }) :
-        databaseService.memoryDB.createShift({
-          shift_number: shiftNumber,
-          name: shiftName,
-          start_time: startTime,
-          active: true,
-          notes: notes,
-          auto_generated: isAutomatic
-        });
-
+      this.currentShift = await databaseService.createShift({
+        shift_name: shiftName,
+        start_time: startTime,
+        status: 'active',
+        notes: notes
+      });
+      
       // Add SHIFT_START event for all active assets
       const assets = await databaseService.getAllAssets();
       for (const asset of assets) {
         await databaseService.createEvent({
-          asset: asset._id,
-          asset_name: asset.name,
+          asset_id: asset.id,
           logger_id: asset.logger_id,
           event_type: 'SHIFT_START',
-          state: asset.current_state || 'UNKNOWN',
+          previous_state: null,
+          new_state: asset.current_state || 'UNKNOWN',
           timestamp: startTime,
-          shift: this.currentShift._id,
-          note: `Shift started ${isAutomatic ? 'automatically' : 'manually'}`,
+          shift_id: this.currentShift.id,
+          stop_reason: `Shift started ${isAutomatic ? 'automatically' : 'manually'}`,
           metadata: {
             shift_name: shiftName,
             shift_time: shiftTime,
@@ -249,9 +598,7 @@ class ShiftScheduler {
   async generateAndSendShiftReport(shiftId) {
     try {
       // Get report recipients
-      const settings = await databaseService.getSettings ? 
-        await databaseService.getSettings() :
-        databaseService.memoryDB.getSettings();
+      const settings = await databaseService.getSettings();
 
       const users = await databaseService.getAllUsers();
       const recipients = users
@@ -276,50 +623,89 @@ class ShiftScheduler {
   }
 
   async archiveShiftEvents(shiftId, isAutomatic = false) {
+    const debugContext = {
+      shiftId,
+      isAutomatic,
+      timestamp: new Date().toISOString()
+    };
+    
     try {
-      console.log('📦 Archiving shift events...');
+      ShiftDebugger.process('📦 ARCHIVING SHIFT EVENTS INITIATED', debugContext);
       
       // Get shift information
-      const shift = await databaseService.getShift ? 
-        await databaseService.getShift(shiftId) :
-        databaseService.memoryDB.getShift(shiftId);
-
+      ShiftDebugger.debug('Retrieving shift information from database');
+      const shift = await databaseService.findShiftById(shiftId);
+      
       if (!shift) {
-        console.warn('⚠️ Shift not found for archiving events');
-        return;
+        ShiftDebugger.warning('⚠️ Shift not found for archiving events', { shiftId });
+        return null;
       }
-
-      // Get all events from the shift
-      const result = await databaseService.getAllEvents({
-        startDate: shift.start_time,
-        endDate: shift.end_time || new Date(),
-        limit: 10000 // Get all events
+      
+      ShiftDebugger.success('Shift information retrieved', {
+        shiftName: shift.shift_name,
+        startTime: shift.start_time,
+        endTime: shift.end_time,
+        status: shift.status
       });
 
-      const eventsToArchive = result.rows || [];
+      // Get all events from the shift using enhanced archiving method
+      ShiftDebugger.process('Retrieving events for archiving');
+      const archiveQuery = {
+        startDate: shift.start_time,
+        endDate: shift.end_time || new Date(),
+        shift_id: shiftId
+      };
+      
+      ShiftDebugger.debug('Archive query parameters', archiveQuery);
+      const archiveResult = await databaseService.getEventsForArchiving(archiveQuery);
+
+      const eventsToArchive = archiveResult.events || [];
+      const archiveMetadata = archiveResult.metadata || {};
+      
+      ShiftDebugger.debug('Events retrieval completed', {
+        eventCount: eventsToArchive.length,
+        hasMetadata: !!archiveMetadata
+      });
 
       if (eventsToArchive.length === 0) {
-        console.log('📦 No events to archive for this shift');
-        return;
+        ShiftDebugger.warning('📦 No events found to archive for this shift', {
+          shiftId,
+          shiftName: shift.shift_name,
+          queryPeriod: `${shift.start_time} to ${shift.end_time || new Date()}`
+        });
+        return null;
       }
 
       // Create archive name
-      const archiveName = `${shift.name || `Shift ${shift.shift_number}`} - ${new Date(shift.start_time).toLocaleDateString()}`;
+      const archiveName = `${shift.shift_name || `Shift ${shift.shift_number}`} - ${new Date(shift.start_time).toLocaleDateString()}`;
+      ShiftDebugger.debug('Generated archive name', { archiveName });
       
-      // Create archive with events data
+      // Create archive with events data and enhanced metadata
+      ShiftDebugger.process('Preparing archive data structure');
       const archiveData = {
-        name: archiveName,
+        title: archiveName,
         description: `Automatic archive created at shift end - ${eventsToArchive.length} events`,
-        type: 'shift_end',
-        created_by: 'system',
-        shift_id: shiftId,
-        event_count: eventsToArchive.length,
-        data: {
+        archive_type: 'EVENTS',
+        date_range_start: shift.start_time,
+        date_range_end: shift.end_time || new Date(),
+        created_by: 1, // Default to user ID 1 for system
+        status: 'COMPLETED',
+        archived_data: {
+          event_count: eventsToArchive.length,
+          archive_type: 'shift_end',
+          shift_id: shiftId,
+          archiving_metadata: {
+            ...archiveMetadata,
+            archiving_method: 'automatic_shift_end',
+            archiving_timestamp: new Date().toISOString(),
+            data_integrity_verified: true
+          },
           events: eventsToArchive.map(event => ({
             id: event.id,
             timestamp: event.timestamp,
             asset_id: event.asset_id,
             asset_name: event.asset?.name || 'Unknown',
+            logger_id: event.logger_id,
             event_type: event.event_type,
             previous_state: event.previous_state,
             new_state: event.new_state,
@@ -329,22 +715,90 @@ class ShiftScheduler {
           })),
           shift_info: {
             id: shift.id || shift._id,
-            name: shift.name,
+            name: shift.shift_name,
             shift_number: shift.shift_number,
             start_time: shift.start_time,
             end_time: shift.end_time,
-            status: shift.status
-          }
+            status: shift.status,
+            duration_minutes: shift.end_time ? 
+              Math.round((new Date(shift.end_time) - new Date(shift.start_time)) / (1000 * 60)) : null
+          },
+          assets_summary: this.generateAssetsSummary(eventsToArchive)
         }
       };
 
+      ShiftDebugger.debug('Archive data prepared', {
+        title: archiveData.title,
+        eventCount: eventsToArchive.length,
+        shiftId: shiftId,
+        archiveType: archiveData.archive_type,
+        dateRange: `${archiveData.date_range_start} to ${archiveData.date_range_end}`
+      });
+      
+      ShiftDebugger.process('Creating archive in database');
+      
+      // Emit data processing status - starting archive creation
+      try {
+        const server = require('../server');
+        if (server && server.io) {
+          server.io.emit('data_processing_status', {
+            timestamp: new Date().toISOString(),
+            status: 'processing',
+            operation: 'archive_creation',
+            message: `Creating archive: ${archiveName}`,
+            details: {
+              eventCount: eventsToArchive.length,
+              shiftId: shiftId
+            }
+          });
+        }
+      } catch (error) {
+        // Silently fail if Socket.IO is not available
+      }
+      
       const archive = await databaseService.createArchive(archiveData);
       
-      console.log(`✅ Successfully archived ${eventsToArchive.length} events for shift: ${archiveName}`);
+      if (archive && archive.id) {
+        ShiftDebugger.success('Archive created successfully', {
+          archiveId: archive.id,
+          title: archive.title
+        });
+      } else {
+        ShiftDebugger.warning('Archive creation returned null or invalid result', archive);
+      }
+      
+      // Verify archive integrity
+      if (archive && archive.id) {
+        ShiftDebugger.process('Verifying archive integrity');
+        const verification = await databaseService.verifyArchiveIntegrity(archive.id);
+        if (verification.valid) {
+          ShiftDebugger.success('✅ Archive integrity verified successfully');
+        } else {
+          ShiftDebugger.warning('⚠️ Archive integrity verification failed', {
+            error: verification.error || 'Unknown error',
+            archiveId: archive.id
+          });
+        }
+      }
+      
+      const archiveSummary = {
+        archiveId: archive?.id,
+        archiveName,
+        eventCount: eventsToArchive.length,
+        shiftId,
+        completedAt: new Date().toISOString()
+      };
+      
+      ShiftDebugger.success(`✅ SHIFT EVENTS ARCHIVING COMPLETED SUCCESSFULLY`, archiveSummary);
       
       return archive;
 
     } catch (error) {
+      ShiftDebugger.error('❌ SHIFT EVENTS ARCHIVING FAILED', {
+        error: error.message,
+        stack: error.stack,
+        context: debugContext
+      });
       console.error('❌ Failed to archive shift events:', error.message);
       // Don't throw error to prevent shift end from failing
     }
@@ -359,9 +813,7 @@ class ShiftScheduler {
       cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
 
       // Clean up old events
-      const cleanedEvents = await databaseService.cleanupOldEvents ? 
-        await databaseService.cleanupOldEvents(cutoffDate) :
-        databaseService.memoryDB.cleanupEvents();
+      const cleanedEvents = await databaseService.cleanupOldEvents(cutoffDate);
 
       console.log(`✅ Data retention cleanup completed. Cleaned ${cleanedEvents} old events.`);
 
@@ -370,7 +822,291 @@ class ShiftScheduler {
     }
   }
 
-  getCurrentShift() {
+  /**
+   * Reset Events table and insert new SHIFT_START event
+   */
+  async resetEventsTable(previousShiftId) {
+    try {
+      console.log('🔄 Resetting Events table...');
+      
+      // Clear all events from the Events table
+      await Event.destroy({ where: {}, truncate: true });
+      console.log('✅ Events table cleared');
+      
+      // Insert SHIFT_START event for all assets
+      const assets = await databaseService.getAllAssets();
+      const startTime = new Date();
+      
+      for (const asset of assets) {
+        await databaseService.createEvent({
+          asset_id: asset.id,
+          logger_id: asset.logger_id,
+          event_type: 'SHIFT_START',
+          previous_state: null,
+          new_state: asset.current_state || 'UNKNOWN',
+          timestamp: startTime,
+          shift_id: null, // Will be set when new shift starts
+          stop_reason: 'New shift started - Events table reset',
+          metadata: {
+            previous_shift_id: previousShiftId,
+            table_reset: true,
+            auto_generated: true
+          }
+        });
+      }
+      
+      console.log(`✅ Events table reset complete. Added SHIFT_START events for ${assets.length} assets`);
+      
+    } catch (error) {
+      console.error('❌ Failed to reset Events table:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate assets summary for archiving
+   */
+  generateAssetsSummary(events) {
+    try {
+      const assetStats = {};
+      
+      // Group events by asset
+      events.forEach(event => {
+        const assetId = event.asset_id;
+        const assetName = event.asset?.name || 'Unknown';
+        
+        if (!assetStats[assetId]) {
+          assetStats[assetId] = {
+            asset_id: assetId,
+            asset_name: assetName,
+            total_events: 0,
+            event_types: {},
+            states: {},
+            first_event: null,
+            last_event: null
+          };
+        }
+        
+        const stats = assetStats[assetId];
+        stats.total_events++;
+        
+        // Count event types
+        stats.event_types[event.event_type] = (stats.event_types[event.event_type] || 0) + 1;
+        
+        // Count states
+        if (event.new_state) {
+          stats.states[event.new_state] = (stats.states[event.new_state] || 0) + 1;
+        }
+        
+        // Track first and last events
+        if (!stats.first_event || new Date(event.timestamp) < new Date(stats.first_event.timestamp)) {
+          stats.first_event = {
+            timestamp: event.timestamp,
+            event_type: event.event_type,
+            state: event.new_state
+          };
+        }
+        
+        if (!stats.last_event || new Date(event.timestamp) > new Date(stats.last_event.timestamp)) {
+          stats.last_event = {
+            timestamp: event.timestamp,
+            event_type: event.event_type,
+            state: event.new_state
+          };
+        }
+      });
+      
+      return {
+        total_assets: Object.keys(assetStats).length,
+        assets: Object.values(assetStats)
+      };
+    } catch (error) {
+      console.error('❌ Error generating assets summary:', error.message);
+      return { total_assets: 0, assets: [], error: error.message };
+    }
+  }
+
+  /**
+   * Trigger dashboard reset via WebSocket
+   */
+  async triggerDashboardReset() {
+    try {
+      console.log('📊 Triggering dashboard reset...');
+      
+      // Get the server instance to emit Socket.IO events
+      const server = require('../server');
+      if (server && server.io) {
+        // Emit dashboard reset event to all connected clients
+        server.io.emit('dashboard_reset', {
+          timestamp: new Date().toISOString(),
+          message: 'Dashboard reset due to shift end processing',
+          action: 'refresh_all_data'
+        });
+        
+        // Emit shift update to refresh shift information
+        server.io.emit('shift_update', {
+          currentShift: null,
+          message: 'Shift ended - dashboard reset'
+        });
+        
+        // Emit events update to refresh events display
+        server.io.emit('events_update', {
+          action: 'table_reset',
+          message: 'Events table reset for new shift'
+        });
+        
+        console.log('✅ Dashboard reset signals sent via Socket.IO');
+      } else {
+        console.log('⚠️ Socket.IO server not available - dashboard reset signals not sent');
+      }
+      
+    } catch (error) {
+      console.error('❌ Failed to trigger dashboard reset:', error.message);
+      // Don't throw error as this is not critical for shift processing
+    }
+  }
+
+  /**
+   * Send shift report notifications via email
+   */
+  async sendShiftReportNotifications(reports, shiftInfo) {
+    try {
+      console.log('📧 Sending shift report notifications...');
+      
+      // Get users with shift report preferences enabled
+      const users = await databaseService.getAllUsers();
+      const notificationUsers = users.filter(user => 
+        user.shiftReportPreferences && 
+        user.shiftReportPreferences.enabled === true
+      );
+      
+      if (notificationUsers.length === 0) {
+        console.log('📧 No users configured for shift report notifications');
+        return;
+      }
+      
+      // Prepare email content
+      const shiftName = shiftInfo.shift_name || `Shift ${shiftInfo.shift_number}`;
+      const shiftDate = new Date(shiftInfo.start_time).toLocaleDateString();
+      
+      const emailSubject = `Shift Report - ${shiftName} - ${shiftDate}`;
+      const emailBody = `
+        <h2>Shift Report Generated</h2>
+        <p><strong>Shift:</strong> ${shiftName}</p>
+        <p><strong>Date:</strong> ${shiftDate}</p>
+        <p><strong>Start Time:</strong> ${new Date(shiftInfo.start_time).toLocaleString()}</p>
+        <p><strong>End Time:</strong> ${new Date(shiftInfo.end_time).toLocaleString()}</p>
+        
+        <p>Please find the detailed shift report attached.</p>
+        
+        <p>This is an automated notification from the Manufacturing Dashboard System.</p>
+      `;
+      
+      // Prepare attachments
+      const attachments = [];
+      
+      if (reports.csv) {
+        attachments.push({
+          filename: `shift-report-${shiftDate}.csv`,
+          content: reports.csv,
+          contentType: 'text/csv'
+        });
+      }
+      
+      if (reports.html) {
+        attachments.push({
+          filename: `shift-report-${shiftDate}.html`,
+          content: reports.html,
+          contentType: 'text/html'
+        });
+      }
+      
+      // Send emails to all configured users
+      const emailPromises = notificationUsers.map(async (user) => {
+        try {
+          const sendEmail = require('../utils/sendEmail');
+          await sendEmail({
+            to: user.email,
+            subject: emailSubject,
+            html: emailBody,
+            attachments: attachments
+          });
+          
+          console.log(`📧 Shift report sent to: ${user.email}`);
+        } catch (emailError) {
+          console.error(`❌ Failed to send shift report to ${user.email}:`, emailError.message);
+        }
+      });
+      
+      await Promise.allSettled(emailPromises);
+      console.log(`📧 Shift report notifications sent to ${notificationUsers.length} users`);
+      
+    } catch (error) {
+      console.error('❌ Failed to send shift report notifications:', error.message);
+    }
+  }
+
+  /**
+   * Continuously monitor shift duration and trigger archiving when exceeded
+   */
+  async checkShiftDurationAndTriggerArchiving() {
+    try {
+      // Refresh current shift from database
+      await this.refreshCurrentShift();
+      
+      if (!this.currentShift || this.currentShift.status !== 'active') {
+        // No active shift to monitor
+        return;
+      }
+
+      // Get shift duration setting from database
+      const settings = await databaseService.getSettings();
+      const shiftDurationMinutes = settings?.shiftDuration;
+      
+      if (!shiftDurationMinutes || shiftDurationMinutes <= 0) {
+        // No shift duration configured, skip monitoring
+        return;
+      }
+
+      // Calculate shift elapsed time
+      const now = new Date();
+      const shiftStartTime = new Date(this.currentShift.start_time);
+      const elapsedMinutes = Math.floor((now - shiftStartTime) / (1000 * 60));
+      
+      // Check if shift duration has been exceeded
+      if (elapsedMinutes >= shiftDurationMinutes) {
+        const debugContext = {
+          shiftId: this.currentShift.id,
+          shiftName: this.currentShift.shift_name,
+          startTime: this.currentShift.start_time,
+          elapsedMinutes,
+          configuredDurationMinutes: shiftDurationMinutes,
+          exceedByMinutes: elapsedMinutes - shiftDurationMinutes
+        };
+        
+        ShiftDebugger.warning(`⏰ SHIFT DURATION EXCEEDED - Triggering automatic end-of-shift archiving`, debugContext);
+        
+        // Trigger automatic shift end and archiving
+        await this.endCurrentShift(true, `Automatic end due to shift duration exceeded (${elapsedMinutes}/${shiftDurationMinutes} minutes)`);
+        
+        ShiftDebugger.success(`✅ Automatic end-of-shift archiving completed for exceeded duration`, {
+          completedAt: new Date().toISOString(),
+          totalDurationMinutes: elapsedMinutes
+        });
+      }
+      
+    } catch (error) {
+      ShiftDebugger.error('❌ Shift duration monitoring failed', {
+        error: error.message,
+        stack: error.stack
+      });
+      console.error('❌ Shift duration monitoring error:', error.message);
+    }
+  }
+
+  async getCurrentShift() {
+    // Always refresh from database to ensure synchronization
+    await this.refreshCurrentShift();
     return this.currentShift;
   }
 

@@ -1,4 +1,5 @@
 const databaseService = require('../services/databaseService');
+const shiftScheduler = require('../services/shiftScheduler');
 
 // Get notification settings
 const getNotificationSettings = async (req, res) => {
@@ -31,7 +32,7 @@ const getNotificationSettings = async (req, res) => {
         },
         shiftSettings: {
           enabled: false,
-          shiftTimes: ['0800', '1600', '0000'],
+          shiftTimes: ['08:00', '16:00', '00:00'],
           emailFormat: 'pdf',
           autoSend: false
         },
@@ -97,8 +98,30 @@ const updateNotificationSettings = async (req, res) => {
     console.log('🔍 SETTINGS UPDATE - Result from databaseService:', updatedSettings ? 'SUCCESS' : 'FAILED');
     
     if (!updatedSettings) {
-      console.log('🔍 SETTINGS UPDATE - No settings returned from memoryDB');
-      throw new Error('Failed to update settings in memory database');
+      console.log('🔍 SETTINGS UPDATE - No settings returned from database');
+      throw new Error('Failed to update settings in database');
+    }
+    
+    // If shift settings were updated, refresh the scheduler
+    if (settings.shiftSettings) {
+      console.log('🔍 SETTINGS UPDATE - Updating shift scheduler...');
+      await shiftScheduler.updateSchedules();
+      console.log('🔍 SETTINGS UPDATE - Shift scheduler updated successfully');
+      
+      // Emit socket event to notify frontend of shift times update
+      try {
+        const server = require('../server');
+        if (server && server.io) {
+          server.io.emit('settings_updated', {
+            type: 'shiftSettings',
+            data: settings.shiftSettings,
+            timestamp: new Date().toISOString()
+          });
+          console.log('🔍 SETTINGS UPDATE - Socket event emitted: settings_updated');
+        }
+      } catch (error) {
+        console.error('🔍 SETTINGS UPDATE - Failed to emit socket event:', error.message);
+      }
     }
     
     console.log('🔍 SETTINGS UPDATE - Sending success response');

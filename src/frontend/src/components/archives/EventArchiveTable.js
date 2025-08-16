@@ -1,4 +1,4 @@
-import React, { useContext } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import {
   Table,
   TableBody,
@@ -12,12 +12,23 @@ import {
   Box,
   Chip,
   IconButton,
-  Tooltip
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Select,
+  CircularProgress
 } from '@mui/material';
 import {
   Restore as RestoreIcon,
   Delete as DeleteIcon,
-  Info as InfoIcon
+  Info as InfoIcon,
+  Email as EmailIcon
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 import axios from 'axios';
@@ -25,6 +36,75 @@ import AlertContext from '../../context/AlertContext';
 
 const EventArchiveTable = ({ archives, onRefresh }) => {
   const { error, success } = useContext(AlertContext);
+  
+  // State for Send Email functionality
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
+  const [selectedArchive, setSelectedArchive] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [selectedUser, setSelectedUser] = useState('');
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailMessage, setEmailMessage] = useState('');
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+
+  // Fetch users when component mounts
+  useEffect(() => {
+    fetchUsers();
+  }, []);
+
+  const fetchUsers = async () => {
+    try {
+      setLoadingUsers(true);
+      const response = await axios.get('/api/users');
+      setUsers(response.data.data || []);
+    } catch (err) {
+      error('Failed to fetch users: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  const handleOpenEmailDialog = (archive) => {
+    setSelectedArchive(archive);
+    setEmailSubject(`Event Archive: ${archive.title}`);
+    setEmailMessage(`Please find the event archive "${archive.title}" with ${archive.event_count || 0} events.\n\nDescription: ${archive.description || 'No description'}\n\nCreated: ${format(new Date(archive.created_at), 'MMM dd, yyyy HH:mm')}`);
+    setEmailDialogOpen(true);
+  };
+
+  const handleCloseEmailDialog = () => {
+    setEmailDialogOpen(false);
+    setSelectedArchive(null);
+    setSelectedUser('');
+    setEmailSubject('');
+    setEmailMessage('');
+  };
+
+  const handleSendEmail = async () => {
+    if (!selectedUser || !emailSubject || !emailMessage) {
+      error('Please fill in all required fields');
+      return;
+    }
+
+    try {
+      setSendingEmail(true);
+      const selectedUserData = users.find(user => user.id === selectedUser);
+      
+      await axios.post('/api/archives/send-email', {
+        archiveId: selectedArchive.id,
+        recipientEmail: selectedUserData.email,
+        recipientName: selectedUserData.name,
+        subject: emailSubject,
+        message: emailMessage
+      });
+      
+      success(`Email sent successfully to ${selectedUserData.name} (${selectedUserData.email})`);
+      handleCloseEmailDialog();
+    } catch (err) {
+      error('Failed to send email: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setSendingEmail(false);
+    }
+  };
 
   const handleRestore = async (archiveId) => {
     try {
@@ -85,6 +165,7 @@ const EventArchiveTable = ({ archives, onRefresh }) => {
   }
 
   return (
+    <>
     <TableContainer component={Paper}>
       <Table>
         <TableHead>
@@ -102,7 +183,7 @@ const EventArchiveTable = ({ archives, onRefresh }) => {
             <TableRow key={archive.id}>
               <TableCell>
                 <Typography variant="subtitle2" fontWeight="bold">
-                  {archive.name}
+                  {archive.title}
                 </Typography>
               </TableCell>
               <TableCell>
@@ -112,7 +193,7 @@ const EventArchiveTable = ({ archives, onRefresh }) => {
               </TableCell>
               <TableCell align="center">
                 <Chip 
-                  label={archive.eventCount} 
+                  label={archive.event_count || 0} 
                   color="primary" 
                   variant="outlined" 
                   size="small"
@@ -120,7 +201,7 @@ const EventArchiveTable = ({ archives, onRefresh }) => {
               </TableCell>
               <TableCell>
                 <Typography variant="body2">
-                  {format(new Date(archive.createdAt), 'MMM dd, yyyy HH:mm')}
+                  {format(new Date(archive.created_at), 'MMM dd, yyyy HH:mm')}
                 </Typography>
               </TableCell>
               <TableCell>
@@ -140,6 +221,15 @@ const EventArchiveTable = ({ archives, onRefresh }) => {
               </TableCell>
               <TableCell align="center">
                 <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
+                  <Tooltip title="Send email with archive details">
+                    <IconButton
+                      color="info"
+                      onClick={() => handleOpenEmailDialog(archive)}
+                      size="small"
+                    >
+                      <EmailIcon />
+                    </IconButton>
+                  </Tooltip>
                   <Tooltip title="Restore events to main table">
                     <IconButton
                       color="primary"
@@ -165,6 +255,69 @@ const EventArchiveTable = ({ archives, onRefresh }) => {
         </TableBody>
       </Table>
     </TableContainer>
+    
+    {/* Send Email Dialog */}
+    <Dialog open={emailDialogOpen} onClose={handleCloseEmailDialog} maxWidth="md" fullWidth>
+      <DialogTitle>Send Email - {selectedArchive?.title}</DialogTitle>
+      <DialogContent>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+          <FormControl fullWidth>
+            <InputLabel>Select User</InputLabel>
+            <Select
+              value={selectedUser}
+              onChange={(e) => setSelectedUser(e.target.value)}
+              label="Select User"
+              disabled={loadingUsers}
+            >
+              {loadingUsers ? (
+                <MenuItem disabled>
+                  <CircularProgress size={20} sx={{ mr: 1 }} />
+                  Loading users...
+                </MenuItem>
+              ) : (
+                users.map((user) => (
+                  <MenuItem key={user.id} value={user.id}>
+                    {user.name} ({user.email})
+                  </MenuItem>
+                ))
+              )}
+            </Select>
+          </FormControl>
+          
+          <TextField
+            fullWidth
+            label="Subject"
+            value={emailSubject}
+            onChange={(e) => setEmailSubject(e.target.value)}
+            variant="outlined"
+          />
+          
+          <TextField
+            fullWidth
+            label="Message"
+            value={emailMessage}
+            onChange={(e) => setEmailMessage(e.target.value)}
+            variant="outlined"
+            multiline
+            rows={6}
+          />
+        </Box>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={handleCloseEmailDialog} disabled={sendingEmail}>
+          Cancel
+        </Button>
+        <Button 
+          onClick={handleSendEmail} 
+          variant="contained" 
+          disabled={sendingEmail || !selectedUser || !emailSubject || !emailMessage}
+          startIcon={sendingEmail ? <CircularProgress size={20} /> : <EmailIcon />}
+        >
+          {sendingEmail ? 'Sending...' : 'Send Email'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+    </>
   );
 };
 

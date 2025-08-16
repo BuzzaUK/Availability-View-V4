@@ -16,6 +16,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import VisibilityIcon from '@mui/icons-material/Visibility';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { format } from 'date-fns';
 
 // Context
@@ -39,11 +40,17 @@ const EventsTable = ({
   rowsPerPage, 
   totalEvents, 
   handleChangePage, 
-  handleChangeRowsPerPage 
+  handleChangeRowsPerPage,
+  onDeleteEvent 
 }) => {
   const { assets } = useContext(SocketContext);
 
-
+  // Handle delete event with confirmation
+  const handleDeleteEvent = (eventId) => {
+    if (window.confirm('Are you sure you want to delete this event? This action cannot be undone.')) {
+      onDeleteEvent(eventId);
+    }
+  };
 
   // Helper function to get asset name by ID
   const getAssetName = (assetId) => {
@@ -134,7 +141,7 @@ const EventsTable = ({
               <TableCell>Asset</TableCell>
               <TableCell>Event Type</TableCell>
               <TableCell>State</TableCell>
-              <TableCell>Duration</TableCell>
+              <TableCell>Previous State Duration</TableCell>
               <TableCell>Notes</TableCell>
               <TableCell align="center">Actions</TableCell>
             </TableRow>
@@ -164,7 +171,11 @@ const EventsTable = ({
                     'N/A'
                   )}
                 </TableCell>
-                <TableCell>{formatDuration(event.duration / 1000)}</TableCell>
+                <TableCell>
+                  <Typography variant="body2" color="text.secondary">
+                    {formatDuration(event.duration / 1000)}
+                  </Typography>
+                </TableCell>
                 <TableCell>
                   <Typography 
                     variant="body2" 
@@ -182,6 +193,15 @@ const EventsTable = ({
                   <Tooltip title="View Details">
                     <IconButton size="small">
                       <VisibilityIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Delete Event">
+                    <IconButton 
+                      size="small" 
+                      color="error"
+                      onClick={() => handleDeleteEvent(event._id)}
+                    >
+                      <DeleteIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>
                 </TableCell>

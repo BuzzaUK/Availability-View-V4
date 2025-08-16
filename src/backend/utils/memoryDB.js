@@ -76,7 +76,7 @@ class MemoryDB {
       },
       shiftSettings: {
         enabled: false,
-        shiftTimes: ['0800', '1600', '0000'],
+        shiftTimes: ['08:00', '16:00', '00:00'],
         emailFormat: 'pdf',
         autoSend: false
       },
@@ -650,6 +650,19 @@ class MemoryDB {
     const removedCount = this.events.length;
     this.events = this.events.filter(event => !eventIds.includes(event._id));
     return removedCount - this.events.length;
+  }
+
+  deleteEventsByIds(eventIds) {
+    if (!eventIds || eventIds.length === 0) {
+      return 0;
+    }
+    
+    const removedCount = this.events.length;
+    this.events = this.events.filter(event => !eventIds.includes(event._id));
+    const deletedCount = removedCount - this.events.length;
+    
+    console.log(`Deleted ${deletedCount} events from memory database`);
+    return deletedCount;
   }
 
   // Config methods

@@ -141,6 +141,11 @@ exports.startShift = async (req, res) => {
       notes || ''
     );
     
+    // Emit shift update to all connected clients
+    if (req.io) {
+      req.io.emit('shift_update', await shiftScheduler.getCurrentShift());
+    }
+    
     res.status(201).json({
       success: true,
       message: 'Shift started successfully',
@@ -164,6 +169,11 @@ exports.endShift = async (req, res) => {
     
     // Use the enhanced shift scheduler for manual shift end
     await shiftScheduler.endShiftManually(notes || '');
+    
+    // Emit shift update to all connected clients
+    if (req.io) {
+      req.io.emit('shift_update', null); // No active shift after ending
+    }
     
     res.status(200).json({
       success: true,
@@ -264,14 +274,16 @@ exports.sendShiftReport = async (req, res) => {
     // Generate and send comprehensive report
     const result = await reportService.saveAndSendReport(req.params.id, emailRecipients, options);
     
+    const formats = result.report && result.report.reports ? Object.keys(result.report.reports) : [];
+    const filesGenerated = result.files ? Object.keys(result.files).length : 0;
+    
     res.status(200).json({
       success: true,
       message: `Enhanced report sent to ${emailRecipients.length} recipients`,
       data: {
         recipients: emailRecipients,
-        files_generated: result.files.length,
-        archive_id: result.archive._id,
-        formats: Object.keys(result.reportData.reports)
+        files_generated: filesGenerated,
+        formats
       }
     });
     
@@ -318,20 +330,31 @@ exports.getShiftAnalytics = async (req, res) => {
 // @access  Private
 exports.getShiftStatus = async (req, res) => {
   try {
-    const currentShift = shiftScheduler.getCurrentShift();
+    const currentShift = await shiftScheduler.getCurrentShift();
     const scheduledJobs = shiftScheduler.getScheduledJobs();
     
+    // Get shift times from notification settings instead of environment variables
+    const notificationSettings = await databaseService.getNotificationSettings();
+    const shiftTimes = notificationSettings.shiftSettings?.shiftTimes || [];
+    
+    // Format shift times from HHMM to HH:MM for display
+    const formattedShiftTimes = shiftTimes.map(time => {
+      if (time.length === 4) {
+        return `${time.substring(0, 2)}:${time.substring(2, 4)}`;
+      }
+      return time;
+    });
+    
     const autoDetection = process.env.AUTO_SHIFT_DETECTION === 'true';
-    const shiftTimes = process.env.SHIFT_TIMES?.split(',') || [];
     
     res.status(200).json({
       success: true,
       data: {
         current_shift: currentShift,
         auto_detection_enabled: autoDetection,
-        scheduled_shift_times: shiftTimes,
+        scheduled_shift_times: formattedShiftTimes,
         active_jobs: scheduledJobs,
-        next_shift_detection: this.getNextShiftTime(shiftTimes)
+        next_shift_detection: getNextShiftTime(formattedShiftTimes)
       }
     });
     

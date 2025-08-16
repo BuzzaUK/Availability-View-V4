@@ -73,7 +73,7 @@ const NotificationSettings = () => {
     },
     shiftSettings: {
       enabled: false,
-      shiftTimes: ['0600', '1400', '2200'],
+      shiftTimes: [],
       emailFormat: 'pdf',
       autoSend: true
     },
@@ -136,7 +136,7 @@ const NotificationSettings = () => {
       ...prev,
       shiftSettings: {
         ...prev.shiftSettings,
-        shiftTimes: [...prev.shiftSettings.shiftTimes, '0800']
+        shiftTimes: [...prev.shiftSettings.shiftTimes, '08:00']
       }
     }));
   };
@@ -231,9 +231,13 @@ const NotificationSettings = () => {
   const saveSettings = async () => {
     try {
       setSaving(true);
+      console.log('🔍 FRONTEND - Saving notification settings:', JSON.stringify(settings, null, 2));
+      console.log('🔍 FRONTEND - Shift settings enabled:', settings.shiftSettings?.enabled);
+      console.log('🔍 FRONTEND - Shift times:', settings.shiftSettings?.shiftTimes);
       await axios.put('/api/settings/notifications', settings);
       success('Notification settings saved successfully');
     } catch (err) {
+      console.error('🔍 FRONTEND - Save error:', err);
       error('Failed to save notification settings: ' + (err.response?.data?.message || err.message));
     } finally {
       setSaving(false);
@@ -257,6 +261,43 @@ const NotificationSettings = () => {
       success('Test SMS sent successfully. Please check your phone.');
     } catch (err) {
       error('Failed to send test SMS: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  // Test shift report function
+  const testShiftReport = async () => {
+    try {
+      // Get the most recent completed shift for testing
+      const shiftsResponse = await axios.get('/api/shifts?limit=5&sort_by=start_time&sort_order=desc');
+      let shiftId = null;
+      
+      if (shiftsResponse.data.success && shiftsResponse.data.data.length > 0) {
+        // Find the first completed shift
+        const completedShift = shiftsResponse.data.data.find(shift => shift.status === 'completed');
+        if (completedShift) {
+          shiftId = completedShift.id || completedShift._id;
+        } else {
+          // If no completed shifts, try to use the most recent one (regardless of status)
+          shiftId = shiftsResponse.data.data[0].id || shiftsResponse.data.data[0]._id;
+        }
+      } else {
+        error('No shifts found to generate a report. Please ensure there are shifts in the system.');
+        return;
+      }
+
+      // Send test shift report
+      const response = await axios.post(`/api/shifts/${shiftId}/report`, {
+        format: 'all'
+      });
+
+      if (response.data.success) {
+        success(`Test shift report sent successfully! Report generated for shift ID: ${shiftId} and sent to ${response.data.data.recipients.length} recipients.`);
+      } else {
+        error('Failed to send test shift report: ' + response.data.message);
+      }
+    } catch (err) {
+      console.error('Test shift report error:', err);
+      error('Failed to send test shift report: ' + (err.response?.data?.message || err.message));
     }
   };
 
@@ -522,13 +563,13 @@ const NotificationSettings = () => {
                       label={`Shift ${index + 1} Start Time`}
                       value={time}
                       onChange={(e) => handleShiftTimeChange(index, e.target.value)}
-                      placeholder="0600"
-                      helperText="Format: HHMM (24-hour)"
+                      placeholder="18:30"
+                      helperText="Format: HH:MM (24-hour)"
                       disabled={!settings.shiftSettings.enabled}
                       sx={{ mr: 2, minWidth: 200 }}
                       inputProps={{
-                        pattern: "[0-9]{4}",
-                        maxLength: 4
+                        pattern: "[0-9]{2}:[0-9]{2}",
+                        maxLength: 5
                       }}
                     />
                     {settings.shiftSettings.shiftTimes.length > 1 && (
@@ -601,6 +642,19 @@ const NotificationSettings = () => {
                     <br />• PDF reports are attached to emails for easy archival
                   </Typography>
                 </Alert>
+              </Grid>
+              <Grid item xs={12}>
+                <Box sx={{ display: 'flex', gap: 2 }}>
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    onClick={testShiftReport}
+                    disabled={!settings.shiftSettings.enabled}
+                    startIcon={<ScheduleIcon />}
+                  >
+                    Test Shift Report
+                  </Button>
+                </Box>
               </Grid>
             </Grid>
           </AccordionDetails>

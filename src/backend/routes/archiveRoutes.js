@@ -8,7 +8,8 @@ const {
   getArchiveById,
   createArchive,
   downloadArchive,
-  deleteArchive
+  deleteArchive,
+  sendArchiveEmail
 } = require('../controllers/archiveController');
 
 // Get all archives
@@ -25,5 +26,8 @@ router.get('/:id/download', downloadArchive);
 
 // Delete archive
 router.delete('/:id', authorizeRoles('admin', 'manager'), deleteArchive);
+
+// Send email with archive details
+router.post('/send-email', authorizeRoles('admin', 'manager', 'operator'), sendArchiveEmail);
 
 module.exports = router;

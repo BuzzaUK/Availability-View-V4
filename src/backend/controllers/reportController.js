@@ -1,4 +1,4 @@
-const memoryDB = require('../utils/memoryDB');
+const databaseService = require('../services/databaseService');
 const fs = require('fs');
 const path = require('path');
 
@@ -21,7 +21,7 @@ exports.generateAssetReport = async (req, res) => {
     const { start_date, end_date, format = 'json' } = req.query;
 
     // Get asset
-    const asset = memoryDB.findAssetById(id);
+    const asset = await databaseService.findAssetById(id);
     if (!asset) {
       return res.status(404).json({
         success: false,
@@ -34,10 +34,10 @@ exports.generateAssetReport = async (req, res) => {
     const startDate = start_date ? new Date(start_date) : new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
 
     // Get events for this asset in the date range
-    const allEvents = memoryDB.getAllEvents();
+    const allEvents = await databaseService.getAllEvents();
     const events = allEvents.filter(event => {
       const eventDate = new Date(event.timestamp);
-      return event.asset == id && eventDate >= startDate && eventDate <= endDate;
+      return (event.asset_id || event.asset) == id && eventDate >= startDate && eventDate <= endDate;
     });
 
     // Calculate metrics
@@ -166,7 +166,7 @@ exports.generateAssetReport = async (req, res) => {
 exports.getShiftReports = async (req, res) => {
   try {
     const { page = 1, limit = 10, search = '', startDate, endDate, shiftId } = req.query;
-    const shifts = memoryDB.getShifts();
+    const shifts = await databaseService.getAllShifts();
     
     let filteredShifts = shifts;
     
@@ -244,8 +244,8 @@ exports.getShiftReports = async (req, res) => {
 exports.getDailyReports = async (req, res) => {
   try {
     const { page = 1, limit = 10, search = '', startDate, endDate } = req.query;
-    const events = memoryDB.getAllEvents();
-    const assets = memoryDB.getAllAssets();
+    const events = await databaseService.getAllEvents();
+    const assets = await databaseService.getAllAssets();
     
     // Group events by date
     const dailyData = {};
@@ -329,8 +329,8 @@ exports.getDailyReports = async (req, res) => {
 exports.getMonthlyReports = async (req, res) => {
   try {
     const { page = 1, limit = 10, search = '', startDate, endDate } = req.query;
-    const events = memoryDB.getAllEvents();
-    const shifts = memoryDB.getShifts();
+    const events = await databaseService.getAllEvents();
+    const shifts = await databaseService.getAllShifts();
     
     // Group data by month
     const monthlyData = {};
@@ -429,7 +429,7 @@ exports.getMonthlyReports = async (req, res) => {
 exports.exportShiftReports = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    const shifts = memoryDB.getShifts();
+    const shifts = await databaseService.getAllShifts();
     
     let filteredShifts = shifts;
     
@@ -480,7 +480,7 @@ exports.exportShiftReports = async (req, res) => {
 exports.exportDailyReports = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    const events = memoryDB.getAllEvents();
+    const events = await databaseService.getAllEvents();
     
     // Group events by date
     const dailyData = {};
@@ -553,8 +553,8 @@ exports.exportDailyReports = async (req, res) => {
 exports.exportMonthlyReports = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    const events = memoryDB.getAllEvents();
-    const shifts = memoryDB.getShifts();
+    const events = await databaseService.getAllEvents();
+    const shifts = await databaseService.getAllShifts();
     
     // Group data by month
     const monthlyData = {};
@@ -643,7 +643,7 @@ exports.generateShiftReport = async (req, res) => {
     const { format = 'json' } = req.query;
 
     // Get shift
-    const shift = memoryDB.findShiftById(id);
+    const shift = await databaseService.findShiftById(id);
     if (!shift) {
       return res.status(404).json({
         success: false,
@@ -652,8 +652,8 @@ exports.generateShiftReport = async (req, res) => {
     }
 
     // Get all assets and events
-    const assets = memoryDB.getAllAssets();
-    const allEvents = memoryDB.getAllEvents();
+    const assets = await databaseService.getAllAssets();
+    const allEvents = await databaseService.getAllEvents();
 
     // Get events for this shift (events between shift start and end time)
     const shiftEvents = allEvents.filter(event => {
@@ -792,9 +792,9 @@ exports.generateSystemReport = async (req, res) => {
     const startDate = start_date ? new Date(start_date) : new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
 
     // Get all data
-    const assets = memoryDB.getAllAssets();
-    const shifts = memoryDB.getShifts();
-    const allEvents = memoryDB.getAllEvents();
+    const assets = await databaseService.getAllAssets();
+    const shifts = await databaseService.getAllShifts();
+    const allEvents = await databaseService.getAllEvents();
 
     // Filter events by date range
     const events = allEvents.filter(event => {
@@ -971,23 +971,23 @@ exports.generateSystemReport = async (req, res) => {
 // @access  Private
 exports.getAvailableReports = async (req, res) => {
   try {
-    const assets = memoryDB.getAllAssets();
-    const shifts = memoryDB.getShifts();
+    const assets = await databaseService.getAllAssets();
+    const shifts = await databaseService.getAllShifts();
 
     const availableReports = {
       asset_reports: assets.map(asset => ({
-        asset_id: asset._id,
+        asset_id: asset.id || asset._id,
         asset_name: asset.name,
         pin_number: asset.pin_number,
         current_state: asset.current_state
       })),
       shift_reports: shifts.map(shift => ({
-        shift_id: shift._id,
-        shift_name: shift.name,
+        shift_id: shift.id || shift._id,
+        shift_name: shift.shift_name || shift.name,
         shift_number: shift.shift_number,
         start_time: shift.start_time,
         end_time: shift.end_time,
-        active: shift.active
+        active: shift.status === 'active'
       })).sort((a, b) => new Date(b.start_time) - new Date(a.start_time)),
       system_reports: [
         {

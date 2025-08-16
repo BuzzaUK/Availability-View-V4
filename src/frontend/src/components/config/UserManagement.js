@@ -47,240 +47,216 @@ import {
 import { format } from 'date-fns';
 import axios from 'axios';
 
-// Context
+// Import contexts
 import AlertContext from '../../context/AlertContext';
 import AuthContext from '../../context/AuthContext';
+import SocketContext from '../../context/SocketContext';
 
 // Styled components
 const StyledTableRow = styled(TableRow)(({ theme }) => ({
   '&:nth-of-type(odd)': {
     backgroundColor: theme.palette.action.hover,
   },
-  // hide last border
   '&:last-child td, &:last-child th': {
     border: 0,
   },
 }));
 
 const UserManagement = () => {
-  const { error, success } = useContext(AlertContext);
-  const { user } = useContext(AuthContext);
-  
-  // Check if user has permission to access user management
-  const hasPermission = user && (user.role === 'admin' || user.role === 'manager');
-  
-  // State for users data
+  const { success, error, warning, info } = useContext(AlertContext);
+  const { user, isAuthenticated, hasPermission } = useContext(AuthContext);
+  const { socket } = useContext(SocketContext);
+
+  // State variables
   const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [totalUsers, setTotalUsers] = useState(0);
-  
-  // State for pagination
+  const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
-  
-  // State for search
+  const [totalUsers, setTotalUsers] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
-  
-  // State for user dialog
   const [openDialog, setOpenDialog] = useState(false);
   const [dialogMode, setDialogMode] = useState('add'); // 'add' or 'edit'
   const [selectedUser, setSelectedUser] = useState(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [availableShiftTimes, setAvailableShiftTimes] = useState([]);
+  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+  const [pendingInvitations, setPendingInvitations] = useState([]);
+  
   const [userForm, setUserForm] = useState({
     name: '',
     email: '',
-    role: 'operator',
+    role: 'user',
     isActive: true,
     password: '',
     confirmPassword: '',
-    // Add shift report preferences
     shiftReportPreferences: {
       enabled: false,
-      shifts: [], // Array of shift times user wants to receive reports for
+      shifts: [],
       emailFormat: 'pdf'
     }
   });
 
-  // Available shift times (should match the ones configured in NotificationSettings)
-  const [availableShiftTimes, setAvailableShiftTimes] = useState(['0600', '1400', '2200']);
-
-  // Invitation State
-  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
-  const [invitesLoading, setInvitesLoading] = useState(false);
-  const [pendingInvitations, setPendingInvitations] = useState([]);
   const [inviteForm, setInviteForm] = useState({
     email: '',
-    role: 'viewer',
+    role: 'user',
     receive_shift_reports: false
   });
 
-  const fetchPendingInvitations = async () => {
-    try {
-      setInvitesLoading(true);
-      const res = await axios.get('/api/invitations');
-      setPendingInvitations(res.data.data || []);
-    } catch (err) {
-      console.error('Failed to fetch invitations:', err);
-    } finally {
-      setInvitesLoading(false);
+  // Fetch available shift times from notification settings
+  const fetchShiftTimes = async () => {
+    if (!isAuthenticated || !user) {
+      console.log('🔍 SHIFT_DEBUG: User not authenticated, skipping shift times fetch');
+      return;
     }
-  };
-
-  const handleOpenInviteDialog = () => {
-    setInviteForm({ email: '', role: 'viewer', receive_shift_reports: false });
-    setInviteDialogOpen(true);
-  };
-
-  const handleSendInvitation = async () => {
+    
     try {
-      if (!inviteForm.email) {
-        error('Please enter an email');
-        return;
+      console.log('🔍 SHIFT_DEBUG: Starting fetchShiftTimes...');
+      console.log('🔍 SHIFT_DEBUG: Current user:', user?.name);
+      console.log('🔍 SHIFT_DEBUG: Is authenticated:', isAuthenticated);
+      
+      const response = await axios.get('/api/notifications/settings');
+      console.log('🔍 SHIFT_DEBUG: Full API response:', JSON.stringify(response.data, null, 2));
+      console.log('🔍 SHIFT_DEBUG: Response structure check:');
+      console.log('  - response.data exists:', !!response.data);
+      console.log('  - response.data.data exists:', !!response.data?.data);
+      console.log('  - response.data.data.shiftSettings exists:', !!response.data?.data?.shiftSettings);
+      console.log('  - response.data.data.shiftSettings.shiftTimes exists:', !!response.data?.data?.shiftSettings?.shiftTimes);
+      
+      // The /api/notifications/settings endpoint returns {success: true, data: settings}
+      // So the shift times are at response.data.data.shiftSettings.shiftTimes
+      const shiftTimes = response.data?.data?.shiftSettings?.shiftTimes;
+      
+      if (Array.isArray(shiftTimes) && shiftTimes.length > 0) {
+        console.log('✅ SHIFT_DEBUG: Found shift times:', shiftTimes);
+        console.log('✅ SHIFT_DEBUG: Setting available shift times to:', shiftTimes);
+        setAvailableShiftTimes(shiftTimes);
+      } else {
+        console.warn('⚠️ SHIFT_DEBUG: No valid shift times found');
+        console.warn('⚠️ SHIFT_DEBUG: Shift times value:', shiftTimes);
+        console.warn('⚠️ SHIFT_DEBUG: Is array?', Array.isArray(shiftTimes));
+        console.warn('⚠️ SHIFT_DEBUG: Length:', shiftTimes?.length);
+        setAvailableShiftTimes([]);
       }
-      await axios.post('/api/invitations/send', inviteForm);
-      success('Invitation sent');
-      setInviteDialogOpen(false);
-      fetchPendingInvitations();
     } catch (err) {
-      error(err.response?.data?.message || 'Failed to send invitation');
+      console.error('❌ SHIFT_DEBUG: Failed to fetch shift times:', err.message);
+      console.error('❌ SHIFT_DEBUG: Error response:', err.response?.data);
+      console.error('❌ SHIFT_DEBUG: Error status:', err.response?.status);
+      if (err.response?.status === 401) {
+        console.error('❌ SHIFT_DEBUG: Authentication failed - user may need to log in again');
+      }
+      setAvailableShiftTimes([]); // Ensure it's always an array
     }
   };
 
-  const handleCancelInvitation = async (id) => {
-    try {
-      await axios.delete(`/api/invitations/${id}`);
-      success('Invitation cancelled');
-      fetchPendingInvitations();
-    } catch (err) {
-      error(err.response?.data?.message || 'Failed to cancel invitation');
+  // Format shift time for display
+  const formatShiftTime = (time) => {
+    if (time && time.length === 4) {
+      return `${time.substring(0, 2)}:${time.substring(2, 4)}`;
     }
+    return time;
   };
-  
-  // State for delete confirmation dialog
-  const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
-  
-  // Role options
-  const roles = [
-    { value: 'admin', label: 'Administrator' },
-    { value: 'manager', label: 'Manager' },
-    { value: 'operator', label: 'Operator' },
-    { value: 'viewer', label: 'Viewer' },
-  ];
 
-  // Fetch users
+  // Listen for settings updates via socket
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleSettingsUpdate = (payload) => {
+      console.log('🔄 Settings updated via socket:', payload);
+      if (payload?.type === 'shiftSettings') {
+        console.log('🔄 Shift settings updated, refreshing shift times...');
+        fetchShiftTimes();
+      }
+    };
+
+    socket.on('settings_updated', handleSettingsUpdate);
+
+    return () => {
+      socket.off('settings_updated', handleSettingsUpdate);
+    };
+  }, [socket]);
+
+  useEffect(() => {
+    if (hasPermission(['admin', 'manager']) && isAuthenticated) {
+      fetchUsers();
+      fetchPendingInvitations();
+      fetchShiftTimes();
+    }
+  }, [page, rowsPerPage, searchQuery, hasPermission, isAuthenticated]);
+
+  // Debug log for availableShiftTimes changes
+  useEffect(() => {
+    console.log('🔍 availableShiftTimes updated:', availableShiftTimes);
+  }, [availableShiftTimes]);
+
   const fetchUsers = async () => {
     try {
       setLoading(true);
-      
-      const params = {
-        page: page + 1, // API uses 1-based indexing
+      console.log('🔍 Fetching users with params:', {
+        page: page + 1,
         limit: rowsPerPage,
-        ...(searchQuery && { search: searchQuery }),
-      };
+        search: searchQuery
+      });
       
-      const response = await axios.get('/api/users', { params });
+      const response = await axios.get('/api/users', {
+        params: {
+          page: page + 1,
+          limit: rowsPerPage,
+          search: searchQuery
+        }
+      });
       
-      setUsers(response.data.data || []); // Changed from response.data.users to response.data.data
-      setTotalUsers(response.data.pagination?.total || 0); // Changed from response.data.total to response.data.pagination.total
+      console.log('✅ Users API response:', response.data);
+      
+      // Backend returns data in response.data.data, not response.data.users
+      const users = response.data.data || [];
+      const total = response.data.pagination?.total || 0;
+      
+      console.log('✅ Setting users:', users.length, 'users');
+      console.log('✅ Setting total:', total);
+      
+      setUsers(users);
+      setTotalUsers(total);
     } catch (err) {
-      error('Failed to fetch users: ' + (err.response?.data?.message || err.message));
+      console.error('❌ Failed to fetch users:', err);
+      console.error('❌ Error response:', err.response?.data);
+      error('Failed to fetch users');
+      setUsers([]); // Ensure it's always an array
+      setTotalUsers(0);
     } finally {
       setLoading(false);
     }
   };
 
-  // Add user
-  const addUser = async () => {
+  const fetchPendingInvitations = async () => {
     try {
-      if (userForm.password !== userForm.confirmPassword) {
-        error('Passwords do not match');
-        return;
-      }
-      
-      await axios.post('/api/users', {
-        name: userForm.name,
-        email: userForm.email,
-        role: userForm.role,
-        isActive: userForm.isActive,
-        password: userForm.password,
-        shiftReportPreferences: userForm.shiftReportPreferences
-      });
-      
-      success('User added successfully');
-      handleCloseDialog();
-      fetchUsers();
+      const response = await axios.get('/api/invitations');
+      setPendingInvitations(response.data.invitations || []);
     } catch (err) {
-      error('Failed to add user: ' + (err.response?.data?.message || err.message));
+      console.error('Failed to fetch pending invitations:', err);
+      setPendingInvitations([]); // Ensure it's always an array
     }
   };
 
-  // Update user
-  const updateUser = async () => {
-    try {
-      if (userForm.password && userForm.password !== userForm.confirmPassword) {
-        error('Passwords do not match');
-        return;
-      }
-      
-      const userData = {
-        name: userForm.name,
-        email: userForm.email,
-        role: userForm.role,
-        isActive: userForm.isActive,
-        shiftReportPreferences: userForm.shiftReportPreferences
-      };
-      
-      // Only include password if it's provided
-      if (userForm.password) {
-        userData.password = userForm.password;
-      }
-      
-      await axios.put(`/api/users/${selectedUser.id}`, userData);
-      
-      success('User updated successfully');
-      handleCloseDialog();
-      fetchUsers();
-    } catch (err) {
-      error('Failed to update user: ' + (err.response?.data?.message || err.message));
-    }
+  const handleSearch = (event) => {
+    setSearchQuery(event.target.value);
+    setPage(0);
   };
 
-  // Delete user
-  const deleteUser = async () => {
-    try {
-      await axios.delete(`/api/users/${selectedUser.id}`);
-      
-      success('User deleted successfully');
-      setOpenDeleteDialog(false);
-      fetchUsers();
-    } catch (err) {
-      error('Failed to delete user: ' + (err.response?.data?.message || err.message));
-    }
-  };
-
-  // Handle page change
   const handleChangePage = (event, newPage) => {
     setPage(newPage);
   };
 
-  // Handle rows per page change
   const handleChangeRowsPerPage = (event) => {
     setRowsPerPage(parseInt(event.target.value, 10));
     setPage(0);
   };
 
-  // Handle search
-  const handleSearch = (event) => {
-    setSearchQuery(event.target.value);
-    setPage(0); // Reset to first page when searching
-  };
-
-  // Handle open add dialog
   const handleOpenAddDialog = () => {
     setDialogMode('add');
     setUserForm({
       name: '',
       email: '',
-      role: 'operator',
+      role: 'user',
       isActive: true,
       password: '',
       confirmPassword: '',
@@ -293,8 +269,12 @@ const UserManagement = () => {
     setOpenDialog(true);
   };
 
-  // Handle open edit dialog
-  const handleOpenEditDialog = (user) => {
+  const handleOpenEditDialog = async (user) => {
+    // Fetch shift times if not already available
+    if (availableShiftTimes.length === 0) {
+      await fetchShiftTimes();
+    }
+    
     setDialogMode('edit');
     setSelectedUser(user);
     setUserForm({
@@ -313,29 +293,21 @@ const UserManagement = () => {
     setOpenDialog(true);
   };
 
-  // Handle close dialog
   const handleCloseDialog = () => {
     setOpenDialog(false);
     setSelectedUser(null);
   };
 
-  // Handle open delete dialog
-  const handleOpenDeleteDialog = (user) => {
-    setSelectedUser(user);
-    setOpenDeleteDialog(true);
-  };
-
-  // Handle form change
   const handleFormChange = (event) => {
     const { name, value, checked, type } = event.target;
     
-    if (name.startsWith('shiftReportPreferences.')) {
-      const field = name.split('.')[1];
+    if (name.includes('.')) {
+      const [parent, child] = name.split('.');
       setUserForm(prev => ({
         ...prev,
-        shiftReportPreferences: {
-          ...prev.shiftReportPreferences,
-          [field]: type === 'checkbox' ? checked : value
+        [parent]: {
+          ...prev[parent],
+          [child]: type === 'checkbox' ? checked : value
         }
       }));
     } else {
@@ -346,7 +318,6 @@ const UserManagement = () => {
     }
   };
 
-  // Handle shift selection change
   const handleShiftSelectionChange = (event) => {
     const value = event.target.value;
     setUserForm(prev => ({
@@ -358,57 +329,181 @@ const UserManagement = () => {
     }));
   };
 
-  // Fetch available shift times from notification settings
-  const fetchShiftTimes = async () => {
+  const addUser = async () => {
     try {
-      const response = await axios.get('/api/notifications/settings');
-      if (response.data && response.data.shiftSettings && response.data.shiftSettings.shiftTimes) {
-        setAvailableShiftTimes(response.data.shiftSettings.shiftTimes);
+      if (userForm.password && userForm.password !== userForm.confirmPassword) {
+        error('Passwords do not match');
+        return;
       }
-    } catch (err) {
-      console.error('Failed to fetch shift times:', err);
-    }
-  };
 
-  // Format shift time for display
-  const formatShiftTime = (time) => {
-    if (time.length === 4) {
-      return `${time.substring(0, 2)}:${time.substring(2, 4)}`;
-    }
-    return time;
-  };
-
-  useEffect(() => {
-    if (hasPermission) {
+      await axios.post('/api/users', {
+        name: userForm.name,
+        email: userForm.email,
+        role: userForm.role,
+        isActive: userForm.isActive,
+        password: userForm.password,
+        shiftReportPreferences: userForm.shiftReportPreferences
+      });
+      
+      success('User added successfully');
+      handleCloseDialog();
       fetchUsers();
-      fetchShiftTimes();
-      fetchPendingInvitations();
+    } catch (err) {
+      error(err.response?.data?.message || 'Failed to add user');
     }
-  }, [page, rowsPerPage, searchQuery, hasPermission]);
+  };
 
-  // Show unauthorized message if user doesn't have permission
-  if (!hasPermission) {
+  const updateUser = async () => {
+    try {
+      if (userForm.password && userForm.password !== userForm.confirmPassword) {
+        error('Passwords do not match');
+        return;
+      }
+
+      const updateData = {
+        name: userForm.name,
+        email: userForm.email,
+        role: userForm.role,
+        isActive: userForm.isActive,
+        shiftReportPreferences: userForm.shiftReportPreferences
+      };
+
+      if (userForm.password) {
+        updateData.password = userForm.password;
+      }
+
+      await axios.put(`/api/users/${selectedUser.id}`, updateData);
+      
+      success('User updated successfully');
+      handleCloseDialog();
+      fetchUsers();
+    } catch (err) {
+      error(err.response?.data?.message || 'Failed to update user');
+    }
+  };
+
+  const handleOpenDeleteDialog = (user) => {
+    setSelectedUser(user);
+    setDeleteDialogOpen(true);
+  };
+
+  const deleteUser = async () => {
+    try {
+      await axios.delete(`/api/users/${selectedUser.id}`);
+      success('User deleted successfully');
+      setDeleteDialogOpen(false);
+      setSelectedUser(null);
+      fetchUsers();
+    } catch (err) {
+      error(err.response?.data?.message || 'Failed to delete user');
+    }
+  };
+
+  const handleOpenInviteDialog = () => {
+    setInviteForm({
+      email: '',
+      role: 'user',
+      receive_shift_reports: false
+    });
+    setInviteDialogOpen(true);
+  };
+
+  const handleInviteFormChange = (event) => {
+    const { name, value, checked, type } = event.target;
+    setInviteForm(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value
+    }));
+  };
+
+  const handleSendInvitation = async () => {
+    try {
+      await axios.post('/api/invitations', inviteForm);
+      success('Invitation sent successfully');
+      setInviteDialogOpen(false);
+      fetchPendingInvitations();
+    } catch (err) {
+      error(err.response?.data?.message || 'Failed to send invitation');
+    }
+  };
+
+  const handleCancelInvitation = async (invitationId) => {
+    try {
+      await axios.delete(`/api/invitations/${invitationId}`);
+      success('Invitation cancelled successfully');
+      fetchPendingInvitations();
+    } catch (err) {
+      error(err.response?.data?.message || 'Failed to cancel invitation');
+    }
+  };
+
+  const handleResendInvitation = async (invitationId) => {
+    try {
+      await axios.post(`/api/invitations/${invitationId}/resend`);
+      success('Invitation resent successfully');
+      fetchPendingInvitations();
+    } catch (err) {
+      error(err.response?.data?.message || 'Failed to resend invitation');
+    }
+  };
+
+  // Check if user is not authenticated at all
+  if (!isAuthenticated) {
     return (
-      <Box sx={{ textAlign: 'center', py: 8 }}>
-        <LockIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
-        <Typography variant="h5" gutterBottom color="text.secondary">
-          Access Restricted
+      <Box sx={{ textAlign: 'center', mt: 4 }}>
+        <LockIcon sx={{ fontSize: 64, color: 'warning.main', mb: 2 }} />
+        <Typography variant="h5" color="text.primary" gutterBottom>
+          Authentication Required
         </Typography>
         <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-          You need administrator or manager privileges to access user management.
+          Please log in to access the User Management page.
+        </Typography>
+        <Button 
+          variant="contained" 
+          color="primary" 
+          onClick={() => window.location.href = '/login'}
+          sx={{ mr: 2 }}
+        >
+          Go to Login
+        </Button>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+          Use admin credentials: admin@example.com / admin123
+        </Typography>
+      </Box>
+    );
+  }
+
+  // Check if user doesn't have required permissions
+  if (!hasPermission(['admin', 'manager'])) {
+    return (
+      <Box sx={{ textAlign: 'center', mt: 4 }}>
+        <LockIcon sx={{ fontSize: 64, color: 'error.main', mb: 2 }} />
+        <Typography variant="h5" color="text.secondary">
+          Access Denied
+        </Typography>
+        <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
+          You don't have permission to access user management.
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Current role: <Chip label={user?.role || 'Unknown'} size="small" />
+          Current role: {user?.role || 'Unknown'} | Required: Admin or Manager
         </Typography>
-        <Alert severity="info" sx={{ mt: 3, maxWidth: 500, mx: 'auto' }}>
-          Contact your system administrator to request access to user management features.
-        </Alert>
       </Box>
     );
   }
 
   return (
     <Box>
+      {/* Debug Panel - Only show in development */}
+      {process.env.NODE_ENV === 'development' && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          <Typography variant="body2">
+            <strong>Debug Info:</strong> User: {user?.name || 'None'} | Role: {user?.role || 'None'} | 
+            Authenticated: {isAuthenticated ? 'Yes' : 'No'} | 
+            Token: {localStorage.getItem('token') ? 'Present' : 'Missing'}
+          </Typography>
+        </Alert>
+      )}
+      
       <Typography variant="h4" gutterBottom>
         User Management
       </Typography>
@@ -428,7 +523,7 @@ const UserManagement = () => {
           }}
           sx={{ width: 300 }}
         />
-        <Box>
+        <Box sx={{ display: 'flex', gap: 1 }}>
           <Button
             variant="contained"
             startIcon={<AddIcon />}
@@ -438,7 +533,7 @@ const UserManagement = () => {
           </Button>
           <Button
             variant="outlined"
-            sx={{ ml: 2 }}
+            startIcon={<AddIcon />}
             onClick={handleOpenInviteDialog}
           >
             Invite User
@@ -447,98 +542,113 @@ const UserManagement = () => {
       </Box>
 
       {/* Users Table */}
-      <Paper>
-        <TableContainer>
-          <Table>
-            <TableHead>
+      <TableContainer component={Paper}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell>Name</TableCell>
+              <TableCell>Email</TableCell>
+              <TableCell>Role</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell>Shift Reports</TableCell>
+              <TableCell>Created</TableCell>
+              <TableCell>Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {loading ? (
               <TableRow>
-                <TableCell>Name</TableCell>
-                <TableCell>Email</TableCell>
-                <TableCell>Role</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Shift Reports</TableCell>
-                <TableCell>Created</TableCell>
-                <TableCell>Actions</TableCell>
+                <TableCell colSpan={7} sx={{ textAlign: 'center', py: 4 }}>
+                  <CircularProgress />
+                </TableCell>
               </TableRow>
-            </TableHead>
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={7} align="center">
-                    <CircularProgress />
-                  </TableCell>
-                </TableRow>
-              ) : users.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} align="center">
+            ) : users.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} sx={{ textAlign: 'center', py: 4 }}>
+                  <Typography variant="body1" color="text.secondary">
                     No users found
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : (
+              users.map((user) => (
+                <StyledTableRow key={user.id}>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      {user.name}
+                    </Typography>
                   </TableCell>
-                </TableRow>
-              ) : (
-                users.map((user) => (
-                  <StyledTableRow key={user.id}>
-                    <TableCell>{user.name}</TableCell>
-                    <TableCell>{user.email}</TableCell>
-                    <TableCell>
-                      <Chip
-                        label={user.role}
-                        color={user.role === 'admin' ? 'error' : user.role === 'manager' ? 'warning' : 'default'}
-                        size="small"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={user.isActive ? 'Active' : 'Inactive'}
-                        color={user.isActive ? 'success' : 'default'}
-                        size="small"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      {user.shiftReportPreferences?.enabled ? (
-                        <Chip
-                          label={`${user.shiftReportPreferences.shifts?.length || 0} shifts`}
-                          color="info"
-                          size="small"
-                        />
-                      ) : (
-                        <Chip label="Disabled" color="default" size="small" />
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {user.created_at ? format(new Date(user.created_at), 'MMM dd, yyyy') : 'N/A'}
-                    </TableCell>
-                    <TableCell>
-                      <IconButton
-                        size="small"
-                        onClick={() => handleOpenEditDialog(user)}
+                  <TableCell>{user.email}</TableCell>
+                  <TableCell>
+                    <Chip 
+                      label={user.role} 
+                      size="small" 
+                      variant="outlined"
+                      color={
+                        user.role === 'admin' ? 'error' :
+                        user.role === 'manager' ? 'warning' : 'default'
+                      }
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Chip 
+                      label={user.isActive ? 'Active' : 'Inactive'} 
+                      size="small" 
+                      color={user.isActive ? 'success' : 'default'}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {user.shiftReportPreferences?.enabled ? (
+                      <Chip 
+                        label={`${user.shiftReportPreferences.shifts?.length || 0} shifts`}
+                        size="small" 
                         color="primary"
-                      >
-                        <EditIcon />
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        onClick={() => handleOpenDeleteDialog(user)}
-                        color="error"
-                      >
-                        <DeleteIcon />
-                      </IconButton>
-                    </TableCell>
-                  </StyledTableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-        <TablePagination
-          rowsPerPageOptions={[5, 10, 25]}
-          component="div"
-          count={totalUsers}
-          rowsPerPage={rowsPerPage}
-          page={page}
-          onPageChange={handleChangePage}
-          onRowsPerPageChange={handleChangeRowsPerPage}
-        />
-      </Paper>
+                        variant="outlined"
+                      />
+                    ) : (
+                      <Chip 
+                        label="Disabled"
+                        size="small" 
+                        color="default"
+                        variant="outlined"
+                      />
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {user.created_at ? format(new Date(user.created_at), 'MMM dd, yyyy') : 'Unknown'}
+                  </TableCell>
+                  <TableCell>
+                    <IconButton
+                      size="small"
+                      onClick={() => handleOpenEditDialog(user)}
+                      sx={{ mr: 1 }}
+                    >
+                      <EditIcon />
+                    </IconButton>
+                    <IconButton
+                      size="small"
+                      onClick={() => handleOpenDeleteDialog(user)}
+                      color="error"
+                    >
+                      <DeleteIcon />
+                    </IconButton>
+                  </TableCell>
+                </StyledTableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </TableContainer>
+
+      <TablePagination
+        rowsPerPageOptions={[5, 10, 25]}
+        component="div"
+        count={totalUsers}
+        rowsPerPage={rowsPerPage}
+        page={page}
+        onPageChange={handleChangePage}
+        onRowsPerPageChange={handleChangeRowsPerPage}
+      />
 
       {/* Add/Edit User Dialog */}
       <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
@@ -578,11 +688,9 @@ const UserManagement = () => {
                 onChange={handleFormChange}
                 required
               >
-                {roles.map((role) => (
-                  <MenuItem key={role.value} value={role.value}>
-                    {role.label}
-                  </MenuItem>
-                ))}
+                <MenuItem value="user">User</MenuItem>
+                <MenuItem value="manager">Manager</MenuItem>
+                <MenuItem value="admin">Admin</MenuItem>
               </TextField>
             </Grid>
             <Grid item xs={12} md={6}>
@@ -594,7 +702,7 @@ const UserManagement = () => {
                     name="isActive"
                   />
                 }
-                label="Active User"
+                label="Active"
               />
             </Grid>
             <Grid item xs={12} md={6}>
@@ -617,7 +725,7 @@ const UserManagement = () => {
                 type="password"
                 value={userForm.confirmPassword}
                 onChange={handleFormChange}
-                required={dialogMode === 'add' || userForm.password !== ''}
+                required={dialogMode === 'add'}
               />
             </Grid>
 
@@ -649,12 +757,12 @@ const UserManagement = () => {
               <>
                 <Grid item xs={12} md={6}>
                   <FormControl fullWidth>
-                    <InputLabel>Shifts to Receive Reports</InputLabel>
+                    <InputLabel>Shifts to Receive Reports For</InputLabel>
                     <Select
                       multiple
-                      value={userForm.shiftReportPreferences.shifts}
+                      value={userForm.shiftReportPreferences.shifts || []}
                       onChange={handleShiftSelectionChange}
-                      input={<OutlinedInput label="Shifts to Receive Reports" />}
+                      input={<OutlinedInput label="Shifts to Receive Reports For" />}
                       renderValue={(selected) => (
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                           {selected.map((value) => (
@@ -665,8 +773,8 @@ const UserManagement = () => {
                     >
                       {availableShiftTimes.map((time) => (
                         <MenuItem key={time} value={time}>
-                          <Checkbox checked={userForm.shiftReportPreferences.shifts.indexOf(time) > -1} />
-                          <ListItemText primary={`${formatShiftTime(time)} Shift`} />
+                          <Checkbox checked={userForm.shiftReportPreferences.shifts?.indexOf(time) > -1} />
+                          <ListItemText primary={formatShiftTime(time)} />
                         </MenuItem>
                       ))}
                     </Select>
@@ -716,7 +824,7 @@ const UserManagement = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Pending Invitations Section */}
+      {/* Pending Invitations */}
       {pendingInvitations.length > 0 && (
         <Paper sx={{ mb: 3, p: 2 }}>
           <Typography variant="h6" gutterBottom>
@@ -738,13 +846,20 @@ const UserManagement = () => {
                   <TableRow key={invitation.id}>
                     <TableCell>{invitation.email}</TableCell>
                     <TableCell>
-                      <Chip label={invitation.role} size="small" />
+                      <Chip label={invitation.role} size="small" variant="outlined" />
                     </TableCell>
-                    <TableCell>{invitation.inviter?.name || 'System'}</TableCell>
+                    <TableCell>{invitation.invitedBy}</TableCell>
                     <TableCell>
-                      {format(new Date(invitation.created_at), 'MMM dd, yyyy')}
+                      {format(new Date(invitation.createdAt), 'MMM dd, yyyy HH:mm')}
                     </TableCell>
                     <TableCell>
+                      <Button
+                        size="small"
+                        onClick={() => handleResendInvitation(invitation.id)}
+                        sx={{ mr: 1 }}
+                      >
+                        Resend
+                      </Button>
                       <Button
                         size="small"
                         color="error"
@@ -762,7 +877,7 @@ const UserManagement = () => {
       )}
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={openDeleteDialog} onClose={() => setOpenDeleteDialog(false)}>
+      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
         <DialogTitle>Confirm Delete</DialogTitle>
         <DialogContent>
           <DialogContentText>
@@ -770,7 +885,7 @@ const UserManagement = () => {
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpenDeleteDialog(false)}>Cancel</Button>
+          <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
           <Button onClick={deleteUser} color="error" variant="contained">
             Delete
           </Button>
@@ -789,7 +904,7 @@ const UserManagement = () => {
                 name="email"
                 type="email"
                 value={inviteForm.email}
-                onChange={(e) => setInviteForm(prev => ({ ...prev, email: e.target.value }))}
+                onChange={handleInviteFormChange}
                 required
               />
             </Grid>
@@ -800,14 +915,12 @@ const UserManagement = () => {
                 label="Role"
                 name="role"
                 value={inviteForm.role}
-                onChange={(e) => setInviteForm(prev => ({ ...prev, role: e.target.value }))}
+                onChange={handleInviteFormChange}
                 required
               >
-                {roles.map((role) => (
-                  <MenuItem key={role.value} value={role.value}>
-                    {role.label}
-                  </MenuItem>
-                ))}
+                <MenuItem value="user">User</MenuItem>
+                <MenuItem value="manager">Manager</MenuItem>
+                <MenuItem value="admin">Admin</MenuItem>
               </TextField>
             </Grid>
             <Grid item xs={12}>
@@ -815,7 +928,7 @@ const UserManagement = () => {
                 control={
                   <Switch
                     checked={inviteForm.receive_shift_reports}
-                    onChange={(e) => setInviteForm(prev => ({ ...prev, receive_shift_reports: e.target.checked }))}
+                    onChange={handleInviteFormChange}
                     name="receive_shift_reports"
                   />
                 }

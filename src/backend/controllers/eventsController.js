@@ -147,18 +147,42 @@ exports.updateEvent = async (req, res) => {
 // @route   DELETE /api/events/:id
 // @access  Private
 exports.deleteEvent = async (req, res) => {
+  console.log('🗑️ API /api/events/:id DELETE called by user:', req.user ? req.user.email : 'unknown');
   try {
     const { id } = req.params;
     
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Event ID is required'
+      });
+    }
+
+    // Delete the event using the database service
+    const deletedCount = await databaseService.deleteEventsByIds([parseInt(id)]);
+    
+    if (deletedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Event not found'
+      });
+    }
+
+    // Emit real-time update for event deletion
+    if (req.io) {
+      req.io.emit('event_deleted', { eventId: id });
+      console.log(`✅ Emitted event_deleted for event ID: ${id}`);
+    }
+
     res.status(200).json({
       success: true,
-      message: 'Event deletion not implemented yet'
+      message: 'Event deleted successfully'
     });
   } catch (error) {
     console.error('Error deleting event:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error'
+      message: 'Server error: ' + error.message
     });
   }
 };
@@ -201,13 +225,17 @@ exports.archiveEvents = async (req, res) => {
 
     // Create archive with events data
     const archiveData = {
-      name: name.trim(),
+      title: name.trim(),
       description: description?.trim() || '',
-      type: isEndOfShift ? 'shift_end' : 'manual',
-      created_by: req.user?.id || req.user?._id,
-      shift_id: currentShift?.id || currentShift?._id,
-      event_count: eventsToArchive.length,
-      data: {
+      archive_type: 'EVENTS',
+      date_range_start: currentShift ? currentShift.start_time : new Date(new Date().setHours(0, 0, 0, 0)),
+      date_range_end: currentShift ? (currentShift.end_time || new Date()) : new Date(),
+      created_by: req.user?.id || req.user?._id || 1, // Default to user ID 1 if no user
+      status: 'COMPLETED',
+      archived_data: {
+        event_count: eventsToArchive.length,
+        archive_type: isEndOfShift ? 'shift_end' : 'manual',
+        shift_id: currentShift?.id || currentShift?._id,
         events: eventsToArchive.map(event => ({
           id: event.id,
           timestamp: event.timestamp,
@@ -233,12 +261,39 @@ exports.archiveEvents = async (req, res) => {
 
     const archive = await databaseService.createArchive(archiveData);
 
+    // If this is an end-of-shift archive, clear the events from the main table
+    if (isEndOfShift && eventsToArchive.length > 0) {
+      try {
+        // Delete all archived events from the main events table
+        const eventIds = eventsToArchive.map(event => event.id);
+        await databaseService.deleteEventsByIds(eventIds);
+        console.log(`Cleared ${eventIds.length} events from main table after archiving`);
+      } catch (deleteError) {
+        console.error('Error clearing events after archiving:', deleteError);
+        // Don't fail the archive operation if clearing fails
+      }
+    }
+
+    // Emit real-time update for new archive creation
+    if (req.io) {
+      req.io.emit('new_archive', {
+        id: archive.id,
+        title: archive.title,
+        description: archive.description,
+        archive_type: archive.archive_type,
+        event_count: eventsToArchive.length,
+        created_at: archive.created_at,
+        status: archive.status
+      });
+      console.log(`✅ Emitted new_archive event for: ${archive.title}`);
+    }
+
     res.status(200).json({
       success: true,
-      message: `Successfully archived ${eventsToArchive.length} events`,
+      message: `Successfully archived ${eventsToArchive.length} events${isEndOfShift ? ' and cleared them from active list' : ''}`,
       archive: {
-        id: archive.id || archive._id,
-        name: archive.name,
+        id: archive.id,
+        title: archive.title,
         event_count: eventsToArchive.length,
         created_at: archive.created_at
       }
@@ -257,10 +312,29 @@ exports.archiveEvents = async (req, res) => {
 // @access  Private
 exports.getEventArchives = async (req, res) => {
   try {
+    const archives = await databaseService.getAllArchives();
+    
+    // Transform archives to match frontend expectations
+    const transformedArchives = archives.map(archive => ({
+      id: archive.id,
+      title: archive.title,
+      description: archive.description,
+      archive_type: archive.archive_type,
+      date_range_start: archive.date_range_start,
+      date_range_end: archive.date_range_end,
+      file_size: archive.file_size,
+      status: archive.status,
+      created_at: archive.created_at,
+      created_by: archive.created_by,
+      event_count: archive.archived_data ? 
+        (typeof archive.archived_data === 'string' ? 
+          JSON.parse(archive.archived_data).event_count : 
+          archive.archived_data.event_count) : 0
+    }));
+
     res.status(200).json({
       success: true,
-      archives: [],
-      message: 'Event archives not implemented yet'
+      data: transformedArchives
     });
   } catch (error) {
     console.error('Error fetching event archives:', error);
@@ -298,15 +372,47 @@ exports.deleteEventArchive = async (req, res) => {
   try {
     const { id } = req.params;
     
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Archive ID is required'
+      });
+    }
+
+    // Check if archive exists
+    const archive = await databaseService.findArchiveById(id);
+    if (!archive) {
+      return res.status(404).json({
+        success: false,
+        message: 'Archive not found'
+      });
+    }
+
+    // Delete the archive using the database service
+    const deleted = await databaseService.deleteArchive(id);
+    
+    if (!deleted) {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to delete archive'
+      });
+    }
+
+    // Emit real-time update for archive deletion
+    if (req.io) {
+      req.io.emit('archive_deleted', { archiveId: id });
+      console.log(`✅ Emitted archive_deleted for archive ID: ${id}`);
+    }
+
     res.status(200).json({
       success: true,
-      message: 'Event archive deletion not implemented yet'
+      message: 'Archive deleted successfully'
     });
   } catch (error) {
     console.error('Error deleting event archive:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error'
+      message: 'Server error: ' + error.message
     });
   }
 };

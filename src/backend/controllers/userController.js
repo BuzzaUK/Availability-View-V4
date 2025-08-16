@@ -24,10 +24,22 @@ const getUsers = async (req, res) => {
     }
     
     // Remove password from response
-    users = users.map(user => {
-      const { password, ...userWithoutPassword } = user;
-      return userWithoutPassword;
-    });
+  users = users.map(user => {
+    const { password, ...userWithoutPassword } = user;
+    return userWithoutPassword;
+  });
+  
+  // Debug: Log user data to see shiftReportPreferences
+  console.log('🔍 GET USERS - Response data:');
+  users.forEach(user => {
+    console.log(`User: ${user.name} (${user.email})`);
+    console.log(`  shiftReportPreferences:`, user.shiftReportPreferences);
+    console.log(`  shiftReportPreferences type:`, typeof user.shiftReportPreferences);
+    if (user.shiftReportPreferences) {
+      console.log(`  enabled:`, user.shiftReportPreferences.enabled);
+    }
+    console.log('---');
+  });
     
     // Pagination
     const startIndex = (page - 1) * limit;
@@ -111,7 +123,12 @@ const createUser = async (req, res) => {
       email, 
       password, 
       role,
-      receive_reports: shiftReportPreferences?.enabled || false
+      receive_reports: shiftReportPreferences?.enabled || false,
+      shiftReportPreferences: shiftReportPreferences || {
+        enabled: false,
+        shifts: [],
+        emailFormat: 'pdf'
+      }
     });
     
     // Remove password from response
@@ -152,9 +169,11 @@ const updateUser = async (req, res) => {
       updateData.name = `${first_name || ''} ${last_name || ''}`.trim();
     }
     
-    if (shiftReportPreferences?.enabled !== undefined) {
+    if (shiftReportPreferences !== undefined) {
       updateData.receive_reports = shiftReportPreferences.enabled;
+      updateData.shiftReportPreferences = shiftReportPreferences;
       console.log('Setting receive_reports to:', shiftReportPreferences.enabled);
+      console.log('Setting shiftReportPreferences to:', shiftReportPreferences);
     }
     
     console.log('Update data to apply:', updateData);

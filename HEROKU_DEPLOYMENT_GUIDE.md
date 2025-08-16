@@ -47,7 +47,7 @@ heroku config:set AWS_S3_BUCKET=your-s3-bucket-name
 # App configuration
 heroku config:set DATA_RETENTION_DAYS=90
 heroku config:set AUTO_SHIFT_DETECTION=true
-heroku config:set SHIFT_TIMES=08:00,16:00,00:00
+# SHIFT_TIMES no longer needed - now configured via notification settings in the application
 
 # Frontend URL (replace with your actual Heroku app URL)
 heroku config:set FRONTEND_URL=https://your-app-name.herokuapp.com

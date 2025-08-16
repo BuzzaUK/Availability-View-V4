@@ -19,12 +19,16 @@ import EventsPage from './components/events/EventsPage';
 import ArchivesPage from './components/archives/ArchivesPage';
 import AnalyticsPage from './components/analytics/AnalyticsPage';
 import ConfigPage from './components/config/ConfigPage';
+import UserManagement from './components/config/UserManagement';
 
 // Context
 import { AuthProvider } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
 import { AlertProvider } from './context/AlertContext';
 import { SettingsProvider } from './context/SettingsContext';
+
+// Debug Components
+import ShiftDebugLogger from './components/common/ShiftDebugLogger';
 
 // Routes
 import PrivateRoute from './components/routing/PrivateRoute';
@@ -123,6 +127,7 @@ function App() {
         <AuthProvider>
           <SettingsProvider>
             <SocketProvider>
+              <ShiftDebugLogger />
               <Router>
               <Routes>
                 {/* Auth Routes */}
@@ -139,7 +144,7 @@ function App() {
                   <Route path="archives" element={<ArchivesPage />} />
                   <Route path="analytics" element={<AnalyticsPage />} />
                   <Route path="config" element={<ConfigPage />} />
-                  <Route path="users" element={<div>User Management Page</div>} />
+                  <Route path="users" element={<UserManagement />} />
                   <Route path="system" element={<div>System Page</div>} />
                 </Route>
                 

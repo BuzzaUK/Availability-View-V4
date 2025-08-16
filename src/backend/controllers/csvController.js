@@ -1,4 +1,4 @@
-const memoryDB = require('../utils/memoryDB');
+const databaseService = require('../services/databaseService');
 const csvTemplates = require('../utils/csvTemplates');
 
 // @desc    Get available CSV templates
@@ -51,13 +51,13 @@ exports.exportData = async (req, res) => {
     // Get data based on template data source
     switch (templateConfig.data_source) {
       case 'assets':
-        data = memoryDB.getAllAssets();
+        data = await databaseService.getAllAssets();
         break;
       case 'events':
-        data = memoryDB.getAllEvents();
+        data = await databaseService.getAllEvents();
         break;
       case 'shifts':
-        data = memoryDB.getAllShifts();
+        data = await databaseService.getAllShifts();
         break;
       default:
         return res.status(400).json({
@@ -131,13 +131,13 @@ exports.exportWithTemplate = async (req, res) => {
     // Get data based on template data source
     switch (templateConfig.data_source) {
       case 'assets':
-        data = memoryDB.getAllAssets();
+        data = await databaseService.getAllAssets();
         break;
       case 'events':
-        data = memoryDB.getAllEvents();
+        data = await databaseService.getAllEvents();
         break;
       case 'shifts':
-        data = memoryDB.getAllShifts();
+        data = await databaseService.getAllShifts();
         break;
       default:
         return res.status(400).json({
@@ -247,7 +247,7 @@ exports.importData = async (req, res) => {
             availability_percentage: parseFloat(row.availability_percentage) || 0
           };
 
-          const newAsset = memoryDB.createAsset(assetData);
+          const newAsset = await databaseService.createAsset(assetData);
           importedItems.push(newAsset);
         } else {
           errors.push(`Row ${i + 1}: Unsupported import type: ${type}`);
@@ -313,7 +313,7 @@ exports.importAssets = async (req, res) => {
           availability_percentage: parseFloat(row.availability_percentage) || 0
         };
 
-        const newAsset = memoryDB.createAsset(assetData);
+        const newAsset = await databaseService.createAsset(assetData);
         importedAssets.push(newAsset);
 
       } catch (error) {

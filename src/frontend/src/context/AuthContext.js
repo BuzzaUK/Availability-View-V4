@@ -161,6 +161,17 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Check if user has permission based on role
+  const hasPermission = (requiredRoles = []) => {
+    if (!isAuthenticated || !user) return false;
+    
+    // If no specific roles required, just check if authenticated
+    if (requiredRoles.length === 0) return true;
+    
+    // Check if user's role is in the required roles
+    return requiredRoles.includes(user.role);
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -177,7 +188,8 @@ export const AuthProvider = ({ children }) => {
         requestPasswordReset,
         resetPassword,
         loginWithToken,
-        clearError
+        clearError,
+        hasPermission
       }}
     >
       {children}

@@ -23,6 +23,7 @@ export const SettingsProvider = ({ children }) => {
     dataRetentionDays: 90,
     autoBackup: true,
     autoBackupFrequency: 'daily',
+    shiftDuration: 480, // 8 hours in minutes
   };
 
   // Initialize settings from localStorage or defaults

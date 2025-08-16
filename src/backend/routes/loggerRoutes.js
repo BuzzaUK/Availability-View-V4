@@ -1,22 +1,17 @@
 const express = require('express');
 const router = express.Router();
-const memoryDB = require('../utils/memoryDB');
+const databaseService = require('../services/databaseService');
 
 // Get all loggers for a user
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const userId = req.user?.id;
-    console.log('Fetching loggers for user ID:', userId);
-    console.log('User object:', req.user);
     
     if (!userId) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
-    const loggers = memoryDB.getLoggersByUserId(userId);
-    console.log('Found loggers:', loggers.length);
-    console.log('All loggers in DB:', memoryDB.getAllLoggers().map(l => ({ id: l._id, logger_id: l.logger_id, user_account_id: l.user_account_id })));
-    
+    const loggers = await databaseService.getLoggersByUserId(userId);
     res.json(loggers);
   } catch (error) {
     console.error('Error fetching loggers:', error);
@@ -25,9 +20,9 @@ router.get('/', (req, res) => {
 });
 
 // Get a specific logger by ID
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const logger = memoryDB.findLoggerById(req.params.id);
+    const logger = await databaseService.findLoggerById(req.params.id);
     if (!logger) {
       return res.status(404).json({ error: 'Logger not found' });
     }
@@ -46,7 +41,7 @@ router.get('/:id', (req, res) => {
 });
 
 // Register a new logger
-router.post('/register', (req, res) => {
+router.post('/register', async (req, res) => {
   try {
     const { logger_id, logger_name } = req.body;
     const userId = req.user?.id;
@@ -60,7 +55,7 @@ router.post('/register', (req, res) => {
     }
 
     // Check if logger ID already exists
-    const existingLogger = memoryDB.findLoggerByLoggerId(logger_id);
+    const existingLogger = await databaseService.findLoggerByLoggerId(logger_id);
     if (existingLogger) {
       return res.status(409).json({ error: 'Logger ID already registered' });
     }
@@ -72,7 +67,7 @@ router.post('/register', (req, res) => {
       status: 'offline'
     };
 
-    const newLogger = memoryDB.createLogger(loggerData);
+    const newLogger = await databaseService.createLogger(loggerData);
     res.status(201).json(newLogger);
   } catch (error) {
     console.error('Error registering logger:', error);
@@ -81,9 +76,9 @@ router.post('/register', (req, res) => {
 });
 
 // Update logger information
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
-    const logger = memoryDB.findLoggerById(req.params.id);
+    const logger = await databaseService.findLoggerById(req.params.id);
     if (!logger) {
       return res.status(404).json({ error: 'Logger not found' });
     }
@@ -96,10 +91,11 @@ router.put('/:id', (req, res) => {
 
     const updates = req.body;
     delete updates._id; // Prevent ID modification
+    delete updates.id; // Prevent ID modification
     delete updates.logger_id; // Prevent logger_id modification
     delete updates.user_account_id; // Prevent user_account_id modification
 
-    const updatedLogger = memoryDB.updateLogger(req.params.id, updates);
+    const updatedLogger = await databaseService.updateLogger(req.params.id, updates);
     res.json(updatedLogger);
   } catch (error) {
     console.error('Error updating logger:', error);
@@ -108,9 +104,9 @@ router.put('/:id', (req, res) => {
 });
 
 // Delete a logger
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
-    const logger = memoryDB.findLoggerById(req.params.id);
+    const logger = await databaseService.findLoggerById(req.params.id);
     if (!logger) {
       return res.status(404).json({ error: 'Logger not found' });
     }
@@ -121,7 +117,7 @@ router.delete('/:id', (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const deleted = memoryDB.deleteLogger(req.params.id);
+    const deleted = await databaseService.deleteLogger(req.params.id);
     if (deleted) {
       res.json({ message: 'Logger deleted successfully' });
     } else {
@@ -134,7 +130,7 @@ router.delete('/:id', (req, res) => {
 });
 
 // Logger heartbeat/status update endpoint (for ESP32)
-router.post('/heartbeat', (req, res) => {
+router.post('/heartbeat', async (req, res) => {
   try {
     const { logger_id, status, firmware_version } = req.body;
     const clientIP = req.ip || req.connection.remoteAddress;
@@ -143,17 +139,17 @@ router.post('/heartbeat', (req, res) => {
       return res.status(400).json({ error: 'Logger ID is required' });
     }
 
-    const logger = memoryDB.findLoggerByLoggerId(logger_id);
+    const logger = await databaseService.findLoggerByLoggerId(logger_id);
     if (!logger) {
       return res.status(404).json({ error: 'Logger not registered' });
     }
 
     // Update logger status
-    const updatedLogger = memoryDB.updateLoggerStatus(logger_id, status || 'online', clientIP);
+    const updatedLogger = await databaseService.updateLoggerStatus(logger_id, status || 'online', clientIP);
     
     // Update firmware version if provided
     if (firmware_version && firmware_version !== logger.firmware_version) {
-      memoryDB.updateLogger(logger._id, { firmware_version });
+      await databaseService.updateLogger(logger.id || logger._id, { firmware_version });
     }
 
     res.json({ 
@@ -169,17 +165,17 @@ router.post('/heartbeat', (req, res) => {
 });
 
 // Get logger configuration (for ESP32)
-router.get('/config/:logger_id', (req, res) => {
+router.get('/config/:logger_id', async (req, res) => {
   try {
     const { logger_id } = req.params;
     
-    const logger = memoryDB.findLoggerByLoggerId(logger_id);
+    const logger = await databaseService.findLoggerByLoggerId(logger_id);
     if (!logger) {
       return res.status(404).json({ error: 'Logger not registered' });
     }
 
     // Get assets for this logger
-    const assets = memoryDB.getAssetsByLoggerId(logger._id);
+    const assets = await databaseService.getAssetsByLoggerId(logger.id || logger._id);
     
     // Format configuration for ESP32
     const config = {
@@ -203,9 +199,9 @@ router.get('/config/:logger_id', (req, res) => {
 });
 
 // Get assets for a specific logger
-router.get('/:id/assets', (req, res) => {
+router.get('/:id/assets', async (req, res) => {
   try {
-    const logger = memoryDB.findLoggerById(req.params.id);
+    const logger = await databaseService.findLoggerById(req.params.id);
     if (!logger) {
       return res.status(404).json({ error: 'Logger not found' });
     }
@@ -216,7 +212,7 @@ router.get('/:id/assets', (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const assets = memoryDB.getAssetsByLoggerId(req.params.id);
+    const assets = await databaseService.getAssetsByLoggerId(req.params.id);
     res.json(assets);
   } catch (error) {
     console.error('Error fetching logger assets:', error);

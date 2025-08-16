@@ -19,8 +19,8 @@ class DatabaseService {
       // In development with SQLite, allow Sequelize to alter tables to add missing columns/indexes
 // Sync database schema
       const isDevSqlite = sequelize.getDialect() === 'sqlite' && (process.env.NODE_ENV || 'development') === 'development';
-      // Use force: true for development SQLite to avoid schema conflicts
-      await sequelize.sync({ force: isDevSqlite, alter: false });
+      // Use conservative sync to avoid foreign key constraint issues
+      await sequelize.sync({ force: false, alter: false });
       console.log('✅ Database tables synchronized');
       
       this.initialized = true;
@@ -163,10 +163,10 @@ class DatabaseService {
   // User methods
   async getAllUsers() {
     const users = await User.findAll({
-      attributes: { exclude: ['password'] },
-      raw: true
+      attributes: { exclude: ['password'] }
     });
-    return users;
+    // Convert to plain objects but preserve JSON fields
+    return users.map(user => user.toJSON());
   }
 
   async findUserByEmail(email) {
@@ -174,8 +174,8 @@ class DatabaseService {
   }
 
   async findUserById(id) {
-    const user = await User.findByPk(id, { raw: true });
-    return user;
+    const user = await User.findByPk(id);
+    return user ? user.toJSON() : null;
   }
 
   async createUser(userData) {
@@ -185,7 +185,8 @@ class DatabaseService {
   async updateUser(id, updates) {
     const [updatedRowsCount] = await User.update(updates, { where: { id } });
     if (updatedRowsCount > 0) {
-      return await User.findByPk(id, { raw: true });
+      const user = await User.findByPk(id);
+      return user ? user.toJSON() : null;
     }
     return null;
   }
@@ -236,6 +237,16 @@ class DatabaseService {
     });
     console.log('🔍 DATABASE SERVICE - Result:', result ? 'Found' : 'Not found');
     return result;
+  }
+
+  async getLoggersByUserId(userId) {
+    return await Logger.findAll({
+      where: { user_account_id: userId },
+      include: [
+        { model: User, as: 'user', attributes: ['id', 'name', 'email'] },
+        { model: Asset, as: 'assets' }
+      ]
+    });
   }
 
   async createLogger(loggerData) {
@@ -375,6 +386,21 @@ class DatabaseService {
     return await Event.create(eventData);
   }
 
+  async deleteEventsByIds(eventIds) {
+    if (!eventIds || eventIds.length === 0) {
+      return 0;
+    }
+    
+    const deletedCount = await Event.destroy({
+      where: {
+        id: eventIds
+      }
+    });
+    
+    console.log(`Deleted ${deletedCount} events from database`);
+    return deletedCount;
+  }
+
   async getEventsByAssetId(assetId, options = {}) {
     const { Op } = require('sequelize');
     const queryOptions = {
@@ -445,7 +471,7 @@ class DatabaseService {
       },
       shiftSettings: {
         enabled: false,
-        shiftTimes: ['0800', '1600', '0000'],
+        shiftTimes: ['08:00', '16:00', '00:00'],
         emailFormat: 'pdf',
         autoSend: false
       },
@@ -541,8 +567,7 @@ class DatabaseService {
       shift_schedules: [],
       report_recipients: [],
       report_schedule: {
-        frequency: 'daily',
-        time: '08:00',
+        frequency: 'end_of_shift',
         enabled: false
       },
       company_name: 'Industrial Monitoring Corp',
@@ -738,6 +763,23 @@ class DatabaseService {
     return null;
   }
 
+  async getShiftsByDate(date) {
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    return await Shift.findAll({
+      where: {
+        start_time: {
+          [sequelize.Op.between]: [startOfDay, endOfDay]
+        }
+      },
+      order: [['start_time', 'ASC']]
+    });
+  }
+
   // Archive methods
   async getAllArchives() {
     return await Archive.findAll({
@@ -753,7 +795,135 @@ class DatabaseService {
   }
 
   async createArchive(archiveData) {
-    return await Archive.create(archiveData);
+    try {
+      console.log('📦 DatabaseService: Creating archive with title:', archiveData.title);
+      
+      // Validate archive data integrity
+      if (!archiveData.title || !archiveData.archive_type) {
+        throw new Error('Archive title and type are required');
+      }
+      
+      // Ensure archived_data is properly structured
+      if (archiveData.archived_data && typeof archiveData.archived_data !== 'object') {
+        throw new Error('Archived data must be a valid object');
+      }
+      
+      // Add data integrity checksum for verification
+      if (archiveData.archived_data) {
+        const dataString = JSON.stringify(archiveData.archived_data);
+        archiveData.data_checksum = require('crypto')
+          .createHash('md5')
+          .update(dataString)
+          .digest('hex');
+        archiveData.data_size = dataString.length;
+      }
+      
+      const archive = await Archive.create(archiveData);
+      console.log('📦 DatabaseService: Archive created successfully with ID:', archive.id);
+      return archive;
+    } catch (error) {
+      console.error('❌ DatabaseService: Failed to create archive:', error.message);
+      console.error('❌ Archive data:', JSON.stringify(archiveData, null, 2));
+      throw error;
+    }
+  }
+
+  /**
+   * Verify archive data integrity
+   */
+  async verifyArchiveIntegrity(archiveId) {
+    try {
+      const archive = await this.findArchiveById(archiveId);
+      if (!archive) {
+        return { valid: false, error: 'Archive not found' };
+      }
+      
+      if (!archive.data_checksum || !archive.archived_data) {
+        return { valid: true, warning: 'No checksum available for verification' };
+      }
+      
+      const dataString = JSON.stringify(archive.archived_data);
+      const currentChecksum = require('crypto')
+        .createHash('md5')
+        .update(dataString)
+        .digest('hex');
+      
+      const isValid = currentChecksum === archive.data_checksum;
+      
+      return {
+        valid: isValid,
+        originalChecksum: archive.data_checksum,
+        currentChecksum: currentChecksum,
+        dataSize: archive.data_size,
+        currentSize: dataString.length
+      };
+    } catch (error) {
+      return { valid: false, error: error.message };
+    }
+  }
+
+  /**
+   * Get events for archiving with enhanced data integrity
+   */
+  async getEventsForArchiving(options = {}) {
+    try {
+      const { Op } = require('sequelize');
+      const queryOptions = {
+        include: [
+          { model: Asset, as: 'asset', attributes: ['id', 'name', 'logger_id'] },
+          { model: Logger, as: 'logger', attributes: ['id', 'logger_id'] }
+        ],
+        order: [['timestamp', 'ASC']] // Chronological order for archiving
+      };
+
+      const whereClause = {};
+
+      // Date range filter (required for archiving)
+      if (options.startDate && options.endDate) {
+        whereClause.timestamp = {
+          [Op.between]: [new Date(options.startDate), new Date(options.endDate)]
+        };
+      }
+
+      // Shift ID filter
+      if (options.shift_id) {
+        whereClause.shift_id = options.shift_id;
+      }
+
+      // Asset filter
+      if (options.asset_ids && options.asset_ids.length > 0) {
+        whereClause.asset_id = { [Op.in]: options.asset_ids };
+      }
+
+      queryOptions.where = whereClause;
+
+      const result = await Event.findAndCountAll(queryOptions);
+      
+      // Add metadata for archiving
+      const archiveMetadata = {
+        totalEvents: result.count,
+        dateRange: {
+          start: options.startDate,
+          end: options.endDate
+        },
+        queryTimestamp: new Date().toISOString(),
+        dataIntegrity: {
+          verified: true,
+          checksum: require('crypto')
+            .createHash('md5')
+            .update(JSON.stringify(result.rows))
+            .digest('hex')
+        }
+      };
+      
+      return {
+        events: result.rows,
+        metadata: archiveMetadata
+      };
+    } catch (error) {
+      console.error('❌ Error getting events for archiving:', error.message);
+      throw error;
+    }
   }
 
   async updateArchive(id, updates) {

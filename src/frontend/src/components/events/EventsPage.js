@@ -25,6 +25,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 import ArchiveIcon from '@mui/icons-material/Archive';
 import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Clear';
+import StopIcon from '@mui/icons-material/Stop';
 
 import EventsTable from './EventsTable';
 
@@ -76,7 +77,13 @@ const EventsPage = () => {
   const [archiveName, setArchiveName] = useState('');
   const [archiveDescription, setArchiveDescription] = useState('');
   const [archiving, setArchiving] = useState(false);
-  const [archiveAsEndOfShift, setArchiveAsEndOfShift] = useState(false); // Add this line
+  const [archiveAsEndOfShift, setArchiveAsEndOfShift] = useState(false);
+  
+  // Current shift state
+  const [currentShift, setCurrentShift] = useState(null);
+  const [endingShift, setEndingShift] = useState(false);
+  const [endShiftDialogOpen, setEndShiftDialogOpen] = useState(false);
+  const [endShiftNotes, setEndShiftNotes] = useState('');
   
   // Auto-refresh state
   const [refreshCountdown, setRefreshCountdown] = useState(30);
@@ -131,10 +138,29 @@ const EventsPage = () => {
     }
   };
 
+  // Delete event function
+  const handleDeleteEvent = async (eventId) => {
+    try {
+      await axios.delete(`/api/events/${eventId}`);
+      success('Event deleted successfully');
+      // Refresh the events list
+      await fetchEvents();
+    } catch (err) {
+      error('Failed to delete event: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
   // Fetch events when page, rowsPerPage, or filters change
   useEffect(() => {
     fetchEvents();
+    fetchCurrentShift();
   }, [page, rowsPerPage, currentShiftOnly]);
+
+  // Fetch current shift periodically
+  useEffect(() => {
+    const interval = setInterval(fetchCurrentShift, 30000); // Check every 30 seconds
+    return () => clearInterval(interval);
+  }, []);
 
   // Update countdown when settings change
   useEffect(() => {
@@ -279,6 +305,50 @@ const EventsPage = () => {
     }
   };
 
+  // Fetch current shift
+  const fetchCurrentShift = async () => {
+    try {
+      const response = await axios.get('/api/shifts/current');
+      if (response.data.success) {
+        setCurrentShift(response.data.data);
+      } else {
+        setCurrentShift(null);
+      }
+    } catch (err) {
+      // No active shift is normal, don't show error
+      setCurrentShift(null);
+    }
+  };
+
+  // End current shift
+  const handleEndShift = async () => {
+    if (!currentShift) {
+      error('No active shift found');
+      return;
+    }
+
+    setEndingShift(true);
+    try {
+      const response = await axios.post('/api/shifts/end', {
+        notes: endShiftNotes.trim()
+      });
+
+      if (response.data.success) {
+        success('Shift ended successfully');
+        setEndShiftDialogOpen(false);
+        setEndShiftNotes('');
+        setCurrentShift(null);
+        // Refresh events to show the updated list
+        await fetchEvents();
+      }
+    } catch (err) {
+      console.error('Error ending shift:', err);
+      error('Failed to end shift: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setEndingShift(false);
+    }
+  };
+
   // Archive current events
   const handleArchiveEvents = async () => {
     if (!archiveName.trim()) {
@@ -292,7 +362,7 @@ const EventsPage = () => {
         name: archiveName.trim(),
         description: archiveDescription.trim(),
         events: events,
-        isEndOfShift: archiveAsEndOfShift // Add this new state variable
+        isEndOfShift: archiveAsEndOfShift
       });
 
       if (response.data.success) {
@@ -300,7 +370,7 @@ const EventsPage = () => {
         setArchiveDialogOpen(false);
         setArchiveName('');
         setArchiveDescription('');
-        setArchiveAsEndOfShift(false); // Reset the checkbox
+        setArchiveAsEndOfShift(false);
         // Refresh events to show the updated list
         await fetchEvents();
       }
@@ -330,6 +400,18 @@ const EventsPage = () => {
             label="Current Shift Only"
             sx={{ mr: 2 }}
           />
+          {currentShift && (
+            <Button
+              variant="contained"
+              color="warning"
+              startIcon={<StopIcon />}
+              onClick={() => setEndShiftDialogOpen(true)}
+              disabled={endingShift}
+              sx={{ mr: 1 }}
+            >
+              {endingShift ? 'Ending...' : 'End Shift'}
+            </Button>
+          )}
           <Button
             variant="outlined"
             startIcon={<FilterListIcon />}
@@ -514,10 +596,11 @@ const EventsPage = () => {
           totalEvents={totalEvents}
           handleChangePage={handleChangePage}
           handleChangeRowsPerPage={handleChangeRowsPerPage}
+          onDeleteEvent={handleDeleteEvent}
         />
       </Paper>
 
-      {/* Archive Confirmation Dialog (keep only this one, inside the component) */}
+      {/* Archive Confirmation Dialog */}
       <Dialog
         open={archiveDialogOpen}
         onClose={() => setArchiveDialogOpen(false)}
@@ -577,6 +660,64 @@ const EventsPage = () => {
             startIcon={archiving ? <CircularProgress size={20} /> : <ArchiveIcon />}
           >
             {archiving ? 'Archiving...' : 'Archive Events'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* End Shift Dialog */}
+      <Dialog
+        open={endShiftDialogOpen}
+        onClose={() => setEndShiftDialogOpen(false)}
+        aria-labelledby="end-shift-dialog-title"
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle id="end-shift-dialog-title">
+          End Current Shift
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ mb: 2 }}>
+            Are you sure you want to end the current shift?
+          </DialogContentText>
+          {currentShift && (
+            <Box sx={{ mb: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+              <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 1 }}>
+                Shift Details:
+              </Typography>
+              <Typography variant="body2">
+                Name: {currentShift.shift_name || currentShift.name}
+              </Typography>
+              <Typography variant="body2">
+                Started: {format(new Date(currentShift.start_time), 'PPpp')}
+              </Typography>
+              <Typography variant="body2">
+                Duration: {Math.round((new Date() - new Date(currentShift.start_time)) / (1000 * 60))} minutes
+              </Typography>
+            </Box>
+          )}
+          <TextField
+            fullWidth
+            label="End of Shift Notes (Optional)"
+            value={endShiftNotes}
+            onChange={(e) => setEndShiftNotes(e.target.value)}
+            placeholder="Add any notes about this shift..."
+            multiline
+            rows={4}
+            variant="outlined"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEndShiftDialogOpen(false)} disabled={endingShift}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleEndShift} 
+            variant="contained" 
+            color="warning"
+            disabled={endingShift}
+            startIcon={endingShift ? <CircularProgress size={20} /> : <StopIcon />}
+          >
+            {endingShift ? 'Ending Shift...' : 'End Shift'}
           </Button>
         </DialogActions>
       </Dialog>

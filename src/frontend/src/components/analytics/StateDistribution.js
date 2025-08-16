@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { styled } from '@mui/material/styles';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
 import Grid from '@mui/material/Grid';
 import { Pie, Doughnut } from 'react-chartjs-2';
+import axios from 'axios';
 import {
   Chart as ChartJS,
   ArcElement,
@@ -27,7 +28,42 @@ const ChartContainer = styled(Paper)(() => ({
   flexDirection: 'column',
 }));
 
-const StateDistribution = ({ data }) => {
+const StateDistribution = ({ data, shiftData }) => {
+  const [shiftTimes, setShiftTimes] = useState([]);
+
+  // Fetch shift times from notification settings
+  useEffect(() => {
+    const fetchShiftTimes = async () => {
+      try {
+        const response = await axios.get('/api/notifications/settings');
+        if (response.data && response.data.shiftSettings && response.data.shiftSettings.shiftTimes) {
+          setShiftTimes(response.data.shiftSettings.shiftTimes);
+        }
+      } catch (err) {
+        console.error('Failed to fetch shift times:', err);
+      }
+    };
+    fetchShiftTimes();
+  }, []);
+
+  // Helper function to format shift time for display
+  const formatShiftTime = (time) => {
+    if (time.length === 4) {
+      return `${time.substring(0, 2)}:${time.substring(2, 4)}`;
+    }
+    return time;
+  };
+
+  // Helper function to generate shift labels
+  const generateShiftLabels = () => {
+    if (shiftTimes.length === 0) return ['No shifts configured'];
+    
+    return shiftTimes.map((time, index) => {
+      const nextIndex = (index + 1) % shiftTimes.length;
+      const nextTime = shiftTimes[nextIndex];
+      return `Shift ${index + 1} (${formatShiftTime(time)} - ${formatShiftTime(nextTime)})`;
+    });
+  };
   // Helper function to format duration
   const formatDuration = (milliseconds) => {
     if (!milliseconds) return '0h 0m';
@@ -77,20 +113,29 @@ const StateDistribution = ({ data }) => {
     ],
   };
 
-  // Prepare time distribution data (day vs night)
+  // Prepare shift distribution data
+  const shiftLabels = generateShiftLabels();
+  const shiftDistributionData = shiftData || shiftLabels.map(() => Math.floor(Math.random() * 100)); // Use provided data or generate sample
+  
   const timeData = {
-    labels: ['Day Shift (6:00 - 18:00)', 'Night Shift (18:00 - 6:00)'],
+    labels: shiftLabels,
     datasets: [
       {
-        data: [65, 35], // Example data - replace with actual day/night distribution
+        data: shiftDistributionData,
         backgroundColor: [
-          'rgba(255, 206, 86, 0.6)', // Day - yellow
-          'rgba(54, 162, 235, 0.6)', // Night - blue
-        ],
+          'rgba(255, 206, 86, 0.6)', // Shift 1 - yellow
+          'rgba(54, 162, 235, 0.6)', // Shift 2 - blue
+          'rgba(75, 192, 192, 0.6)', // Shift 3 - teal
+          'rgba(153, 102, 255, 0.6)', // Shift 4 - purple
+          'rgba(255, 99, 132, 0.6)', // Shift 5 - red
+        ].slice(0, shiftLabels.length),
         borderColor: [
           'rgba(255, 206, 86, 1)',
           'rgba(54, 162, 235, 1)',
-        ],
+          'rgba(75, 192, 192, 1)',
+          'rgba(153, 102, 255, 1)',
+          'rgba(255, 99, 132, 1)',
+        ].slice(0, shiftLabels.length),
         borderWidth: 1,
       },
     ],
@@ -143,7 +188,7 @@ const StateDistribution = ({ data }) => {
       <Grid item xs={12} md={6}>
         <ChartContainer>
           <Typography variant="h6" gutterBottom>
-            Day vs Night Distribution
+            Shift Distribution
           </Typography>
           <Box sx={{ flexGrow: 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
             <Doughnut data={timeData} options={pieOptions} />

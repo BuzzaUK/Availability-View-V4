@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useCallback } from 'react';
 import { styled } from '@mui/material/styles';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -16,13 +16,19 @@ import BarChartIcon from '@mui/icons-material/BarChart';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import StorageIcon from '@mui/icons-material/Storage';
 import ArchiveIcon from '@mui/icons-material/Archive';
-// Date utilities
+import AssignmentIcon from '@mui/icons-material/Assignment';
+import TodayIcon from '@mui/icons-material/Today';
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import DescriptionIcon from '@mui/icons-material/Description';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { format } from 'date-fns';
 import axios from 'axios';
 
-// Context
+// Context imports
 import SocketContext from '../../context/SocketContext';
 import AlertContext from '../../context/AlertContext';
+import AuthContext from '../../context/AuthContext';
 
 // Components
 import ShiftReportTable from './ShiftReportTable';
@@ -30,6 +36,7 @@ import DailyReportTable from './DailyReportTable';
 import MonthlyReportTable from './MonthlyReportTable';
 import CsvManagement from './CsvManagement';
 import EventArchiveTable from './EventArchiveTable';
+import NaturalLanguageReports from './NaturalLanguageReports';
 
 // Styled components
 const TabPanel = styled(Box)(({ theme }) => ({
@@ -37,8 +44,9 @@ const TabPanel = styled(Box)(({ theme }) => ({
 }));
 
 const ArchivesPage = () => {
-  const { assets } = useContext(SocketContext);
+  const { assets, registerArchiveRefreshCallback } = useContext(SocketContext);
   const { error, success } = useContext(AlertContext);
+  const { isAuthenticated, token, user } = useContext(AuthContext);
   
   // State for tab selection - Updated to include Event Archives
   const [tabValue, setTabValue] = useState(0);
@@ -59,9 +67,10 @@ const ArchivesPage = () => {
   
   // Tab labels and icons - Updated to include Event Archives
   const tabs = [
-    { label: 'Shift Reports', icon: <CalendarViewMonthIcon /> },
-    { label: 'Daily Reports', icon: <BarChartIcon /> },
-    { label: 'Monthly Reports', icon: <TableChartIcon /> },
+    { label: 'Shift Reports', icon: <AssignmentIcon /> },
+    { label: 'Daily Reports', icon: <TodayIcon /> },
+    { label: 'Monthly Reports', icon: <CalendarMonthIcon /> },
+    { label: 'Natural Language Reports', icon: <DescriptionIcon /> },
     { label: 'Event Archives', icon: <ArchiveIcon /> },
     { label: 'CSV Management', icon: <StorageIcon /> },
   ];
@@ -83,7 +92,7 @@ const ArchivesPage = () => {
   };
 
   // Fetch shift reports
-  const fetchShiftReports = async () => {
+  const fetchShiftReports = useCallback(async () => {
     try {
       setLoading(true);
       
@@ -102,10 +111,10 @@ const ArchivesPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters.asset, filters.startDate, filters.endDate, error]);
 
   // Fetch daily reports
-  const fetchDailyReports = async () => {
+  const fetchDailyReports = useCallback(async () => {
     try {
       setLoading(true);
       
@@ -124,10 +133,10 @@ const ArchivesPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters.asset, filters.startDate, filters.endDate, error]);
 
   // Fetch monthly reports
-  const fetchMonthlyReports = async () => {
+  const fetchMonthlyReports = useCallback(async () => {
     try {
       setLoading(true);
       
@@ -146,25 +155,31 @@ const ArchivesPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters.asset, filters.startDate, filters.endDate, error]);
 
   // Fetch event archives
-  const fetchEventArchives = async () => {
+  const fetchEventArchives = useCallback(async () => {
     try {
       setLoading(true);
+      console.log('Fetching event archives...');
+      console.log('Authentication status:', { isAuthenticated, token: token ? 'present' : 'missing', user });
+      console.log('Axios default headers:', axios.defaults.headers.common);
       
       const response = await axios.get('/api/events/archives');
+      console.log('Event archives response:', response.data);
       setEventArchives(Array.isArray(response.data.data) ? response.data.data : []);
     } catch (err) {
+      console.error('Error fetching event archives:', err);
+      console.error('Error response:', err.response);
       error('Failed to fetch event archives: ' + (err.response?.data?.message || err.message));
       setEventArchives([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [error]);
 
   // Apply filters and fetch data based on current tab
-  const applyFilters = () => {
+  const applyFilters = useCallback(() => {
     switch (tabValue) {
       case 0:
         fetchShiftReports();
@@ -176,15 +191,18 @@ const ArchivesPage = () => {
         fetchMonthlyReports();
         break;
       case 3:
-        fetchEventArchives();
+        // Natural Language Reports tab - no data fetching needed
         break;
       case 4:
+        fetchEventArchives();
+        break;
+      case 5:
         // CSV Management tab - no data fetching needed
         break;
       default:
         break;
     }
-  };
+  }, [tabValue, fetchShiftReports, fetchDailyReports, fetchMonthlyReports, fetchEventArchives]);
 
   // Export data as CSV
   const exportData = async () => {
@@ -208,7 +226,7 @@ const ArchivesPage = () => {
           filename = 'monthly_reports';
           break;
         default:
-          return; // No export for Event Archives and CSV Management tabs
+          return; // No export for Natural Language Reports, Event Archives and CSV Management tabs
       }
       
       const params = {
@@ -239,10 +257,24 @@ const ArchivesPage = () => {
     }
   };
 
+  // Register archive refresh callback when component mounts
+  useEffect(() => {
+    if (registerArchiveRefreshCallback) {
+      registerArchiveRefreshCallback(fetchEventArchives);
+    }
+  }, [registerArchiveRefreshCallback, fetchEventArchives]);
+
   // Fetch data when component mounts or tab changes
   useEffect(() => {
-    applyFilters();
-  }, [tabValue]);
+    console.log('ArchivesPage useEffect triggered, tabValue:', tabValue);
+    console.log('Current authentication state:', { isAuthenticated, token: token ? 'present' : 'missing', user });
+    if (tabValue === 4) {
+      console.log('Event Archives tab selected, calling fetchEventArchives directly');
+      fetchEventArchives();
+    } else {
+      applyFilters();
+    }
+  }, [tabValue, isAuthenticated, token, fetchEventArchives, applyFilters]);
 
   return (
     <Box sx={{ flexGrow: 1 }}>
@@ -250,17 +282,23 @@ const ArchivesPage = () => {
         <Typography variant="h4" component="h1" gutterBottom>
           Archives & Data Management
         </Typography>
-        {/* Only show export button for report tabs */}
-        {tabValue < 3 && (
-          <Button
-            variant="outlined"
-            startIcon={<DownloadIcon />}
-            onClick={exportData}
-            disabled={loading}
-          >
-            Export
-          </Button>
-        )}
+        {/* Debug info */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Typography variant="caption" color={isAuthenticated ? 'success.main' : 'error.main'}>
+            Auth: {isAuthenticated ? 'Yes' : 'No'} | Token: {token ? 'Present' : 'Missing'}
+          </Typography>
+          {/* Only show export button for report tabs */}
+          {tabValue < 3 && (
+            <Button
+              variant="outlined"
+              startIcon={<DownloadIcon />}
+              onClick={exportData}
+              disabled={loading}
+            >
+              Export
+            </Button>
+          )}
+        </Box>
       </Box>
       
       <Paper sx={{ width: '100%', mb: 3 }}>
@@ -283,7 +321,7 @@ const ArchivesPage = () => {
       </Paper>
       
       {/* Only show filters for report tabs */}
-      {tabValue < 3 && (
+      {tabValue < 4 && (
         <Paper sx={{ p: 3, mb: 3 }}>
           <Grid container spacing={2} alignItems="center">
             <Grid item xs={12} md={4}>
@@ -353,7 +391,7 @@ const ArchivesPage = () => {
         </Paper>
       )}
       
-      {loading && tabValue < 4 ? (
+      {loading && tabValue < 4 && tabValue !== 3 ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
           <CircularProgress />
         </Box>
@@ -380,8 +418,15 @@ const ArchivesPage = () => {
             </TabPanel>
           )}
           
-          {/* Event Archives Tab */}
+          {/* Natural Language Reports Tab */}
           {tabValue === 3 && (
+            <TabPanel>
+              <NaturalLanguageReports />
+            </TabPanel>
+          )}
+          
+          {/* Event Archives Tab */}
+          {tabValue === 4 && (
             <TabPanel>
               <EventArchiveTable 
                 archives={eventArchives} 
@@ -391,7 +436,7 @@ const ArchivesPage = () => {
           )}
           
           {/* CSV Management Tab */}
-          {tabValue === 4 && (
+          {tabValue === 5 && (
             <TabPanel>
               <CsvManagement />
             </TabPanel>

@@ -494,6 +494,216 @@ class ReportService {
       }
     });
   }
+
+  /**
+   * Generate report from archived data and store in Shift Reports Archive
+   */
+  async generateAndArchiveShiftReport(archiveId, options = {}) {
+    try {
+      console.log('📊 Generating report from archived data, archive ID:', archiveId);
+      
+      // Get the archived data
+      const archive = await this.databaseService.findArchiveById(archiveId);
+      if (!archive || !archive.archived_data) {
+        throw new Error('Archive not found or contains no data');
+      }
+      
+      const archivedData = archive.archived_data;
+      const events = archivedData.events || [];
+      const shiftInfo = archivedData.shift_info || {};
+      
+      // Get current assets for reference (archived events may reference deleted assets)
+      const allAssets = await this.databaseService.getAllAssets();
+      
+      // Create a mock shift object from archived data
+      const mockShift = {
+        id: shiftInfo.id,
+        shift_name: shiftInfo.name,
+        shift_number: shiftInfo.shift_number,
+        start_time: shiftInfo.start_time,
+        end_time: shiftInfo.end_time,
+        status: shiftInfo.status || 'COMPLETED'
+      };
+      
+      // Calculate metrics from archived events
+      const reportData = this.calculateShiftMetrics(mockShift, events, allAssets);
+      
+      // Add archived data context
+      reportData.dataSource = {
+        type: 'archived',
+        archive_id: archiveId,
+        archive_title: archive.title,
+        archived_at: archive.created_at,
+        data_integrity: archivedData.archiving_metadata?.data_integrity_verified || false
+      };
+      
+      const reports = {};
+      
+      // Generate all report formats
+      if (options.includeCsv !== false) {
+        reports.csv = await this.generateCsvReport(reportData);
+      }
+      
+      if (options.includeHtml !== false) {
+        reports.html = this.generateHtmlReport(reportData);
+      }
+      
+      if (options.includeAnalysis !== false) {
+        reports.analysis = this.generateDetailedAnalysis(reportData);
+      }
+      
+      // Create report archive entry
+      const reportArchiveData = {
+        title: `Shift Report - ${archive.title}`,
+        description: `Generated shift report from archived data - ${events.length} events analyzed`,
+        archive_type: 'SHIFT_REPORT',
+        date_range_start: mockShift.start_time,
+        date_range_end: mockShift.end_time,
+        created_by: 1, // System user
+        status: 'COMPLETED',
+        archived_data: {
+          source_archive_id: archiveId,
+          report_generation_timestamp: new Date().toISOString(),
+          report_formats: Object.keys(reports),
+          shift_metrics: reportData.shiftSummary,
+          asset_performance: reportData.assetPerformance,
+          reports: reports,
+          generation_metadata: {
+            events_processed: events.length,
+            assets_analyzed: reportData.assetPerformance?.length || 0,
+            report_version: '2.0',
+            data_source: 'archived_events'
+          }
+        }
+      };
+      
+      // Store the report in archives
+      const reportArchive = await this.databaseService.createArchive(reportArchiveData);
+      
+      console.log('📊 Shift report archived successfully:', reportArchive?.id);
+      
+      return {
+        success: true,
+        reportArchive,
+        reports,
+        metrics: reportData.shiftSummary
+      };
+      
+    } catch (error) {
+      console.error('❌ Failed to generate and archive shift report:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate report directly from shift ID and archive it
+   */
+  async generateAndArchiveShiftReportFromShift(shiftId, options = {}) {
+    try {
+      console.log('📊 Generating and archiving report for shift ID:', shiftId);
+      
+      // Generate the standard report
+      const reportResult = await this.generateShiftReport(shiftId, options);
+      
+      // Get shift information
+      const shift = await this.databaseService.findShiftById(shiftId);
+      if (!shift) {
+        throw new Error('Shift not found');
+      }
+      
+      // Create report archive entry
+      const reportArchiveData = {
+        title: `Shift Report - ${shift.shift_name || `Shift ${shift.shift_number}`} - ${new Date(shift.start_time).toLocaleDateString()}`,
+        description: `Generated shift report - Direct from shift data`,
+        archive_type: 'SHIFT_REPORT',
+        date_range_start: shift.start_time,
+        date_range_end: shift.end_time,
+        created_by: 1, // System user
+        status: 'COMPLETED',
+        archived_data: {
+          shift_id: shiftId,
+          report_generation_timestamp: new Date().toISOString(),
+          report_formats: Object.keys(reportResult.reports || {}),
+          shift_metrics: reportResult.shiftSummary,
+          asset_performance: reportResult.assetPerformance,
+          reports: reportResult.reports,
+          generation_metadata: {
+            events_processed: reportResult.totalEvents || 0,
+            assets_analyzed: reportResult.assetPerformance?.length || 0,
+            report_version: '2.0',
+            data_source: 'live_shift_data'
+          }
+        }
+      };
+      
+      // Store the report in archives
+      const reportArchive = await this.databaseService.createArchive(reportArchiveData);
+      
+      console.log('📊 Shift report archived successfully:', reportArchive?.id);
+      
+      return {
+        success: true,
+        reportArchive,
+        reports: reportResult.reports,
+        metrics: reportResult.shiftSummary
+      };
+      
+    } catch (error) {
+      console.error('❌ Failed to generate and archive shift report from shift:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all archived shift reports
+   */
+  async getArchivedShiftReports(options = {}) {
+    try {
+      const allArchives = await this.databaseService.getAllArchives();
+      
+      // Filter for shift reports only
+      let shiftReports = allArchives.filter(archive => 
+        archive.archive_type === 'SHIFT_REPORT'
+      );
+      
+      // Apply date filtering if provided
+      if (options.startDate && options.endDate) {
+        const startDate = new Date(options.startDate);
+        const endDate = new Date(options.endDate);
+        
+        shiftReports = shiftReports.filter(report => {
+          const reportDate = new Date(report.created_at);
+          return reportDate >= startDate && reportDate <= endDate;
+        });
+      }
+      
+      // Sort by creation date, newest first
+      shiftReports.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      
+      return shiftReports;
+    } catch (error) {
+      console.error('❌ Failed to get archived shift reports:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Retrieve a specific archived shift report
+   */
+  async getArchivedShiftReport(reportArchiveId) {
+    try {
+      const archive = await this.databaseService.findArchiveById(reportArchiveId);
+      
+      if (!archive || archive.archive_type !== 'SHIFT_REPORT') {
+        throw new Error('Shift report archive not found');
+      }
+      
+      return archive;
+    } catch (error) {
+      console.error('❌ Failed to get archived shift report:', error.message);
+      throw error;
+    }
+  }
 }
 
 module.exports = new ReportService();

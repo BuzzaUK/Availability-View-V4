@@ -11,6 +11,7 @@ export const SocketProvider = ({ children }) => {
   const [assets, setAssets] = useState([]);
   const [events, setEvents] = useState([]);
   const [currentShift, setCurrentShift] = useState(null);
+  const [archiveRefreshCallbacks, setArchiveRefreshCallbacks] = useState([]);
   const { isAuthenticated, token } = useContext(AuthContext);
 
   // Fetch dashboard data (assets only - events are managed by individual pages)
@@ -85,13 +86,31 @@ export const SocketProvider = ({ children }) => {
     }
   }, [token]);
 
+  // Archive refresh callback management
+  const registerArchiveRefreshCallback = useCallback((callback) => {
+    setArchiveRefreshCallbacks(prev => [...prev, callback]);
+    return () => {
+      setArchiveRefreshCallbacks(prev => prev.filter(cb => cb !== callback));
+    };
+  }, []);
+
+  const triggerArchiveRefresh = useCallback(() => {
+    archiveRefreshCallbacks.forEach(callback => {
+      try {
+        callback();
+      } catch (error) {
+        console.error('Error calling archive refresh callback:', error);
+      }
+    });
+  }, [archiveRefreshCallbacks]);
+
   // Initialize socket connection when authenticated
   useEffect(() => {
     let socketInstance = null;
 
     if (isAuthenticated && token) {
       // Connect to socket server with auth token
-      socketInstance = io('', {
+      socketInstance = io('http://localhost:5000', {
         auth: {
           token
         },
@@ -142,6 +161,36 @@ export const SocketProvider = ({ children }) => {
       // Shift updates
       socketInstance.on('shift_update', (shift) => {
         setCurrentShift(shift);
+      });
+
+      // New archive created (for real-time archive list updates)
+      socketInstance.on('new_archive', (newArchive) => {
+        console.log('🔔 SocketContext: New archive created via socket:', newArchive.title);
+        triggerArchiveRefresh();
+      });
+
+      // Dashboard reset event (triggered by shift end processing)
+      socketInstance.on('dashboard_reset', (resetData) => {
+        console.log('🔄 SocketContext: Dashboard reset triggered:', resetData.message);
+        // Clear all current data
+        setEvents([]);
+        setCurrentShift(null);
+        // Refresh all data from server
+        setTimeout(() => {
+          fetchAllData();
+        }, 1000); // Small delay to ensure server processing is complete
+      });
+
+      // Events table reset event
+      socketInstance.on('events_update', (updateData) => {
+        console.log('🔔 SocketContext: Events update received:', updateData.action);
+        if (updateData.action === 'table_reset') {
+          // Clear events and refresh
+          setEvents([]);
+          setTimeout(() => {
+            fetchAllData();
+          }, 500);
+        }
       });
 
       // Initial data load
@@ -198,7 +247,8 @@ export const SocketProvider = ({ children }) => {
         setCurrentShift,
         fetchAssets,
         fetchEvents,
-        fetchAllData
+        fetchAllData,
+        registerArchiveRefreshCallback
       }}
     >
       {children}

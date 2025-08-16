@@ -29,7 +29,9 @@ import {
   Notifications as NotificationsIcon,
   Logout,
   Person,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  PlayArrow as PlayArrowIcon,
+  Stop as StopIcon
 } from '@mui/icons-material';
 
 // Context
@@ -37,6 +39,9 @@ import AuthContext from '../../context/AuthContext';
 import SocketContext from '../../context/SocketContext';
 import SettingsContext from '../../context/SettingsContext';
 import AlertDisplay from './AlertDisplay';
+import AlertContext from '../../context/AlertContext';
+import ShiftCountdownTimer from '../common/ShiftCountdownTimer';
+import axios from 'axios';
 
 // Styled components
 const StyledAppBar = styled(AppBar)(({ theme }) => ({
@@ -78,6 +83,8 @@ const TopNavLayout = () => {
   const { user, logout } = useContext(AuthContext);
   const { connected, currentShift, fetchAllData } = useContext(SocketContext);
   const { settings } = useContext(SettingsContext);
+  const { error, success } = useContext(AlertContext);
+  const [shiftLoading, setShiftLoading] = useState(false);
   
   // User menu state
   const [anchorEl, setAnchorEl] = useState(null);
@@ -93,9 +100,7 @@ const TopNavLayout = () => {
     { label: 'Events', value: '/events', icon: <EventIcon /> },
     { label: 'Archives', value: '/archives', icon: <ArchiveIcon /> },
     { label: 'Analytics', value: '/analytics', icon: <AnalyticsIcon /> },
-    { label: 'User Management', value: '/users', icon: <PeopleIcon /> },
     { label: 'Config', value: '/config', icon: <SettingsIcon /> },
-    { label: 'System', value: '/system', icon: <SystemIcon /> },
   ];
 
   // Get current tab value
@@ -179,6 +184,31 @@ const TopNavLayout = () => {
     }
   }, [settings?.autoRefresh, settings?.refreshInterval, fetchAllData]);
 
+  // Start or End shift action
+  const handleShiftAction = async () => {
+    if (shiftLoading) return;
+    setShiftLoading(true);
+    try {
+      if (currentShift) {
+        await axios.post('/api/shifts/end', { notes: '' });
+        success('Shift ended successfully');
+      } else {
+        await axios.post('/api/shifts/start', {});
+        success('Shift started successfully');
+      }
+      // currentShift will update via socket 'shift_update'
+    } catch (e) {
+      const msg = e?.response?.data?.message || e.message || 'Operation failed';
+      if (currentShift) {
+        error('Failed to end shift: ' + msg);
+      } else {
+        error('Failed to start shift: ' + msg);
+      }
+    } finally {
+      setShiftLoading(false);
+    }
+  };
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       <StyledAppBar position="fixed">
@@ -233,6 +263,11 @@ const TopNavLayout = () => {
                   sx={{ 
                     color: settings?.autoRefresh ? '#10b981' : '#94a3b8',
                     borderColor: settings?.autoRefresh ? '#10b981' : '#94a3b8',
+                    minWidth: '60px', // Fixed width to prevent movement
+                    '& .MuiChip-label': {
+                      minWidth: '32px', // Fixed width for label content
+                      textAlign: 'center'
+                    },
                     '& .MuiChip-icon': { 
                       color: settings?.autoRefresh ? '#10b981' : '#94a3b8' 
                     }
@@ -256,20 +291,22 @@ const TopNavLayout = () => {
               </Box>
             )}
 
-            {/* Connection status */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Box
-                sx={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  backgroundColor: connected ? '#10b981' : '#ef4444',
-                }}
-              />
-              <Typography variant="body2" sx={{ color: '#94a3b8' }}>
-                {connected ? 'Connected' : 'Disconnected'}
-              </Typography>
-            </Box>
+            {/* Connection status - only show when connected */}
+            {connected && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box
+                  sx={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    backgroundColor: '#10b981',
+                  }}
+                />
+                <Typography variant="body2" sx={{ color: '#94a3b8' }}>
+                  Connected
+                </Typography>
+              </Box>
+            )}
 
             {/* Current shift */}
             {currentShift && (
@@ -283,6 +320,25 @@ const TopNavLayout = () => {
                 }}
               />
             )}
+
+            {/* Shift countdown timer */}
+            <ShiftCountdownTimer />
+
+            {/* Start/End Shift button */}
+            <Button
+              size="small"
+              variant="contained"
+              color={currentShift ? 'warning' : 'success'}
+              onClick={handleShiftAction}
+              disabled={shiftLoading}
+              startIcon={currentShift ? <StopIcon /> : <PlayArrowIcon />}
+              sx={{
+                color: '#ffffff',
+                '&:hover': { opacity: 0.95 }
+              }}
+            >
+              {currentShift ? (shiftLoading ? 'Ending…' : 'End Shift') : (shiftLoading ? 'Starting…' : 'Start Shift')}
+            </Button>
 
             {/* Notifications */}
             <IconButton color="inherit" sx={{ color: '#94a3b8' }}>

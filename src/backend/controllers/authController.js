@@ -26,7 +26,7 @@ exports.register = async (req, res) => {
       role: role || 'user'
     });
 
-    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '30d' });
 
     res.status(201).json({
       success: true,
@@ -83,7 +83,7 @@ exports.login = async (req, res) => {
     // Update last login
     await databaseService.updateUser(user.id, { last_login: new Date() });
 
-    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '30d' });
 
     res.status(200).json({
       success: true,
