@@ -103,8 +103,9 @@ const ArchivesPage = () => {
       };
       
       const response = await axios.get('/api/reports/shifts', { params });
-      // Ensure response.data is always an array
-      setShiftReports(Array.isArray(response.data) ? response.data : []);
+      // Handle API response structure {success: true, data: [...]}
+      const reportsData = response.data?.data || response.data;
+      setShiftReports(Array.isArray(reportsData) ? reportsData : []);
     } catch (err) {
       error('Failed to fetch shift reports: ' + (err.response?.data?.message || err.message));
       setShiftReports([]); // Reset to empty array on error
@@ -125,8 +126,9 @@ const ArchivesPage = () => {
       };
       
       const response = await axios.get('/api/reports/daily', { params });
-      // Ensure response.data is always an array
-      setDailyReports(Array.isArray(response.data) ? response.data : []);
+      // Handle API response structure {success: true, data: [...]}
+      const reportsData = response.data?.data || response.data;
+      setDailyReports(Array.isArray(reportsData) ? reportsData : []);
     } catch (err) {
       error('Failed to fetch daily reports: ' + (err.response?.data?.message || err.message));
       setDailyReports([]); // Reset to empty array on error
@@ -147,8 +149,9 @@ const ArchivesPage = () => {
       };
       
       const response = await axios.get('/api/reports/monthly', { params });
-      // Ensure response.data is always an array
-      setMonthlyReports(Array.isArray(response.data) ? response.data : []);
+      // Handle API response structure {success: true, data: [...]}
+      const reportsData = response.data?.data || response.data;
+      setMonthlyReports(Array.isArray(reportsData) ? reportsData : []);
     } catch (err) {
       error('Failed to fetch monthly reports: ' + (err.response?.data?.message || err.message));
       setMonthlyReports([]); // Reset to empty array on error

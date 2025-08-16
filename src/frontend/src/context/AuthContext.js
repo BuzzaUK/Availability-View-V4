@@ -22,17 +22,23 @@ export const AuthProvider = ({ children }) => {
   // Load user data if token exists
   useEffect(() => {
     const loadUser = async () => {
+      console.log('🔐 AuthContext: Loading user, token exists:', !!token);
       if (!token) {
+        console.log('🔐 AuthContext: No token found, setting unauthenticated');
         setLoading(false);
         return;
       }
 
       try {
+        console.log('🔐 AuthContext: Attempting to load user with token');
         const res = await axios.get('/api/auth/me');
+        console.log('🔐 AuthContext: User loaded successfully:', res.data.data.name, '(' + res.data.data.role + ')');
         setUser(res.data.data);
         setIsAuthenticated(true);
+        console.log('🔐 AuthContext: Authentication state set to true');
       } catch (err) {
-        console.error('Error loading user:', err.response?.data?.message || err.message);
+        console.error('🔐 AuthContext: Error loading user:', err.response?.data?.message || err.message);
+        console.log('🔐 AuthContext: Clearing authentication state due to error');
         localStorage.removeItem('token');
         setToken(null);
         setUser(null);
@@ -65,12 +71,16 @@ export const AuthProvider = ({ children }) => {
   // Login user
   const login = async (email, password) => {
     try {
+      console.log('🔐 AuthContext: Attempting login for:', email);
       setLoading(true);
       const res = await axios.post('/api/auth/login', { email, password });
+      console.log('🔐 AuthContext: Login successful, storing token');
       localStorage.setItem('token', res.data.token);
       setToken(res.data.token);
+      console.log('🔐 AuthContext: Token set, authentication should trigger');
       return { success: true };
     } catch (err) {
+      console.error('🔐 AuthContext: Login failed:', err.response?.data?.message || err.message);
       setError(err.response?.data?.message || 'Invalid credentials');
       return { success: false, error: err.response?.data?.message || 'Invalid credentials' };
     } finally {

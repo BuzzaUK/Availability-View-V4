@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const databaseService = require('./databaseService');
 const reportService = require('./reportService');
+const analyticsSummaryService = require('./analyticsSummaryService');
 const s3Service = require('./s3Service');
 const sendEmail = require('../utils/sendEmail');
 const { sequelize } = require('../config/database');
@@ -446,9 +447,44 @@ class ShiftScheduler {
             
             // Send email notifications if configured and reports were generated
             if (reportOptions.sendEmail && reportResult.reports) {
-              ShiftDebugger.process('📧 Sending shift report email notifications');
-              await this.sendShiftReportNotifications(reportResult.reports, this.currentShift);
-              ShiftDebugger.success('Email notifications sent successfully');
+              ShiftDebugger.process('📧 Generating analytics summary for email notifications');
+              
+              // Generate analytics summary from archived data
+              let analyticsSummary = null;
+              try {
+                if (archiveResult && archiveResult.archived_data) {
+                  const archivedData = archiveResult.archived_data;
+                  const events = archivedData.events || [];
+                  const shiftInfo = archivedData.shift_info || this.currentShift;
+                  const assetsData = archivedData.assets_summary || { assets: [] };
+                  
+                  // Generate comprehensive analytics summary
+                  analyticsSummary = await analyticsSummaryService.generateComprehensiveAnalyticsSummary(
+                    events,
+                    assetsData.assets,
+                    shiftInfo
+                  );
+                  
+                  ShiftDebugger.success('Analytics summary generated successfully', {
+                    executiveSummaryLength: analyticsSummary.executive_summary?.length || 0,
+                    keyMetricsCount: Object.keys(analyticsSummary.key_metrics || {}).length,
+                    insightsCount: analyticsSummary.performance_insights?.length || 0,
+                    recommendationsCount: analyticsSummary.recommendations?.length || 0
+                  });
+                } else {
+                  ShiftDebugger.warning('No archived data available for analytics summary generation');
+                }
+              } catch (analyticsError) {
+                ShiftDebugger.error('Failed to generate analytics summary', {
+                  error: analyticsError.message,
+                  stack: analyticsError.stack
+                });
+                // Continue without analytics summary
+              }
+              
+              ShiftDebugger.process('📧 Sending enhanced shift report email notifications');
+              await this.sendShiftReportNotifications(reportResult.reports, this.currentShift, analyticsSummary);
+              ShiftDebugger.success('Enhanced email notifications sent successfully');
             }
           } else {
             ShiftDebugger.warning('Report generation completed but no result returned', reportResult);
@@ -969,7 +1005,7 @@ class ShiftScheduler {
   /**
    * Send shift report notifications via email
    */
-  async sendShiftReportNotifications(reports, shiftInfo) {
+  async sendShiftReportNotifications(reports, shiftInfo, analyticsSummary = null) {
     try {
       console.log('📧 Sending shift report notifications...');
       
@@ -988,26 +1024,135 @@ class ShiftScheduler {
       // Prepare email content
       const shiftName = shiftInfo.shift_name || `Shift ${shiftInfo.shift_number}`;
       const shiftDate = new Date(shiftInfo.start_time).toLocaleDateString();
+      const shiftTime = new Date(shiftInfo.start_time).toLocaleTimeString();
       
-      const emailSubject = `Shift Report - ${shiftName} - ${shiftDate}`;
-      const emailBody = `
-        <h2>Shift Report Generated</h2>
-        <p><strong>Shift:</strong> ${shiftName}</p>
-        <p><strong>Date:</strong> ${shiftDate}</p>
-        <p><strong>Start Time:</strong> ${new Date(shiftInfo.start_time).toLocaleString()}</p>
-        <p><strong>End Time:</strong> ${new Date(shiftInfo.end_time).toLocaleString()}</p>
-        
-        <p>Please find the detailed shift report attached.</p>
-        
-        <p>This is an automated notification from the Manufacturing Dashboard System.</p>
-      `;
+      // Generate dynamic subject based on analytics if available
+      let emailSubject = `Shift Report - ${shiftName} - ${shiftDate}`;
+      if (analyticsSummary && analyticsSummary.email_subject) {
+        emailSubject = analyticsSummary.email_subject;
+      }
       
-      // Prepare attachments
+      // Generate enhanced email body with analytics summary at the top
+      let emailBody = '';
+      
+      if (analyticsSummary) {
+        // Analytics summary section at the top
+        const performanceColor = analyticsSummary.key_metrics.overallAvailability >= 90 ? '#28a745' : 
+                                analyticsSummary.key_metrics.overallAvailability >= 75 ? '#ffc107' : '#dc3545';
+        
+        emailBody += `
+          <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; background: #f8f9fa; padding: 20px; border-radius: 8px;">
+            <!-- Analytics Summary Header -->
+            <div style="background: linear-gradient(135deg, #007bff, #0056b3); color: white; padding: 25px; border-radius: 8px; margin-bottom: 25px; text-align: center;">
+              <h1 style="margin: 0 0 15px 0; font-size: 28px;">📊 Shift Analytics Summary</h1>
+              <h2 style="margin: 0 0 20px 0; font-size: 22px;">${shiftName} - ${shiftDate}</h2>
+              <div style="font-size: 18px; line-height: 1.6; background: rgba(255,255,255,0.1); padding: 15px; border-radius: 6px;">
+                ${analyticsSummary.executive_summary}
+              </div>
+            </div>
+            
+            <!-- Key Metrics Grid -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 25px;">
+              <div style="background: white; padding: 20px; border-radius: 8px; text-align: center; border: 2px solid ${performanceColor}; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <div style="font-size: 32px; font-weight: bold; color: ${performanceColor}; margin-bottom: 5px;">
+                  ${analyticsSummary.key_metrics.overallAvailability.toFixed(1)}%
+                </div>
+                <div style="color: #666; font-size: 14px;">Overall Availability</div>
+              </div>
+              <div style="background: white; padding: 20px; border-radius: 8px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <div style="font-size: 32px; font-weight: bold; color: #dc3545; margin-bottom: 5px;">
+                  ${Math.round(analyticsSummary.key_metrics.totalDowntime)}
+                </div>
+                <div style="color: #666; font-size: 14px;">Total Downtime (min)</div>
+              </div>
+              <div style="background: white; padding: 20px; border-radius: 8px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <div style="font-size: 32px; font-weight: bold; color: #007bff; margin-bottom: 5px;">
+                  ${analyticsSummary.key_metrics.totalEvents}
+                </div>
+                <div style="color: #666; font-size: 14px;">Total Events</div>
+              </div>
+              <div style="background: white; padding: 20px; border-radius: 8px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <div style="font-size: 32px; font-weight: bold; color: #ffc107; margin-bottom: 5px;">
+                  ${analyticsSummary.key_metrics.criticalStops}
+                </div>
+                <div style="color: #666; font-size: 14px;">Critical Stops</div>
+              </div>
+            </div>`;
+        
+        // Performance Insights
+        if (analyticsSummary.performance_insights && analyticsSummary.performance_insights.length > 0) {
+          emailBody += `
+            <div style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+              <h3 style="color: #495057; margin-top: 0; font-size: 20px;">🔍 Key Performance Insights</h3>`;
+          analyticsSummary.performance_insights.forEach(insight => {
+            emailBody += `<div style="background: #e8f5e8; padding: 12px; margin: 8px 0; border-left: 4px solid #28a745; border-radius: 4px;">${insight}</div>`;
+          });
+          emailBody += `</div>`;
+        }
+        
+        // Recommendations
+        if (analyticsSummary.recommendations && analyticsSummary.recommendations.length > 0) {
+          emailBody += `
+            <div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin-bottom: 25px; border: 1px solid #ffeaa7; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+              <h3 style="color: #856404; margin-top: 0; font-size: 20px;">💡 Actionable Recommendations</h3>`;
+          analyticsSummary.recommendations.forEach(recommendation => {
+            emailBody += `<div style="background: white; padding: 12px; margin: 8px 0; border-left: 4px solid #ffc107; border-radius: 4px;">${recommendation}</div>`;
+          });
+          emailBody += `</div>`;
+        }
+      }
+      
+      // Traditional shift report information
+      emailBody += `
+            <!-- Traditional Shift Information -->
+            <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+              <h3 style="color: #495057; margin-top: 0; font-size: 20px;">📋 Shift Details</h3>
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold; color: #495057;">Shift Name:</td>
+                  <td style="padding: 8px 0;">${shiftName}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold; color: #495057;">Date:</td>
+                  <td style="padding: 8px 0;">${shiftDate}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold; color: #495057;">Start Time:</td>
+                  <td style="padding: 8px 0;">${new Date(shiftInfo.start_time).toLocaleString()}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold; color: #495057;">End Time:</td>
+                  <td style="padding: 8px 0;">${new Date(shiftInfo.end_time).toLocaleString()}</td>
+                </tr>
+              </table>
+              
+              <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 6px;">
+                <p style="margin: 0; color: #495057;">📎 <strong>Attachments:</strong> Detailed shift reports are attached to this email in both CSV and HTML formats for your review and analysis.</p>
+              </div>
+              
+              <div style="margin-top: 15px; padding: 10px; background: #e9ecef; border-radius: 6px; font-size: 12px; color: #6c757d; text-align: center;">
+                This is an automated notification from the Manufacturing Dashboard System.
+              </div>
+            </div>
+          </div>
+        `;
+      
+      // Prepare attachments with enhanced filenames
       const attachments = [];
+      
+      // Generate enhanced filenames with Date, Time, and Shift Name
+      const generateEnhancedFilename = (extension) => {
+        const date = new Date(shiftInfo.start_time);
+        const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD
+        const timeStr = date.toTimeString().split(' ')[0].replace(/:/g, '-'); // HH-MM-SS
+        const sanitizedShiftName = shiftName.replace(/[^a-zA-Z0-9\s-_]/g, '').replace(/\s+/g, '_');
+        
+        return `${dateStr}_${timeStr}_${sanitizedShiftName}_Shift_Report.${extension}`;
+      };
       
       if (reports.csv) {
         attachments.push({
-          filename: `shift-report-${shiftDate}.csv`,
+          filename: generateEnhancedFilename('csv'),
           content: reports.csv,
           contentType: 'text/csv'
         });
@@ -1015,7 +1160,7 @@ class ShiftScheduler {
       
       if (reports.html) {
         attachments.push({
-          filename: `shift-report-${shiftDate}.html`,
+          filename: generateEnhancedFilename('html'),
           content: reports.html,
           contentType: 'text/html'
         });

@@ -122,17 +122,17 @@ export const SocketProvider = ({ children }) => {
 
       // Socket connection events
       socketInstance.on('connect', () => {
-        console.log('Socket connected');
+        console.log('✅ SocketContext: Socket connected successfully, ID:', socketInstance.id);
         setConnected(true);
       });
 
       socketInstance.on('disconnect', () => {
-        console.log('Socket disconnected');
+        console.log('❌ SocketContext: Socket disconnected');
         setConnected(false);
       });
 
       socketInstance.on('error', (error) => {
-        console.error('Socket error:', error);
+        console.error('❌ SocketContext: Socket error:', error);
         setConnected(false);
       });
 
@@ -160,6 +160,13 @@ export const SocketProvider = ({ children }) => {
 
       // Shift updates
       socketInstance.on('shift_update', (shift) => {
+        console.log('🔄 SocketContext: shift_update received:', {
+          id: shift?.id,
+          name: shift?.name,
+          start_time: shift?.start_time,
+          status: shift?.status,
+          rawData: shift
+        });
         setCurrentShift(shift);
       });
 
@@ -195,6 +202,18 @@ export const SocketProvider = ({ children }) => {
 
       // Initial data load
       socketInstance.on('initial_data', (data) => {
+        console.log('🔄 SocketContext: initial_data received:', {
+          hasAssets: !!data.assets,
+          hasEvents: !!data.events,
+          hasCurrentShift: !!data.currentShift,
+          currentShift: data.currentShift ? {
+            id: data.currentShift.id,
+            name: data.currentShift.name,
+            start_time: data.currentShift.start_time,
+            status: data.currentShift.status
+          } : null,
+          rawData: data
+        });
         if (data.assets) setAssets(data.assets);
         if (data.events) setEvents(data.events);
         if (data.currentShift) setCurrentShift(data.currentShift);

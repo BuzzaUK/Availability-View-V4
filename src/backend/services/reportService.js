@@ -5,6 +5,7 @@ const s3Service = require('./s3Service');
 const sendEmail = require('../utils/sendEmail');
 const databaseService = require('./databaseService');
 const csvEnhancementService = require('./csvEnhancementService');
+const analyticsSummaryService = require('./analyticsSummaryService');
 
 class ReportService {
   constructor() {
@@ -12,7 +13,23 @@ class ReportService {
   }
 
   /**
-   * Generate comprehensive shift report with multiple formats
+   * Generate enhanced filename with Date, Time, and Shift Name
+   * @param {string} shiftName - Name of the shift
+   * @param {Date} shiftDate - Date of the shift
+   * @param {string} extension - File extension (csv, html, etc.)
+   * @returns {string} Enhanced filename
+   */
+  generateEnhancedFilename(shiftName, shiftDate, extension) {
+    const date = new Date(shiftDate);
+    const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD
+    const timeStr = date.toTimeString().split(' ')[0].replace(/:/g, '-'); // HH-MM-SS
+    const sanitizedShiftName = shiftName.replace(/[^a-zA-Z0-9\s-_]/g, '').replace(/\s+/g, '_');
+    
+    return `${dateStr}_${timeStr}_${sanitizedShiftName}_Shift_Report.${extension}`;
+  }
+
+  /**
+   * Generate comprehensive shift report with multiple formats and enhanced analytics
    */
   async generateShiftReport(shiftId, options = {}) {
     try {
@@ -31,28 +48,59 @@ class ReportService {
 
       const reportData = this.calculateShiftMetrics(shift, events, allAssets);
       
+      // Generate enhanced analytics summary
+      const archivedData = {
+        events: events.map(event => ({
+          id: event.id,
+          timestamp: event.timestamp,
+          asset_id: event.asset_id,
+          asset: event.asset,
+          event_type: event.event_type,
+          previous_state: event.previous_state,
+          new_state: event.new_state,
+          duration: event.duration,
+          stop_reason: event.stop_reason,
+          metadata: event.metadata
+        })),
+        shift_info: {
+          id: shift.id,
+          name: shift.shift_name,
+          shift_number: shift.shift_number,
+          start_time: shift.start_time,
+          end_time: shift.end_time,
+          status: shift.status
+        },
+        assets_summary: this.generateAssetsSummaryForAnalytics(events, allAssets)
+      };
+      
+      const analyticsSummary = analyticsSummaryService.generateAnalyticsSummary(archivedData, {
+        includeDetailed: true,
+        includeRecommendations: true
+      });
+      
       const reports = {};
 
-      // Generate CSV report
+      // Generate CSV report with analytics
       if (options.includeCsv !== false) {
-        reports.csv = await this.generateCsvReport(reportData);
+        reports.csv = await this.generateEnhancedCsvReport(reportData, analyticsSummary);
       }
 
-      // Generate HTML report
+      // Generate HTML report with analytics
       if (options.includeHtml !== false) {
-        reports.html = this.generateHtmlReport(reportData);
+        reports.html = this.generateEnhancedHtmlReport(reportData, analyticsSummary);
       }
 
-      // Generate detailed analysis
+      // Generate detailed analysis (enhanced)
       if (options.includeAnalysis !== false) {
-        reports.analysis = this.generateDetailedAnalysis(reportData);
+        reports.analysis = this.generateEnhancedDetailedAnalysis(reportData, analyticsSummary);
       }
 
       return {
         shift: reportData.shift,
         reports,
         metrics: reportData.metrics,
-        assets: reportData.assets
+        assets: reportData.assets,
+        analyticsSummary // Include the new analytics summary
       };
 
     } catch (error) {
@@ -421,6 +469,259 @@ class ReportService {
   }
 
   /**
+   * Generate assets summary for analytics processing
+   */
+  generateAssetsSummaryForAnalytics(events, assets) {
+    const assetStats = {};
+    
+    // Group events by asset
+    events.forEach(event => {
+      const assetId = event.asset_id;
+      const asset = assets.find(a => a.id === assetId || a._id === assetId);
+      const assetName = asset?.name || event.asset?.name || 'Unknown';
+      
+      if (!assetStats[assetId]) {
+        assetStats[assetId] = {
+          asset_id: assetId,
+          asset_name: assetName,
+          total_events: 0,
+          event_types: {},
+          states: {},
+          first_event: null,
+          last_event: null
+        };
+      }
+      
+      const stats = assetStats[assetId];
+      stats.total_events++;
+      
+      // Count event types
+      stats.event_types[event.event_type] = (stats.event_types[event.event_type] || 0) + 1;
+      
+      // Count states
+      if (event.new_state) {
+        stats.states[event.new_state] = (stats.states[event.new_state] || 0) + 1;
+      }
+      
+      // Track first and last events
+      if (!stats.first_event || new Date(event.timestamp) < new Date(stats.first_event.timestamp)) {
+        stats.first_event = {
+          timestamp: event.timestamp,
+          event_type: event.event_type,
+          state: event.new_state
+        };
+      }
+      
+      if (!stats.last_event || new Date(event.timestamp) > new Date(stats.last_event.timestamp)) {
+        stats.last_event = {
+          timestamp: event.timestamp,
+          event_type: event.event_type,
+          state: event.new_state
+        };
+      }
+    });
+    
+    return {
+      total_assets: Object.keys(assetStats).length,
+      assets: Object.values(assetStats)
+    };
+  }
+
+  /**
+   * Generate enhanced CSV report with analytics summary
+   */
+  async generateEnhancedCsvReport(reportData, analyticsSummary) {
+    try {
+      // Start with analytics summary header
+      let csvContent = `"SHIFT ANALYTICS SUMMARY"\n`;
+      csvContent += `"${analyticsSummary.executive_summary}"\n\n`;
+      
+      // Add key metrics
+      csvContent += `"KEY METRICS"\n`;
+      csvContent += `"Overall Availability","${analyticsSummary.key_metrics.overallAvailability.toFixed(1)}%"\n`;
+      csvContent += `"Total Downtime","${Math.round(analyticsSummary.key_metrics.totalDowntime)} minutes"\n`;
+      csvContent += `"Total Events","${analyticsSummary.key_metrics.totalEvents}"\n`;
+      csvContent += `"Critical Stops","${analyticsSummary.key_metrics.criticalStops}"\n\n`;
+      
+      // Add performance insights
+      if (analyticsSummary.performance_insights && analyticsSummary.performance_insights.length > 0) {
+        csvContent += `"PERFORMANCE INSIGHTS"\n`;
+        analyticsSummary.performance_insights.forEach(insight => {
+          csvContent += `"${insight}"\n`;
+        });
+        csvContent += `\n`;
+      }
+      
+      // Add recommendations
+      if (analyticsSummary.recommendations && analyticsSummary.recommendations.length > 0) {
+        csvContent += `"RECOMMENDATIONS"\n`;
+        analyticsSummary.recommendations.forEach(recommendation => {
+          csvContent += `"${recommendation}"\n`;
+        });
+        csvContent += `\n`;
+      }
+      
+      // Generate traditional CSV data
+      const originalCsv = await this.generateCsvReport(reportData);
+      csvContent += `"DETAILED DATA"\n`;
+      csvContent += originalCsv;
+      
+      return csvContent;
+    } catch (error) {
+      console.error('Error generating enhanced CSV report:', error);
+      return await this.generateCsvReport(reportData); // Fallback to original
+    }
+  }
+
+  /**
+   * Generate enhanced HTML report with analytics summary
+   */
+  generateEnhancedHtmlReport(reportData, analyticsSummary) {
+    try {
+      const { shift, metrics, assets } = reportData;
+      const shiftDate = new Date(shift.start_time).toLocaleDateString();
+      const shiftTime = new Date(shift.start_time).toLocaleTimeString();
+      
+      let html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Enhanced Shift Report - ${shift.shift_name} - ${shiftDate}</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
+            .container { max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            .header { text-align: center; border-bottom: 3px solid #007bff; padding-bottom: 20px; margin-bottom: 30px; }
+            .analytics-summary { background: linear-gradient(135deg, #007bff, #0056b3); color: white; padding: 25px; border-radius: 8px; margin-bottom: 30px; }
+            .analytics-summary h2 { margin-top: 0; font-size: 24px; }
+            .executive-summary { font-size: 18px; line-height: 1.6; margin-bottom: 20px; }
+            .key-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
+            .metric-card { background: rgba(255,255,255,0.1); padding: 15px; border-radius: 6px; text-align: center; }
+            .metric-value { font-size: 28px; font-weight: bold; display: block; }
+            .metric-label { font-size: 14px; opacity: 0.9; }
+            .insights-section { background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+            .insights-section h3 { color: #495057; margin-top: 0; }
+            .insight-item { background: white; padding: 12px; margin: 8px 0; border-left: 4px solid #28a745; border-radius: 4px; }
+            .recommendations-section { background: #fff3cd; padding: 20px; border-radius: 8px; border: 1px solid #ffeaa7; }
+            .recommendations-section h3 { color: #856404; margin-top: 0; }
+            .recommendation-item { background: white; padding: 12px; margin: 8px 0; border-left: 4px solid #ffc107; border-radius: 4px; }
+            .traditional-data { margin-top: 30px; }
+            .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin: 20px 0; }
+            .metric-box { background: #f8f9fa; padding: 20px; border-radius: 8px; border: 1px solid #dee2e6; }
+            .asset-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            .asset-table th, .asset-table td { padding: 12px; text-align: left; border-bottom: 1px solid #dee2e6; }
+            .asset-table th { background-color: #007bff; color: white; }
+            .asset-table tr:hover { background-color: #f8f9fa; }
+            .availability-excellent { color: #28a745; font-weight: bold; }
+            .availability-good { color: #ffc107; font-weight: bold; }
+            .availability-poor { color: #dc3545; font-weight: bold; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Enhanced Shift Report</h1>
+              <h2>${shift.shift_name}</h2>
+              <p><strong>Date:</strong> ${shiftDate} | <strong>Time:</strong> ${shiftTime}</p>
+            </div>
+            
+            <div class="analytics-summary">
+              <h2>📊 Analytics Summary</h2>
+              <div class="executive-summary">
+                ${analyticsSummary.executive_summary}
+              </div>
+              
+              <div class="key-metrics">
+                <div class="metric-card">
+                  <span class="metric-value">${analyticsSummary.key_metrics.overallAvailability.toFixed(1)}%</span>
+                  <span class="metric-label">Overall Availability</span>
+                </div>
+                <div class="metric-card">
+                  <span class="metric-value">${Math.round(analyticsSummary.key_metrics.totalDowntime)}</span>
+                  <span class="metric-label">Total Downtime (min)</span>
+                </div>
+                <div class="metric-card">
+                  <span class="metric-value">${analyticsSummary.key_metrics.totalEvents}</span>
+                  <span class="metric-label">Total Events</span>
+                </div>
+                <div class="metric-card">
+                  <span class="metric-value">${analyticsSummary.key_metrics.criticalStops}</span>
+                  <span class="metric-label">Critical Stops</span>
+                </div>
+              </div>
+            </div>`;
+      
+      // Add performance insights
+      if (analyticsSummary.performance_insights && analyticsSummary.performance_insights.length > 0) {
+        html += `
+            <div class="insights-section">
+              <h3>🔍 Performance Insights</h3>`;
+        analyticsSummary.performance_insights.forEach(insight => {
+          html += `<div class="insight-item">${insight}</div>`;
+        });
+        html += `</div>`;
+      }
+      
+      // Add recommendations
+      if (analyticsSummary.recommendations && analyticsSummary.recommendations.length > 0) {
+        html += `
+            <div class="recommendations-section">
+              <h3>💡 Recommendations</h3>`;
+        analyticsSummary.recommendations.forEach(recommendation => {
+          html += `<div class="recommendation-item">${recommendation}</div>`;
+        });
+        html += `</div>`;
+      }
+      
+      // Add traditional report data
+      const originalHtml = this.generateHtmlReport(reportData);
+      const traditionalDataMatch = originalHtml.match(/<div class="metrics-grid">[\s\S]*<\/body>/i);
+      if (traditionalDataMatch) {
+        html += `
+            <div class="traditional-data">
+              <h2>📈 Detailed Metrics</h2>
+              ${traditionalDataMatch[0].replace('</body>', '')}`;
+      }
+      
+      html += `
+          </div>
+        </body>
+        </html>`;
+      
+      return html;
+    } catch (error) {
+      console.error('Error generating enhanced HTML report:', error);
+      return this.generateHtmlReport(reportData); // Fallback to original
+    }
+  }
+
+  /**
+   * Generate enhanced detailed analysis with analytics summary
+   */
+  generateEnhancedDetailedAnalysis(reportData, analyticsSummary) {
+    try {
+      const originalAnalysis = this.generateDetailedAnalysis(reportData);
+      
+      const enhancedAnalysis = {
+        analytics_summary: {
+          executive_summary: analyticsSummary.executive_summary,
+          key_metrics: analyticsSummary.key_metrics,
+          performance_level: analyticsSummaryService.getPerformanceLevel(analyticsSummary.key_metrics.overallAvailability)
+        },
+        detailed_insights: analyticsSummary.detailed_summary,
+        performance_insights: analyticsSummary.performance_insights,
+        actionable_recommendations: analyticsSummary.recommendations,
+        traditional_analysis: originalAnalysis,
+        generated_at: analyticsSummary.timestamp
+      };
+      
+      return enhancedAnalysis;
+    } catch (error) {
+      console.error('Error generating enhanced detailed analysis:', error);
+      return this.generateDetailedAnalysis(reportData); // Fallback to original
+    }
+  }
+
+  /**
    * Save report to cloud storage and send email
    */
   async saveAndSendReport(shiftId, recipients, options = {}) {
@@ -431,8 +732,7 @@ class ReportService {
       let savedFiles = {};
       if (report.reports.csv) {
         const csvBuffer = Buffer.from(report.reports.csv.shift_summary + '\n\n' + report.reports.csv.asset_details + '\n\n' + report.reports.csv.event_details);
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const filename = `shift_report_${shiftId}_${timestamp}.csv`;
+        const filename = this.generateEnhancedFilename(report.shift.name, report.shift.start_time, 'csv');
         const filePath = path.join(process.cwd(), 'reports', filename);
         await fs.mkdir(path.dirname(filePath), { recursive: true });
         await fs.writeFile(filePath, csvBuffer);

@@ -644,10 +644,18 @@ exports.generateEndOfShiftReport = async (req, res) => {
     // Ensure upload directory exists
     const uploadDir = ensureUploadDirExists();
     
-    // Create filename for end-of-shift report
+    // Create enhanced filename for end-of-shift report
     const shiftName = shift.name || `Shift_${shift.shift_number}`;
-    const safeName = shiftName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-    const filename = `end_of_shift_${safeName}_${Date.now()}.csv`;
+    const generateEnhancedFilename = (name, startTime, extension) => {
+      const date = new Date(startTime);
+      const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD
+      const timeStr = date.toTimeString().split(' ')[0].replace(/:/g, '-'); // HH-MM-SS
+      const sanitizedShiftName = name.replace(/[^a-zA-Z0-9\s-_]/g, '').replace(/\s+/g, '_');
+      
+      return `${dateStr}_${timeStr}_${sanitizedShiftName}_End_Of_Shift_Report.${extension}`;
+    };
+    
+    const filename = generateEnhancedFilename(shiftName, shift.start_time, 'csv');
     const filePath = path.join(uploadDir, filename);
     
     // Write CSV file
@@ -669,7 +677,7 @@ exports.generateEndOfShiftReport = async (req, res) => {
         include_all_assets: include_all_assets,
         asset_ids: asset_ids,
         filename: filename,
-        original_filename: `End of Shift Report - ${shiftName}.csv`,
+        original_filename: generateEnhancedFilename(shiftName, shift.start_time, 'csv'),
         report_type: 'end_of_shift'
       },
       archived_data: {

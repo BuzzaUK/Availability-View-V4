@@ -312,10 +312,13 @@ exports.archiveEvents = async (req, res) => {
 // @access  Private
 exports.getEventArchives = async (req, res) => {
   try {
-    const archives = await databaseService.getAllArchives();
+    const allArchives = await databaseService.getAllArchives();
+    
+    // Filter to only include EVENTS type archives for the Event Archive tab
+    const eventArchives = allArchives.filter(archive => archive.archive_type === 'EVENTS');
     
     // Transform archives to match frontend expectations
-    const transformedArchives = archives.map(archive => ({
+    const transformedArchives = eventArchives.map(archive => ({
       id: archive.id,
       title: archive.title,
       description: archive.description,
@@ -331,6 +334,8 @@ exports.getEventArchives = async (req, res) => {
           JSON.parse(archive.archived_data).event_count : 
           archive.archived_data.event_count) : 0
     }));
+
+    console.log(`📊 Event Archives API: Returning ${transformedArchives.length} EVENTS archives (filtered from ${allArchives.length} total archives)`);
 
     res.status(200).json({
       success: true,
