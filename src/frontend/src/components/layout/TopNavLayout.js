@@ -29,9 +29,7 @@ import {
   Notifications as NotificationsIcon,
   Logout,
   Person,
-  Refresh as RefreshIcon,
-  PlayArrow as PlayArrowIcon,
-  Stop as StopIcon
+  Refresh as RefreshIcon
 } from '@mui/icons-material';
 
 // Context
@@ -40,8 +38,6 @@ import SocketContext from '../../context/SocketContext';
 import SettingsContext from '../../context/SettingsContext';
 import AlertDisplay from './AlertDisplay';
 import AlertContext from '../../context/AlertContext';
-import ShiftCountdownTimer from '../common/ShiftCountdownTimer';
-import axios from 'axios';
 
 // Styled components
 const StyledAppBar = styled(AppBar)(({ theme }) => ({
@@ -81,18 +77,57 @@ const TopNavLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useContext(AuthContext);
-  const { connected, currentShift, fetchAllData } = useContext(SocketContext);
+  const { connected } = useContext(SocketContext);
   const { settings } = useContext(SettingsContext);
   const { error, success } = useContext(AlertContext);
-  const [shiftLoading, setShiftLoading] = useState(false);
-  
+
+  // Auto-refresh state (moved from EventsPage)
+  const [refreshCountdown, setRefreshCountdown] = useState(30);
+  const [showRefreshNotice, setShowRefreshNotice] = useState(false);
+
+  // Access fetchAllData from socket context to preserve functionality
+  const { fetchAllData } = useContext(SocketContext);
+
+  // Update countdown when settings change
+  useEffect(() => {
+    if (settings?.refreshInterval) {
+      setRefreshCountdown(settings.refreshInterval);
+    }
+  }, [settings?.refreshInterval]);
+
+  // Auto-refresh countdown effect
+  useEffect(() => {
+    if (settings?.autoRefresh) {
+      const interval = setInterval(() => {
+        setRefreshCountdown(prev => {
+          const newValue = prev - 1;
+          if (newValue <= 0) {
+            // Trigger refresh
+            fetchAllData();
+            setShowRefreshNotice(true);
+            setTimeout(() => setShowRefreshNotice(false), 2000);
+            return settings?.refreshInterval || 30;
+          }
+          return newValue;
+        });
+      }, 1000);
+      return () => clearInterval(interval);
+    } else {
+      // Reset countdown when auto-refresh is disabled
+      setRefreshCountdown(settings?.refreshInterval || 30);
+    }
+  }, [settings?.autoRefresh, settings?.refreshInterval, fetchAllData]);
+
+  // Manual refresh handler
+  const handleManualRefresh = () => {
+    fetchAllData();
+    setShowRefreshNotice(true);
+    setTimeout(() => setShowRefreshNotice(false), 2000);
+    setRefreshCountdown(settings?.refreshInterval || 30);
+  };
   // User menu state
   const [anchorEl, setAnchorEl] = useState(null);
   const menuOpen = Boolean(anchorEl);
-  
-  // Refresh state
-  const [refreshCountdown, setRefreshCountdown] = useState(30);
-  const [showRefreshNotice, setShowRefreshNotice] = useState(false);
 
   // Navigation tabs
   const navigationTabs = [
@@ -143,71 +178,7 @@ const TopNavLayout = () => {
     navigate('/login');
   };
 
-  // Handle manual refresh
-  const handleRefresh = () => {
-    fetchAllData();
-    setShowRefreshNotice(true);
-    setTimeout(() => setShowRefreshNotice(false), 2000);
-    setRefreshCountdown(settings?.refreshInterval || 30);
-  };
 
-  // Update countdown when settings change
-  useEffect(() => {
-    if (settings?.refreshInterval) {
-      setRefreshCountdown(settings.refreshInterval);
-    }
-  }, [settings?.refreshInterval]);
-
-  // Auto-refresh countdown effect
-  useEffect(() => {
-    if (settings?.autoRefresh) {
-      const interval = setInterval(() => {
-        setRefreshCountdown(prev => {
-          const newValue = prev - 1;
-          
-          if (newValue <= 0) {
-            // Trigger refresh
-            fetchAllData();
-            setShowRefreshNotice(true);
-            setTimeout(() => setShowRefreshNotice(false), 2000);
-            return settings?.refreshInterval || 30;
-          }
-          
-          return newValue;
-        });
-      }, 1000);
-
-      return () => clearInterval(interval);
-    } else {
-      // Reset countdown when auto-refresh is disabled
-      setRefreshCountdown(settings?.refreshInterval || 30);
-    }
-  }, [settings?.autoRefresh, settings?.refreshInterval, fetchAllData]);
-
-  // Start or End shift action
-  const handleShiftAction = async () => {
-    if (shiftLoading) return;
-    setShiftLoading(true);
-    try {
-      if (currentShift) {
-        await axios.post('/api/shifts/end', { notes: '' });
-        success('Shift ended successfully');
-      } else {
-        await axios.post('/api/shifts/start', {});
-        success('Shift started successfully');
-      }
-      // currentShift will update via socket 'shift_update'
-    } catch (e) {
-      const msg = e?.response?.data?.message || e.message || 'Operation failed';
-      if (currentShift) {
-        error('Failed to end shift: ' + msg);
-      } else {
-        error('Failed to start shift: ' + msg);
-      }
-    } finally {
-      setShiftLoading(false);
-    }
-  };
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -249,96 +220,45 @@ const TopNavLayout = () => {
 
           {/* Right side - Status and User Menu */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            {/* Auto-refresh indicator - only show on Dashboard and Events pages */}
-            {(location.pathname === '/' || location.pathname === '/events') && (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Typography variant="body2" sx={{ color: '#94a3b8' }}>
-                  Auto-refresh in:
-                </Typography>
-                <Chip 
-                  icon={<RefreshIcon />}
-                  label={settings?.autoRefresh ? `${refreshCountdown}s` : 'Off'}
-                  size="small"
-                  variant="outlined"
-                  sx={{ 
-                    color: settings?.autoRefresh ? '#10b981' : '#94a3b8',
-                    borderColor: settings?.autoRefresh ? '#10b981' : '#94a3b8',
-                    minWidth: '60px', // Fixed width to prevent movement
-                    '& .MuiChip-label': {
-                      minWidth: '32px', // Fixed width for label content
-                      textAlign: 'center'
-                    },
-                    '& .MuiChip-icon': { 
-                      color: settings?.autoRefresh ? '#10b981' : '#94a3b8' 
-                    }
-                  }}
-                />
-                <Button
-                  size="small"
-                  onClick={handleRefresh}
-                  sx={{ 
-                    color: '#94a3b8',
-                    '&:hover': { color: '#ffffff' }
-                  }}
-                >
-                  Refresh Now
-                </Button>
-                {showRefreshNotice && (
-                  <Typography variant="caption" sx={{ color: '#10b981' }}>
-                    ✓ Refreshed
-                  </Typography>
-                )}
-              </Box>
-            )}
+
+            {/* Auto-refresh controls (moved from EventsPage) */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mr: 2 }}>
+              <Typography variant="body2" sx={{ color: '#94a3b8' }}>
+                Auto-refresh in:
+              </Typography>
+              <Chip
+                icon={<RefreshIcon />}
+                label={settings?.autoRefresh ? `${refreshCountdown}s` : 'Off'}
+                size="small"
+                variant="outlined"
+                sx={{
+                  color: settings?.autoRefresh ? '#10b981' : '#94a3b8',
+                  borderColor: settings?.autoRefresh ? '#10b981' : '#64748b',
+                  minWidth: '60px',
+                  '& .MuiChip-label': { minWidth: '32px', textAlign: 'center' },
+                  '& .MuiChip-icon': { color: settings?.autoRefresh ? '#10b981' : '#94a3b8' }
+                }}
+              />
+              <Button
+                size="small"
+                onClick={handleManualRefresh}
+                sx={{ color: showRefreshNotice ? '#ef4444' : '#94a3b8', '&:hover': { color: '#ffffff' } }}
+              >
+                Refresh Now
+              </Button>
+            </Box>
 
             {/* Connection status - only show when connected */}
             {connected && (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Box
-                  sx={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: '50%',
-                    backgroundColor: '#10b981',
-                  }}
-                />
+                <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#10b981' }} />
                 <Typography variant="body2" sx={{ color: '#94a3b8' }}>
                   Connected
                 </Typography>
               </Box>
             )}
 
-            {/* Current shift */}
-            {currentShift && (
-              <Chip
-                label={`Shift: ${currentShift.name}`}
-                size="small"
-                sx={{ 
-                  backgroundColor: '#3b82f6',
-                  color: '#ffffff',
-                  fontWeight: 500
-                }}
-              />
-            )}
 
-            {/* Shift countdown timer */}
-            <ShiftCountdownTimer />
-
-            {/* Start/End Shift button */}
-            <Button
-              size="small"
-              variant="contained"
-              color={currentShift ? 'warning' : 'success'}
-              onClick={handleShiftAction}
-              disabled={shiftLoading}
-              startIcon={currentShift ? <StopIcon /> : <PlayArrowIcon />}
-              sx={{
-                color: '#ffffff',
-                '&:hover': { opacity: 0.95 }
-              }}
-            >
-              {currentShift ? (shiftLoading ? 'Ending…' : 'End Shift') : (shiftLoading ? 'Starting…' : 'Start Shift')}
-            </Button>
 
             {/* Notifications */}
             <IconButton color="inherit" sx={{ color: '#94a3b8' }}>

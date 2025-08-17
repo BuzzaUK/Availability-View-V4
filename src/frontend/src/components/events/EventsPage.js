@@ -7,6 +7,7 @@ import Grid from '@mui/material/Grid';
 import TextField from '@mui/material/TextField';
 import MenuItem from '@mui/material/MenuItem';
 import Button from '@mui/material/Button';
+
 import Chip from '@mui/material/Chip';
 import Collapse from '@mui/material/Collapse';
 import InputAdornment from '@mui/material/InputAdornment';
@@ -20,14 +21,14 @@ import FormControlLabel from '@mui/material/FormControlLabel';
 import Checkbox from '@mui/material/Checkbox';
 
 import FilterListIcon from '@mui/icons-material/FilterList';
-import RefreshIcon from '@mui/icons-material/Refresh';
 import DownloadIcon from '@mui/icons-material/Download';
 import ArchiveIcon from '@mui/icons-material/Archive';
 import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Clear';
 import StopIcon from '@mui/icons-material/Stop';
-
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import EventsTable from './EventsTable';
+import ShiftCountdownTimer from '../common/ShiftCountdownTimer';
 
 import SocketContext from '../../context/SocketContext';
 import AlertContext from '../../context/AlertContext';
@@ -43,7 +44,7 @@ const FiltersContainer = styled(Box)(({ theme }) => ({
 }));
 
 const EventsPage = () => {
-  const { assets } = useContext(SocketContext);
+  const { assets, currentShift, fetchAllData } = useContext(SocketContext);
   const { error, success } = useContext(AlertContext);
   const { settings } = useContext(SettingsContext);
   
@@ -80,14 +81,16 @@ const EventsPage = () => {
   const [archiveAsEndOfShift, setArchiveAsEndOfShift] = useState(false);
   
   // Current shift state
-  const [currentShift, setCurrentShift] = useState(null);
   const [endingShift, setEndingShift] = useState(false);
   const [endShiftDialogOpen, setEndShiftDialogOpen] = useState(false);
   const [endShiftNotes, setEndShiftNotes] = useState('');
   
-  // Auto-refresh state
-  const [refreshCountdown, setRefreshCountdown] = useState(30);
-  const [showRefreshNotice, setShowRefreshNotice] = useState(false);
+  // Shift controls state
+  const [shiftLoading, setShiftLoading] = useState(false);
+  
+
+  
+
   
   // Event type options
   const eventTypes = [
@@ -162,54 +165,7 @@ const EventsPage = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Update countdown when settings change
-  useEffect(() => {
-    console.log('🔍 EVENTS PAGE SETTINGS CHANGED:', {
-      autoRefresh: settings?.autoRefresh,
-      refreshInterval: settings?.refreshInterval,
-      fullSettings: settings
-    });
-    if (settings?.refreshInterval) {
-      setRefreshCountdown(settings.refreshInterval);
-    }
-  }, [settings?.refreshInterval, settings?.autoRefresh]);
 
-  // Auto-refresh countdown
-  useEffect(() => {
-    console.log('🔍 EVENTS PAGE AUTO-REFRESH EFFECT:', {
-      autoRefresh: settings?.autoRefresh,
-      refreshInterval: settings?.refreshInterval
-    });
-    if (settings?.autoRefresh) {
-      const interval = setInterval(() => {
-        setRefreshCountdown(prev => {
-          const newValue = prev - 1;
-          
-          if (newValue <= 0) {
-            // Trigger refresh
-            fetchEvents().then(() => {
-              console.log('✅ Events auto-refresh completed successfully', new Date().toISOString());
-            }).catch(error => {
-              console.error('❌ Events auto-refresh failed:', error, new Date().toISOString());
-            });
-            setShowRefreshNotice(true);
-            setTimeout(() => setShowRefreshNotice(false), 2000);
-            const nextInterval = settings?.refreshInterval || 30;
-            return nextInterval;
-          }
-          
-          return newValue;
-        });
-      }, 1000);
-
-      return () => {
-        clearInterval(interval);
-      };
-    } else {
-      // Reset countdown when auto-refresh is disabled
-      setRefreshCountdown(settings?.refreshInterval || 30);
-    }
-  }, [settings?.autoRefresh, settings?.refreshInterval, fetchEvents]);
 
   // Handle page change
   const handleChangePage = (event, newPage) => {
@@ -259,13 +215,9 @@ const EventsPage = () => {
     setShowFilters(!showFilters);
   };
 
-  // Manual refresh function
-  const handleManualRefresh = () => {
-    fetchEvents();
-    setShowRefreshNotice(true);
-    setTimeout(() => setShowRefreshNotice(false), 2000);
-    setRefreshCountdown(settings?.refreshInterval || 30);
-  };
+
+  
+
 
   // Export events as CSV
   const exportEvents = async () => {
@@ -309,14 +261,11 @@ const EventsPage = () => {
   const fetchCurrentShift = async () => {
     try {
       const response = await axios.get('/api/shifts/current');
-      if (response.data.success) {
-        setCurrentShift(response.data.data);
-      } else {
-        setCurrentShift(null);
-      }
+      // currentShift is managed by SocketContext, no need to set it here
+      // The socket will update the context when shift changes
     } catch (err) {
       // No active shift is normal, don't show error
-      setCurrentShift(null);
+      console.log('No active shift found');
     }
   };
 
@@ -337,7 +286,7 @@ const EventsPage = () => {
         success('Shift ended successfully');
         setEndShiftDialogOpen(false);
         setEndShiftNotes('');
-        setCurrentShift(null);
+        // currentShift will update via socket 'shift_update'
         // Refresh events to show the updated list
         await fetchEvents();
       }
@@ -382,6 +331,33 @@ const EventsPage = () => {
     }
   };
 
+
+
+  // Start or End shift action
+  const handleShiftAction = async () => {
+    if (shiftLoading) return;
+    setShiftLoading(true);
+    try {
+      if (currentShift) {
+        await axios.post('/api/shifts/end', { notes: '' });
+        success('Shift ended successfully');
+      } else {
+        await axios.post('/api/shifts/start', {});
+        success('Shift started successfully');
+      }
+      // currentShift will update via socket 'shift_update'
+    } catch (e) {
+      const msg = e?.response?.data?.message || e.message || 'Operation failed';
+      if (currentShift) {
+        error('Failed to end shift: ' + msg);
+      } else {
+        error('Failed to start shift: ' + msg);
+      }
+    } finally {
+      setShiftLoading(false);
+    }
+  };
+
   return (
     <Box sx={{ flexGrow: 1 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
@@ -389,6 +365,40 @@ const EventsPage = () => {
           Events
         </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          {/* Current shift */}
+          {currentShift && (
+            <Chip
+              label={`Shift: ${currentShift.name}`}
+              size="small"
+              sx={{ 
+                backgroundColor: '#3b82f6',
+                color: '#ffffff',
+                fontWeight: 500
+              }}
+            />
+          )}
+
+          {/* Shift countdown timer */}
+          <ShiftCountdownTimer />
+
+          {/* Auto-refresh controls */}
+          {/* Removed: relocated to TopNavLayout */}
+          
+          {/* Start/End Shift button */}
+          <Button
+            size="small"
+            variant="contained"
+            color={currentShift ? 'warning' : 'success'}
+            onClick={handleShiftAction}
+            disabled={shiftLoading}
+            startIcon={currentShift ? <StopIcon /> : <PlayArrowIcon />}
+            sx={{
+              color: '#ffffff',
+              '&:hover': { opacity: 0.95 }
+            }}
+          >
+            {currentShift ? (shiftLoading ? 'Ending…' : 'End Shift') : (shiftLoading ? 'Starting…' : 'Start Shift')}
+          </Button>
           <FormControlLabel
             control={
               <Checkbox
@@ -400,18 +410,6 @@ const EventsPage = () => {
             label="Current Shift Only"
             sx={{ mr: 2 }}
           />
-          {currentShift && (
-            <Button
-              variant="contained"
-              color="warning"
-              startIcon={<StopIcon />}
-              onClick={() => setEndShiftDialogOpen(true)}
-              disabled={endingShift}
-              sx={{ mr: 1 }}
-            >
-              {endingShift ? 'Ending...' : 'End Shift'}
-            </Button>
-          )}
           <Button
             variant="outlined"
             startIcon={<FilterListIcon />}
