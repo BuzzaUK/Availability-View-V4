@@ -1,7 +1,7 @@
 {
   "name": "ESP32 Asset Monitor",
   "description": "Industrial asset monitoring dashboard for ESP32 devices",
-  "repository": "https://github.com/your-username/esp32-asset-monitor",
+  "repository": "https://github.com/BuzzaUK/Availability-View-V4",
   "logo": "https://node-js-sample.herokuapp.com/node.png",
   "keywords": ["node", "express", "heroku", "esp32", "iot", "monitoring"],
   "image": "heroku/nodejs",
@@ -26,7 +26,7 @@
     },
     "ADMIN_PASSWORD": {
       "description": "Admin user password",
-      "value": "admin123"
+      "generator": "secret"
     }
   },
   "formation": {

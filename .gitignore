@@ -115,3 +115,40 @@ logs/
 # Backup files
 *.backup
 *.bak
+
+# Security and credential files
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+.env.production
+.env.staging
+.env.development
+*.env
+
+# Configuration files with secrets
+config/secrets.json
+config/production.json
+config/staging.json
+
+# SSH keys
+.ssh/
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+
+# AWS credentials
+.aws/
+credentials
+
+# Docker secrets
+docker-compose.override.yml
+.dockerignore
+
+# Heroku local files
+.env.local
+.env.*.local
