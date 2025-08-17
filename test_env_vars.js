@@ -49,7 +49,7 @@ try {
   console.log('Auth user:', transporterConfig.auth.user);
   console.log('Auth pass configured:', transporterConfig.auth.pass ? 'YES' : 'NO');
   
-  const transporter = nodemailer.createTransporter(transporterConfig);
+  const transporter = nodemailer.createTransport(transporterConfig);
   console.log('\n✅ Transporter created successfully');
   
   // Test connection

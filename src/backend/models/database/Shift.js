@@ -53,47 +53,6 @@ const Shift = sequelize.define('Shift', {
     type: DataTypes.DECIMAL(5, 2),
     defaultValue: 0.00
   },
-  // Enhanced Analytics Fields
-  mtbf_minutes: {
-    type: DataTypes.DECIMAL(10, 2),
-    defaultValue: 0.00,
-    comment: 'Mean Time Between Failures in minutes'
-  },
-  mttr_minutes: {
-    type: DataTypes.DECIMAL(10, 2),
-    defaultValue: 0.00,
-    comment: 'Mean Time To Repair in minutes'
-  },
-  stop_frequency: {
-    type: DataTypes.DECIMAL(8, 2),
-    defaultValue: 0.00,
-    comment: 'Stops per hour'
-  },
-  micro_stops_count: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0,
-    comment: 'Number of micro stops (< 5 minutes)'
-  },
-  micro_stops_time: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0,
-    comment: 'Total micro stops time in seconds'
-  },
-  micro_stops_percentage: {
-    type: DataTypes.DECIMAL(5, 2),
-    defaultValue: 0.00,
-    comment: 'Micro stops as percentage of total downtime'
-  },
-  longest_stop_duration: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0,
-    comment: 'Longest stop duration in seconds'
-  },
-  average_stop_duration: {
-    type: DataTypes.DECIMAL(10, 2),
-    defaultValue: 0.00,
-    comment: 'Average stop duration in seconds'
-  },
   shift_pattern_id: {
     type: DataTypes.INTEGER,
     allowNull: true

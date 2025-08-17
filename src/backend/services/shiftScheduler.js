@@ -41,11 +41,10 @@ class ShiftDebugger {
   
   static broadcastToFrontend(logEntry) {
     try {
-      // Get the server instance to emit Socket.IO events
-      const server = require('../server');
-      if (server && server.io) {
+      // Access the global shiftScheduler instance
+      if (global.shiftSchedulerInstance && global.shiftSchedulerInstance.io) {
         // Emit shift debug event to all connected clients
-        server.io.emit('shift_debug', {
+        global.shiftSchedulerInstance.io.emit('shift_debug', {
           timestamp: logEntry.timestamp,
           level: logEntry.level,
           message: logEntry.message,
@@ -71,9 +70,19 @@ class ShiftScheduler {
     this.currentShift = null;
     this.scheduledJobs = new Map();
     this.isInitialized = false;
+    this.isResettingEventsTable = false;
+    this.io = null; // Store io instance to avoid circular dependency
   }
 
-  async initialize() {
+  async initialize(io = null) {
+    // Store the io instance if provided
+    if (io) {
+      this.io = io;
+    }
+    
+    // Set global reference for ShiftDebugger
+    global.shiftSchedulerInstance = this;
+    
     try {
       // Get current shift if any
       this.currentShift = await databaseService.getCurrentShift();
@@ -232,9 +241,8 @@ class ShiftScheduler {
 
       // Emit shift change event to frontend
       try {
-        const server = require('../server');
-        if (server && server.io) {
-          server.io.emit('shift_change', {
+        if (this.io) {
+          this.io.emit('shift_change', {
             timestamp: new Date().toISOString(),
             type: 'automatic',
             previousShift: debugContext.currentShift?.id || null,
@@ -410,9 +418,8 @@ class ShiftScheduler {
         
         // Emit archive creation event to frontend
         try {
-          const server = require('../server');
-          if (server && server.io) {
-            server.io.emit('archive_created', {
+          if (this.io) {
+            this.io.emit('archive_created', {
               timestamp: new Date().toISOString(),
               archiveId: archiveResult.id,
               archiveName: archiveResult.title,
@@ -448,8 +455,8 @@ class ShiftScheduler {
           
           ShiftDebugger.debug('Report generation options', reportOptions);
           
-          // Generate report from the archived data and store in Shift Reports Archive
-          const reportResult = await reportService.generateAndArchiveShiftReport(archiveResult?.id || shiftId, reportOptions);
+          // Generate report from the shift data and store in Shift Reports Archive
+          const reportResult = await reportService.generateAndArchiveShiftReportFromShift(shiftId, reportOptions);
           
           if (reportResult && reportResult.reportArchive) {
             ShiftDebugger.success('📧 Shift reports generated and archived successfully', {
@@ -459,9 +466,8 @@ class ShiftScheduler {
             
             // Emit report generation event to frontend
             try {
-              const server = require('../server');
-              if (server && server.io) {
-                server.io.emit('report_generated', {
+              if (this.io) {
+                this.io.emit('report_generated', {
                   timestamp: new Date().toISOString(),
                   reportArchiveId: reportResult.reportArchive.id,
                   reportTypes: Object.keys(reportResult.reports || {}),
@@ -511,8 +517,23 @@ class ShiftScheduler {
               }
               
               ShiftDebugger.process('📧 Sending enhanced shift report email notifications');
-              await this.sendShiftReportNotifications(reportResult.reports, this.currentShift, analyticsSummary);
-              ShiftDebugger.success('Enhanced email notifications sent successfully');
+              
+              // Add timeout protection to prevent hanging during shift transition
+              try {
+                await Promise.race([
+                  this.sendShiftReportNotifications(reportResult.reports, this.currentShift, analyticsSummary),
+                  new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Email notifications timeout during shift transition')), 150000) // 2.5 minutes
+                  )
+                ]);
+                ShiftDebugger.success('Enhanced email notifications sent successfully');
+              } catch (emailTimeoutError) {
+                ShiftDebugger.warning('Email notifications timed out during shift transition', {
+                  error: emailTimeoutError.message,
+                  note: 'Continuing with shift transition to prevent hanging'
+                });
+                // Continue with shift transition even if email fails
+              }
             }
           } else {
             ShiftDebugger.warning('Report generation completed but no result returned', reportResult);
@@ -536,9 +557,8 @@ class ShiftScheduler {
       
       // Emit data processing status - starting reset
       try {
-        const server = require('../server');
-        if (server && server.io) {
-          server.io.emit('data_processing_status', {
+        if (this.io) {
+          this.io.emit('data_processing_status', {
             timestamp: new Date().toISOString(),
             status: 'processing',
             operation: 'events_table_reset',
@@ -549,14 +569,27 @@ class ShiftScheduler {
         // Silently fail if Socket.IO is not available
       }
       
-      await this.resetEventsTable(shiftId);
-      ShiftDebugger.success('Events table reset completed');
+      // Add timeout protection for events table reset
+      try {
+        await Promise.race([
+          this.resetEventsTable(shiftId),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Events table reset timeout after 45 seconds')), 45000)
+          )
+        ]);
+        ShiftDebugger.success('Events table reset completed');
+      } catch (resetError) {
+        ShiftDebugger.warning('Events table reset timed out during shift transition', {
+          error: resetError.message,
+          note: 'Continuing with shift transition to prevent hanging'
+        });
+        // Continue with shift transition even if reset fails
+      }
       
       // Emit data processing status - reset completed
       try {
-        const server = require('../server');
-        if (server && server.io) {
-          server.io.emit('data_processing_status', {
+        if (this.io) {
+          this.io.emit('data_processing_status', {
             timestamp: new Date().toISOString(),
             status: 'completed',
             operation: 'events_table_reset',
@@ -803,9 +836,8 @@ class ShiftScheduler {
       
       // Emit data processing status - starting archive creation
       try {
-        const server = require('../server');
-        if (server && server.io) {
-          server.io.emit('data_processing_status', {
+        if (this.io) {
+          this.io.emit('data_processing_status', {
             timestamp: new Date().toISOString(),
             status: 'processing',
             operation: 'archive_creation',
@@ -820,7 +852,13 @@ class ShiftScheduler {
         // Silently fail if Socket.IO is not available
       }
       
-      const archive = await databaseService.createArchive(archiveData);
+      // Add timeout protection for database archive creation
+      const archive = await Promise.race([
+        databaseService.createArchive(archiveData),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Database archive creation timeout after 60 seconds')), 60000)
+        )
+      ]);
       
       if (archive && archive.id) {
         ShiftDebugger.success('Archive created successfully', {
@@ -831,17 +869,31 @@ class ShiftScheduler {
         ShiftDebugger.warning('Archive creation returned null or invalid result', archive);
       }
       
-      // Verify archive integrity
+      // Verify archive integrity with timeout protection
       if (archive && archive.id) {
         ShiftDebugger.process('Verifying archive integrity');
-        const verification = await databaseService.verifyArchiveIntegrity(archive.id);
-        if (verification.valid) {
-          ShiftDebugger.success('✅ Archive integrity verified successfully');
-        } else {
-          ShiftDebugger.warning('⚠️ Archive integrity verification failed', {
-            error: verification.error || 'Unknown error',
-            archiveId: archive.id
+        try {
+          const verification = await Promise.race([
+            databaseService.verifyArchiveIntegrity(archive.id),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Archive integrity verification timeout')), 30000)
+            )
+          ]);
+          if (verification.valid) {
+            ShiftDebugger.success('✅ Archive integrity verified successfully');
+          } else {
+            ShiftDebugger.warning('⚠️ Archive integrity verification failed', {
+              error: verification.error || 'Unknown error',
+              archiveId: archive.id
+            });
+          }
+        } catch (verificationError) {
+          ShiftDebugger.warning('⚠️ Archive integrity verification timed out', {
+            error: verificationError.message,
+            archiveId: archive.id,
+            note: 'Continuing with shift transition'
           });
+          // Continue with shift transition even if verification fails
         }
       }
       
@@ -890,6 +942,14 @@ class ShiftScheduler {
    * Reset Events table and insert new SHIFT_START event
    */
   async resetEventsTable(previousShiftId) {
+    // Prevent concurrent calls to resetEventsTable
+    if (this.isResettingEventsTable) {
+      console.log('⚠️ Events table reset already in progress, skipping duplicate call');
+      return;
+    }
+    
+    this.isResettingEventsTable = true;
+    
     try {
       console.log('🔄 Resetting Events table...');
       
@@ -924,6 +984,9 @@ class ShiftScheduler {
     } catch (error) {
       console.error('❌ Failed to reset Events table:', error.message);
       throw error;
+    } finally {
+      // Always clear the flag, even if an error occurred
+      this.isResettingEventsTable = false;
     }
   }
 
@@ -991,30 +1054,66 @@ class ShiftScheduler {
   }
 
   /**
+   * Reset assets table accumulated data (runtime, downtime, stops)
+   */
+  async resetAssetsTable() {
+    try {
+      console.log('🔄 Resetting assets table accumulated data...');
+      
+      const { Asset } = require('../models/database');
+      
+      // Reset all accumulated metrics to zero
+      const resetResult = await Asset.update({
+        runtime: 0,
+        downtime: 0,
+        total_stops: 0,
+        last_state_change: new Date()
+      }, {
+        where: {} // Update all assets
+      });
+      
+      console.log(`✅ Assets table reset completed - ${resetResult[0]} assets updated`);
+      return resetResult[0];
+      
+    } catch (error) {
+      console.error('❌ Failed to reset assets table:', error.message);
+      throw error;
+    }
+  }
+
+  /**
    * Trigger dashboard reset via WebSocket
    */
   async triggerDashboardReset() {
     try {
       console.log('📊 Triggering dashboard reset...');
       
-      // Get the server instance to emit Socket.IO events
-      const server = require('../server');
-      if (server && server.io) {
+      // Step 1: Reset assets table accumulated data
+      try {
+        await this.resetAssetsTable();
+        console.log('✅ Assets table reset completed');
+      } catch (resetError) {
+        console.error('⚠️ Assets table reset failed:', resetError.message);
+        // Continue with WebSocket signals even if reset fails
+      }
+      
+      // Step 2: Send WebSocket signals to frontend
+      if (this.io) {
         // Emit dashboard reset event to all connected clients
-        server.io.emit('dashboard_reset', {
+        this.io.emit('dashboard_reset', {
           timestamp: new Date().toISOString(),
           message: 'Dashboard reset due to shift end processing',
           action: 'refresh_all_data'
         });
         
         // Emit shift update to refresh shift information
-        server.io.emit('shift_update', {
+        this.io.emit('shift_update', {
           currentShift: null,
           message: 'Shift ended - dashboard reset'
         });
         
         // Emit events update to refresh events display
-        server.io.emit('events_update', {
+        this.io.emit('events_update', {
           action: 'table_reset',
           message: 'Events table reset for new shift'
         });
@@ -1194,16 +1293,23 @@ class ShiftScheduler {
         });
       }
       
-      // Send emails to all configured users
+      // Send emails to all configured users with timeout protection
       const emailPromises = notificationUsers.map(async (user) => {
         try {
           const sendEmail = require('../utils/sendEmail');
-          await sendEmail({
-            to: user.email,
-            subject: emailSubject,
-            html: emailBody,
-            attachments: attachments
-          });
+          
+          // Add timeout wrapper for individual email sending
+          await Promise.race([
+            sendEmail({
+              to: user.email,
+              subject: emailSubject,
+              html: emailBody,
+              attachments: attachments
+            }),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error(`Email timeout for ${user.email}`)), 45000) // 45 seconds per email
+            )
+          ]);
           
           console.log(`📧 Shift report sent to: ${user.email}`);
         } catch (emailError) {
@@ -1211,8 +1317,16 @@ class ShiftScheduler {
         }
       });
       
-      await Promise.allSettled(emailPromises);
-      console.log(`📧 Shift report notifications sent to ${notificationUsers.length} users`);
+      // Add overall timeout for all email operations
+      const emailTimeout = 120000; // 2 minutes total for all emails
+      await Promise.race([
+        Promise.allSettled(emailPromises),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Email notifications timeout after 2 minutes')), emailTimeout)
+        )
+      ]);
+      
+      console.log(`📧 Shift report notifications completed for ${notificationUsers.length} users`);
       
     } catch (error) {
       console.error('❌ Failed to send shift report notifications:', error.message);

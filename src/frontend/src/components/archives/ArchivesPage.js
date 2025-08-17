@@ -403,7 +403,7 @@ const ArchivesPage = () => {
           {/* Shift Reports Tab */}
           {tabValue === 0 && (
             <TabPanel>
-              <ShiftReportTable reports={shiftReports} />
+              <ShiftReportTable reports={shiftReports} onRefresh={fetchShiftReports} />
             </TabPanel>
           )}
           

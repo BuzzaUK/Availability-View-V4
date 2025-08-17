@@ -454,6 +454,28 @@ app.post('/api/fix-bagger-logger', async (req, res) => {
   }
 });
 
+// Test endpoint for dashboard reset
+app.post('/api/test/dashboard-reset', async (req, res) => {
+  try {
+    console.log('🧪 TEST: Manual dashboard reset triggered via API');
+    
+    // Import and trigger dashboard reset
+    const shiftScheduler = require('./services/shiftScheduler');
+    await shiftScheduler.triggerDashboardReset();
+    
+    console.log('✅ TEST: Dashboard reset completed successfully');
+    
+    res.json({ 
+      success: true, 
+      message: 'Dashboard reset triggered successfully',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('❌ TEST: Error triggering dashboard reset:', error);
+    res.status(500).json({ error: 'Failed to trigger dashboard reset' });
+  }
+});
+
 // Error handling middleware (must be last)
 app.use(errorHandler);
 
@@ -526,7 +548,7 @@ const startServer = async () => {
       console.log(`💾 Database: ${process.env.NODE_ENV === 'production' ? 'PostgreSQL' : 'SQLite'}`);
       
       // Start background services
-      shiftScheduler.initialize();
+      shiftScheduler.initialize(io);
       csvEnhancementService.initialize();
     });
     

@@ -25,7 +25,7 @@ const sendEmail = async (options) => {
     throw new Error('Email configuration not found or incomplete. Please configure email settings in the notification settings.');
   }
   
-  // Create transporter using database settings
+  // Create transporter using database settings with timeout configurations
   const transporter = nodemailer.createTransport({
     host: emailSettings.smtpServer,
     port: parseInt(emailSettings.port, 10),
@@ -36,7 +36,11 @@ const sendEmail = async (options) => {
     },
     tls: {
       rejectUnauthorized: false
-    }
+    },
+    // Add timeout configurations to prevent hanging
+    connectionTimeout: 10000, // 10 seconds
+    greetingTimeout: 5000,    // 5 seconds
+    socketTimeout: 15000      // 15 seconds
   });
 
   // Normalize option keys
@@ -61,8 +65,15 @@ const sendEmail = async (options) => {
     attachments: options.attachments
   };
 
-  // Send email
-  const info = await transporter.sendMail(mailOptions);
+  // Send email with additional timeout wrapper to prevent hanging
+  const emailTimeout = 30000; // 30 seconds total timeout
+  
+  const info = await Promise.race([
+    transporter.sendMail(mailOptions),
+    new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Email sending timeout after 30 seconds')), emailTimeout)
+    )
+  ]);
 
   console.log(`Email sent: ${info.messageId}`);
   

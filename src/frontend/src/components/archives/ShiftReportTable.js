@@ -15,12 +15,15 @@ import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
+import DialogContentText from '@mui/material/DialogContentText';
 import Button from '@mui/material/Button';
 import Grid from '@mui/material/Grid';
 import Chip from '@mui/material/Chip';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { format } from 'date-fns';
+import axios from 'axios';
 
 // Context
 import SocketContext from '../../context/SocketContext';
@@ -36,10 +39,12 @@ const StyledTableRow = styled(TableRow)(({ theme }) => ({
   },
 }));
 
-const ShiftReportTable = ({ reports }) => {
+const ShiftReportTable = ({ reports, onRefresh }) => {
   const { assets } = useContext(SocketContext);
   const [selectedReport, setSelectedReport] = React.useState(null);
   const [viewModalOpen, setViewModalOpen] = React.useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false);
+  const [reportToDelete, setReportToDelete] = React.useState(null);
 
   // Ensure reports is always an array
   const safeReports = Array.isArray(reports) ? reports : [];
@@ -94,6 +99,45 @@ Generated on: ${format(new Date(), 'PPpp')}
     link.click();
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
+  };
+
+  // Handler for delete confirmation
+  const handleDeleteClick = (report) => {
+    setReportToDelete(report);
+    setDeleteConfirmOpen(true);
+  };
+
+  // Handler for confirming delete
+  const handleDeleteConfirm = async () => {
+    if (!reportToDelete) return;
+
+    try {
+      const response = await axios.delete(`/api/archives/${reportToDelete.id}`);
+      
+      if (response.data.success) {
+        // Close confirmation dialog
+        setDeleteConfirmOpen(false);
+        setReportToDelete(null);
+        
+        // Refresh the reports list if onRefresh callback is provided
+        if (onRefresh) {
+          onRefresh();
+        }
+        
+        // You could add a success notification here if you have a notification system
+        console.log('Report deleted successfully');
+      }
+    } catch (error) {
+      console.error('Failed to delete report:', error);
+      // You could add an error notification here if you have a notification system
+      alert('Failed to delete report: ' + (error.response?.data?.message || error.message));
+    }
+  };
+
+  // Handler for canceling delete
+  const handleDeleteCancel = () => {
+    setDeleteConfirmOpen(false);
+    setReportToDelete(null);
   };
 
   // Format duration helper
@@ -173,12 +217,13 @@ Generated on: ${format(new Date(), 'PPpp')}
                       <VisibilityIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>
-                  <Tooltip title="Export PDF">
+                  <Tooltip title="Delete Report">
                     <IconButton 
                       size="small"
-                      onClick={() => handleExportPDF(report)}
+                      color="error"
+                      onClick={() => handleDeleteClick(report)}
                     >
-                      <PictureAsPdfIcon fontSize="small" />
+                      <DeleteIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>
                 </TableCell>
@@ -330,6 +375,41 @@ Generated on: ${format(new Date(), 'PPpp')}
           </Button>
           <Button onClick={handleCloseViewModal} variant="contained">
             Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteConfirmOpen}
+        onClose={handleDeleteCancel}
+        aria-labelledby="delete-dialog-title"
+        aria-describedby="delete-dialog-description"
+      >
+        <DialogTitle id="delete-dialog-title">
+          Delete Shift Report
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText id="delete-dialog-description">
+            Are you sure you want to delete this shift report? This action cannot be undone.
+            {reportToDelete && (
+              <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
+                <Typography variant="body2" color="text.secondary">
+                  <strong>Report:</strong> {reportToDelete.title}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  <strong>Date:</strong> {format(new Date(reportToDelete.start_time), 'PPpp')}
+                </Typography>
+              </Box>
+            )}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleDeleteCancel} color="primary">
+            Cancel
+          </Button>
+          <Button onClick={handleDeleteConfirm} color="error" variant="contained">
+            Delete
           </Button>
         </DialogActions>
       </Dialog>

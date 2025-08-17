@@ -21,9 +21,19 @@ class ReportService {
    */
   generateEnhancedFilename(shiftName, shiftDate, extension) {
     const date = new Date(shiftDate);
+    
+    // Handle invalid dates
+    if (isNaN(date.getTime())) {
+      const now = new Date();
+      const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+      const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-'); // HH-MM-SS
+      const sanitizedShiftName = (shiftName || 'Unknown_Shift').replace(/[^a-zA-Z0-9\s-_]/g, '').replace(/\s+/g, '_');
+      return `${dateStr}_${timeStr}_${sanitizedShiftName}_Shift_Report.${extension}`;
+    }
+    
     const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD
     const timeStr = date.toTimeString().split(' ')[0].replace(/:/g, '-'); // HH-MM-SS
-    const sanitizedShiftName = shiftName.replace(/[^a-zA-Z0-9\s-_]/g, '').replace(/\s+/g, '_');
+    const sanitizedShiftName = (shiftName || 'Unknown_Shift').replace(/[^a-zA-Z0-9\s-_]/g, '').replace(/\s+/g, '_');
     
     return `${dateStr}_${timeStr}_${sanitizedShiftName}_Shift_Report.${extension}`;
   }
@@ -793,7 +803,7 @@ class ReportService {
       let savedFiles = {};
       if (report.reports.csv) {
         const csvBuffer = Buffer.from(report.reports.csv.shift_summary + '\n\n' + report.reports.csv.asset_details + '\n\n' + report.reports.csv.event_details);
-        const filename = this.generateEnhancedFilename(report.shift.name, report.shift.start_time, 'csv');
+        const filename = this.generateEnhancedFilename(report.shift.shift_name || report.shift.name, report.shift.start_time, 'csv');
         const filePath = path.join(process.cwd(), 'reports', filename);
         await fs.mkdir(path.dirname(filePath), { recursive: true });
         await fs.writeFile(filePath, csvBuffer);
@@ -802,11 +812,23 @@ class ReportService {
 
       // Send email if recipients provided
       if (recipients && recipients.length > 0) {
+        // Prepare attachments array
+        const attachments = [];
+        
+        // Add CSV file as attachment if it exists
+        if (savedFiles.csv) {
+          attachments.push({
+            filename: path.basename(savedFiles.csv),
+            path: savedFiles.csv
+          });
+        }
+        
         await sendEmail({
           to: recipients,
           subject: `Shift Report - ${report.shift.shift_name || report.shift.name}`,
           text: 'Please find the attached shift report.',
-          html: report.reports.html || '<p>Shift report attached.</p>'
+          html: report.reports.html || '<p>Shift report attached.</p>',
+          attachments: attachments
         });
       }
 
