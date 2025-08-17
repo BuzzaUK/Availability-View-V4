@@ -862,7 +862,11 @@ exports.getAvailabilityAnalytics = async (req, res) => {
 
     stopEvents.forEach(event => {
       const duration = event.duration || 0;
-      if (duration < 180) {
+      // Get the asset's microstop threshold, default to 180 seconds if not found
+      const asset = assets.find(a => a.id == event.asset_id || a._id == event.asset_id);
+      const microstopThreshold = asset?.microstop_threshold || 180;
+      
+      if (duration < microstopThreshold) {
         microStops++;
         microStopTime += duration;
       }
@@ -880,9 +884,15 @@ exports.getAvailabilityAnalytics = async (req, res) => {
       
       const dayEvents = events.filter(event => {
         const eventDate = new Date(event.timestamp);
-        return eventDate >= dayStart && eventDate < dayEnd && 
-               (event.event_type === 'STATE_CHANGE' && event.new_state === 'STOPPED') &&
-               (event.duration || 0) < 180;
+        if (eventDate >= dayStart && eventDate < dayEnd && 
+            (event.event_type === 'STATE_CHANGE' && event.new_state === 'STOPPED') &&
+            (!asset_id || event.asset_id == asset_id)) {
+          // Get the asset's microstop threshold, default to 180 seconds if not found
+          const asset = assets.find(a => a.id == event.asset_id || a._id == event.asset_id);
+          const microstopThreshold = asset?.microstop_threshold || 180;
+          return (event.duration || 0) < microstopThreshold;
+        }
+        return false;
       });
 
       const dayMicroStops = dayEvents.length;

@@ -60,7 +60,7 @@ app.use((req, res, next) => {
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', authenticateJWT, userRoutes);
-app.use('/api/assets', authenticateJWT, assetRoutes);
+app.use('/api/assets', assetRoutes);
 app.use('/api/events', authenticateJWT, eventRoutes);
 app.use('/api/reports', authenticateJWT, reportRoutes);
 app.use('/api/analytics', authenticateJWT, analyticsRoutes);

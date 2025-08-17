@@ -177,13 +177,26 @@ const AnalyticsPage = () => {
 
   // Render tab content
   const renderTabContent = () => {
+    const selectedAssetObj = filters.asset ? assets.find(a => a.id === filters.asset) : null;
+    console.log('AnalyticsPage - filters.asset:', filters.asset);
+    console.log('AnalyticsPage - assets:', assets);
+    console.log('AnalyticsPage - selectedAssetObj:', selectedAssetObj);
+    
     switch (tabValue) {
       case 0:
         return (
           <Box>
-            <AvailabilityKPIs data={analyticsData.availabilityData} loading={loading} />
+            <AvailabilityKPIs 
+              data={analyticsData.availabilityData} 
+              loading={loading} 
+              selectedAsset={selectedAssetObj}
+            />
             <Box sx={{ mt: 4 }}>
-              <MicroStopsChart data={analyticsData.availabilityData} loading={loading} />
+              <MicroStopsChart 
+                data={analyticsData.availabilityData} 
+                loading={loading} 
+                selectedAsset={selectedAssetObj}
+              />
             </Box>
           </Box>
         );

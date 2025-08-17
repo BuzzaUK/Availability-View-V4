@@ -244,7 +244,7 @@ class ReportService {
    */
   async generateCsvReport(reportData) {
     try {
-      // Shift summary CSV
+      // Shift summary CSV with enhanced analytics
       const shiftSummary = [{
         shift_number: reportData.shift.shift_number,
         shift_name: reportData.shift.name,
@@ -256,6 +256,15 @@ class ReportService {
         total_stops: reportData.metrics.total_stops,
         average_availability: reportData.metrics.average_availability.toFixed(2),
         oee_percentage: reportData.metrics.oee_percentage.toFixed(2),
+        // Enhanced Analytics from Database
+        mtbf_minutes: reportData.shift.mtbf_minutes || 0,
+        mttr_minutes: reportData.shift.mttr_minutes || 0,
+        stop_frequency_per_hour: reportData.shift.stop_frequency || 0,
+        micro_stops_count: reportData.shift.micro_stops_count || 0,
+        micro_stops_time_minutes: reportData.shift.micro_stops_time ? (reportData.shift.micro_stops_time / 60).toFixed(2) : 0,
+        micro_stops_percentage: reportData.shift.micro_stops_percentage || 0,
+        longest_stop_duration_minutes: reportData.shift.longest_stop_duration ? (reportData.shift.longest_stop_duration / 60).toFixed(2) : 0,
+        average_stop_duration_minutes: reportData.shift.average_stop_duration ? (reportData.shift.average_stop_duration / 60).toFixed(2) : 0,
         notes: reportData.shift.notes || ''
       }];
 
@@ -640,6 +649,22 @@ class ReportService {
                   <span class="metric-label">Total Downtime (min)</span>
                 </div>
                 <div class="metric-card">
+                  <span class="metric-value">${shift.mtbf_minutes || 0}</span>
+                  <span class="metric-label">MTBF (min)</span>
+                </div>
+                <div class="metric-card">
+                  <span class="metric-value">${shift.mttr_minutes || 0}</span>
+                  <span class="metric-label">MTTR (min)</span>
+                </div>
+                <div class="metric-card">
+                  <span class="metric-value">${shift.stop_frequency || 0}</span>
+                  <span class="metric-label">Stop Frequency (/hr)</span>
+                </div>
+                <div class="metric-card">
+                  <span class="metric-value">${shift.micro_stops_count || 0}</span>
+                  <span class="metric-label">Micro Stops</span>
+                </div>
+                <div class="metric-card">
                   <span class="metric-value">${analyticsSummary.key_metrics.totalEvents}</span>
                   <span class="metric-label">Total Events</span>
                 </div>
@@ -671,6 +696,42 @@ class ReportService {
         });
         html += `</div>`;
       }
+      
+      // Add enhanced analytics section
+      html += `
+            <div class="insights-section">
+              <h3>📊 Enhanced Analytics</h3>
+              <div class="metrics-grid">
+                <div class="metric-box">
+                  <h4>Mean Time Between Failures (MTBF)</h4>
+                  <p><strong>${shift.mtbf_minutes || 0} minutes</strong></p>
+                  <small>Average time between equipment failures</small>
+                </div>
+                <div class="metric-box">
+                  <h4>Mean Time To Repair (MTTR)</h4>
+                  <p><strong>${shift.mttr_minutes || 0} minutes</strong></p>
+                  <small>Average time to resolve failures</small>
+                </div>
+                <div class="metric-box">
+                  <h4>Stop Frequency</h4>
+                  <p><strong>${shift.stop_frequency || 0} stops/hour</strong></p>
+                  <small>Frequency of production stops</small>
+                </div>
+                <div class="metric-box">
+                  <h4>Micro Stops</h4>
+                  <p><strong>Count:</strong> ${shift.micro_stops_count || 0}</p>
+                  <p><strong>Total Time:</strong> ${shift.micro_stops_total_time || 0} min</p>
+                  <p><strong>Percentage:</strong> ${shift.micro_stops_percentage || 0}%</p>
+                  <small>Brief interruptions in production</small>
+                </div>
+                <div class="metric-box">
+                  <h4>Stop Duration Analysis</h4>
+                  <p><strong>Longest Stop:</strong> ${shift.longest_stop_duration || 0} min</p>
+                  <p><strong>Average Stop:</strong> ${shift.average_stop_duration || 0} min</p>
+                  <small>Duration analysis of production stops</small>
+                </div>
+              </div>
+            </div>`;
       
       // Add traditional report data
       const originalHtml = this.generateHtmlReport(reportData);
@@ -951,6 +1012,78 @@ class ReportService {
     } catch (error) {
       console.error('❌ Failed to generate and archive shift report from shift:', error.message);
       throw error;
+    }
+  }
+
+  /**
+   * Calculate enhanced analytics for shift storage
+   * @param {Object} shift - Shift record
+   * @param {Array} events - Shift events
+   * @param {Array} assets - All assets
+   * @returns {Object} Enhanced analytics values for database storage
+   */
+  calculateEnhancedAnalyticsForStorage(shift, events, assets) {
+    try {
+      const shiftStart = new Date(shift.start_time);
+      const shiftEnd = shift.end_time ? new Date(shift.end_time) : new Date();
+      const shiftDurationHours = (shiftEnd - shiftStart) / (1000 * 60 * 60);
+      
+      // Filter stop events
+      const stopEvents = events.filter(e => 
+        e.event_type === 'STATE_CHANGE' && e.new_state === 'STOPPED'
+      );
+      
+      const totalStops = stopEvents.length;
+      
+      // Calculate stop durations
+      const stopDurations = stopEvents.map(e => e.duration || 0).filter(d => d > 0);
+      const totalStopTime = stopDurations.reduce((sum, duration) => sum + duration, 0);
+      
+      // Micro stops (< 5 minutes = 300 seconds)
+      const microStops = stopDurations.filter(duration => duration < 300);
+      const microStopsTime = microStops.reduce((sum, duration) => sum + duration, 0);
+      
+      // Calculate MTBF and MTTR
+      const totalRuntime = events
+        .filter(e => e.event_type === 'STATE_CHANGE' && e.new_state === 'RUNNING')
+        .reduce((sum, e) => sum + (e.duration || 0), 0);
+      
+      const mtbfMinutes = totalStops > 0 ? (totalRuntime / 1000 / 60) / totalStops : 0;
+      const mttrMinutes = totalStops > 0 ? (totalStopTime / 1000 / 60) / totalStops : 0;
+      
+      // Stop frequency (stops per hour)
+      const stopFrequency = shiftDurationHours > 0 ? totalStops / shiftDurationHours : 0;
+      
+      // Micro stops percentage
+      const microStopsPercentage = totalStopTime > 0 ? (microStopsTime / totalStopTime) * 100 : 0;
+      
+      // Longest and average stop duration
+      const longestStopDuration = stopDurations.length > 0 ? Math.max(...stopDurations) : 0;
+      const averageStopDuration = stopDurations.length > 0 ? 
+        stopDurations.reduce((sum, d) => sum + d, 0) / stopDurations.length : 0;
+      
+      return {
+        mtbf_minutes: parseFloat(mtbfMinutes.toFixed(2)),
+        mttr_minutes: parseFloat(mttrMinutes.toFixed(2)),
+        stop_frequency: parseFloat(stopFrequency.toFixed(2)),
+        micro_stops_count: microStops.length,
+        micro_stops_time: microStopsTime,
+        micro_stops_percentage: parseFloat(microStopsPercentage.toFixed(2)),
+        longest_stop_duration: longestStopDuration,
+        average_stop_duration: parseFloat(averageStopDuration.toFixed(2))
+      };
+    } catch (error) {
+      console.error('❌ Error calculating enhanced analytics:', error.message);
+      return {
+        mtbf_minutes: 0,
+        mttr_minutes: 0,
+        stop_frequency: 0,
+        micro_stops_count: 0,
+        micro_stops_time: 0,
+        micro_stops_percentage: 0,
+        longest_stop_duration: 0,
+        average_stop_duration: 0
+      };
     }
   }
 

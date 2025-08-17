@@ -105,6 +105,7 @@ const AssetManagement = () => {
     logger_id: '',
     short_stop_threshold: 5,
     long_stop_threshold: 30,
+    microstop_threshold: 180,
     downtime_reasons: 'Maintenance,Breakdown,Setup,Material shortage,Quality issue',
     thresholds: {
       availability: 85,
@@ -274,6 +275,7 @@ const AssetManagement = () => {
       logger_id: '',
       short_stop_threshold: 5,
       long_stop_threshold: 30,
+      microstop_threshold: 180,
       downtime_reasons: 'Maintenance,Breakdown,Setup,Material shortage,Quality issue',
       thresholds: {
         availability: 85,
@@ -303,6 +305,7 @@ const AssetManagement = () => {
       logger_id: asset.logger_id || '',
       short_stop_threshold: asset.short_stop_threshold || 5,
       long_stop_threshold: asset.long_stop_threshold || 30,
+      microstop_threshold: asset.microstop_threshold || 180,
       downtime_reasons: asset.downtime_reasons || 'Maintenance,Breakdown,Setup,Material shortage,Quality issue',
       thresholds: {
         availability: asset.thresholds?.availability || 85,
@@ -670,6 +673,19 @@ const AssetManagement = () => {
                   onChange={handleFormChange}
                   InputProps={{ inputProps: { min: 1 } }}
                   helperText="Duration to classify as long stop"
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField
+                  name="microstop_threshold"
+                  label="Microstop Threshold (seconds)"
+                  type="number"
+                  fullWidth
+                  variant="outlined"
+                  value={assetForm.microstop_threshold}
+                  onChange={handleFormChange}
+                  InputProps={{ inputProps: { min: 1 } }}
+                  helperText="Duration to classify as microstop"
                 />
               </Grid>
               <Grid item xs={12}>

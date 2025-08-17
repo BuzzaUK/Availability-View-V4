@@ -367,6 +367,7 @@ class MemoryDB {
       total_stops: assetData.total_stops || 0,
       short_stop_threshold: assetData.short_stop_threshold || 300,
       long_stop_threshold: assetData.long_stop_threshold || 1800,
+      microstop_threshold: assetData.microstop_threshold || 180,
       downtime_reasons: assetData.downtime_reasons || [],
       last_state_change: assetData.last_state_change || new Date(),
       created_at: new Date(),

@@ -78,6 +78,9 @@ class ShiftScheduler {
       // Get current shift if any
       this.currentShift = await databaseService.getCurrentShift();
       
+      // Check for missed shifts during system downtime
+      await this.validateShiftStateOnStartup();
+      
       // Setup shift detection based on settings
       await this.setupShiftSchedules();
       
@@ -357,17 +360,42 @@ class ShiftScheduler {
 
       ShiftDebugger.success(`Created SHIFT_END events for ${assets.length} assets`);
 
-      // Step 2: Update shift record
-      ShiftDebugger.process('📝 STEP 2: Updating shift record in database');
+      // Step 2: Calculate enhanced analytics and update shift record
+      ShiftDebugger.process('📝 STEP 2: Calculating enhanced analytics and updating shift record');
+      
+      // Get all events for this shift to calculate enhanced analytics
+      const allShiftEvents = await databaseService.getAllEvents({ where: { shift_id: shiftId } });
+      const shiftEvents = allShiftEvents.rows || allShiftEvents;
+      
+      // Calculate enhanced analytics
+      const reportService = require('./reportService');
+      const enhancedAnalytics = reportService.calculateEnhancedAnalyticsForStorage(
+        this.currentShift, 
+        shiftEvents, 
+        assets
+      );
+      
+      ShiftDebugger.debug('Enhanced analytics calculated', enhancedAnalytics);
+      
       const updatedShift = await databaseService.updateShift(shiftId, {
         status: 'completed',
         end_time: endTime,
-        notes: notes || this.currentShift.notes
+        notes: notes || this.currentShift.notes,
+        ...enhancedAnalytics
       });
-      ShiftDebugger.success('Shift record updated successfully', {
+      
+      ShiftDebugger.success('Shift record updated with enhanced analytics', {
         shiftId,
         status: 'completed',
-        endTime: endTime.toISOString()
+        endTime: endTime.toISOString(),
+        enhancedAnalytics
+      });
+      
+      ShiftDebugger.success('Enhanced analytics stored in shift record', {
+        mtbf_minutes: enhancedAnalytics.mtbf_minutes,
+        mttr_minutes: enhancedAnalytics.mttr_minutes,
+        stop_frequency: enhancedAnalytics.stop_frequency,
+        micro_stops_count: enhancedAnalytics.micro_stops_count
       });
 
       // Step 3: Archive all events from this shift
@@ -1246,6 +1274,123 @@ class ShiftScheduler {
         stack: error.stack
       });
       console.error('❌ Shift duration monitoring error:', error.message);
+    }
+  }
+
+  /**
+   * Validate shift state on system startup to detect missed shifts during downtime
+   */
+  async validateShiftStateOnStartup() {
+    try {
+      ShiftDebugger.process('🔍 VALIDATING SHIFT STATE ON STARTUP');
+      
+      // Get notification settings to check shift times
+      const notificationSettings = await databaseService.getNotificationSettings();
+      
+      if (!notificationSettings?.shiftSettings?.enabled) {
+        ShiftDebugger.info('Automatic shift detection disabled - skipping startup validation');
+        return;
+      }
+      
+      const shiftTimes = Array.isArray(notificationSettings.shiftSettings?.shiftTimes)
+        ? notificationSettings.shiftSettings.shiftTimes
+        : [];
+      
+      if (!shiftTimes.length) {
+        ShiftDebugger.warning('No shift times configured - skipping startup validation');
+        return;
+      }
+      
+      const now = new Date();
+      const currentTime = now.getHours() * 100 + now.getMinutes(); // Convert to HHMM format
+      
+      // Convert shift times to HHMM format for comparison
+      const formattedShiftTimes = shiftTimes.map(time => {
+        if (time.includes(':')) {
+          const [hours, minutes] = time.split(':');
+          return parseInt(hours) * 100 + parseInt(minutes);
+        }
+        return parseInt(time);
+      }).sort((a, b) => a - b);
+      
+      // Determine which shift should be active based on current time
+      let expectedShiftIndex = 0;
+      for (let i = 0; i < formattedShiftTimes.length; i++) {
+        if (currentTime >= formattedShiftTimes[i]) {
+          expectedShiftIndex = i;
+        } else {
+          break;
+        }
+      }
+      
+      const expectedShiftNumber = expectedShiftIndex + 1;
+      const expectedShiftTime = shiftTimes[expectedShiftIndex];
+      
+      ShiftDebugger.info('Startup shift validation', {
+        currentTime: `${Math.floor(currentTime / 100).toString().padStart(2, '0')}:${(currentTime % 100).toString().padStart(2, '0')}`,
+        expectedShiftNumber,
+        expectedShiftTime,
+        currentShiftId: this.currentShift?.id,
+        currentShiftName: this.currentShift?.shift_name,
+        currentShiftStatus: this.currentShift?.status
+      });
+      
+      // Check if we need to trigger a shift change
+      let needsShiftChange = false;
+      let changeReason = '';
+      
+      if (!this.currentShift || this.currentShift.status !== 'active') {
+        needsShiftChange = true;
+        changeReason = 'No active shift found';
+      } else {
+        // Check if the current shift started before the expected shift time
+        const currentShiftStart = new Date(this.currentShift.start_time);
+        const todayExpectedShiftTime = new Date(now);
+        const [hours, minutes] = expectedShiftTime.includes(':') 
+          ? expectedShiftTime.split(':') 
+          : [expectedShiftTime.substring(0, 2), expectedShiftTime.substring(2)];
+        todayExpectedShiftTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+        
+        // If current shift started before today's expected shift time, we missed a shift change
+        if (currentShiftStart < todayExpectedShiftTime) {
+          needsShiftChange = true;
+          changeReason = `Current shift started before expected shift time (${expectedShiftTime})`;
+        }
+      }
+      
+      if (needsShiftChange) {
+        ShiftDebugger.warning(`🔄 MISSED SHIFT DETECTED - Triggering recovery shift change`, {
+          reason: changeReason,
+          expectedShiftNumber,
+          expectedShiftTime
+        });
+        
+        // End current shift if exists
+        if (this.currentShift && this.currentShift.status === 'active') {
+          await this.endCurrentShift(true, `System startup recovery: ${changeReason}`);
+        }
+        
+        // Start the expected shift
+        await this.startNewShift(expectedShiftNumber, expectedShiftTime, true);
+        
+        // Trigger dashboard reset to ensure frontend is synchronized
+        await this.triggerDashboardReset('System startup shift recovery');
+        
+        ShiftDebugger.success('✅ STARTUP SHIFT RECOVERY COMPLETED', {
+          newShiftId: this.currentShift?.id,
+          newShiftName: this.currentShift?.shift_name,
+          recoveryTime: new Date().toISOString()
+        });
+      } else {
+        ShiftDebugger.success('✅ Shift state validation passed - no recovery needed');
+      }
+      
+    } catch (error) {
+      ShiftDebugger.error('❌ Startup shift validation failed', {
+        error: error.message,
+        stack: error.stack
+      });
+      console.error('❌ Startup shift validation error:', error.message);
     }
   }
 

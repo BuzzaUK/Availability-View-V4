@@ -23,7 +23,7 @@ const ChartContainer = styled(Paper)(({ theme }) => ({
   height: '400px',
 }));
 
-const MicroStopsChart = ({ data, loading }) => {
+const MicroStopsChart = ({ data, loading, selectedAsset }) => {
   if (loading || !data || !data.micro_stop_trend) {
     return (
       <ChartContainer>
@@ -84,7 +84,7 @@ const MicroStopsChart = ({ data, loading }) => {
   return (
     <ChartContainer>
       <Typography variant="h6" gutterBottom>
-        Micro Stops Analysis (Stops &lt; 3 minutes)
+        Micro Stops Analysis (Stops &lt; {selectedAsset?.microstop_threshold ? Math.round(selectedAsset.microstop_threshold / 60) : 3} minutes)
       </Typography>
       <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 2 }}>
         Daily trend of micro stops count and accumulated time

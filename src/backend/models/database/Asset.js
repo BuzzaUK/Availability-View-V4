@@ -66,6 +66,11 @@ const Asset = sequelize.define('Asset', {
     defaultValue: 1800,
     comment: 'Long stop threshold in seconds'
   },
+  microstop_threshold: {
+    type: DataTypes.INTEGER,
+    defaultValue: 180,
+    comment: 'Microstop threshold in seconds (stops shorter than this are considered microstops)'
+  },
   downtime_reasons: {
     type: DataTypes.JSON,
     defaultValue: []

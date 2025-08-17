@@ -124,11 +124,25 @@ export const SocketProvider = ({ children }) => {
       socketInstance.on('connect', () => {
         console.log('✅ SocketContext: Socket connected successfully, ID:', socketInstance.id);
         setConnected(true);
+        
+        // Refresh data on reconnection to handle system wake scenarios
+        console.log('🔄 SocketContext: Refreshing data after connection/reconnection');
+        setTimeout(() => {
+          fetchAllData();
+        }, 500); // Small delay to ensure server is ready
       });
 
-      socketInstance.on('disconnect', () => {
-        console.log('❌ SocketContext: Socket disconnected');
+      socketInstance.on('disconnect', (reason) => {
+        console.log('❌ SocketContext: Socket disconnected, reason:', reason);
         setConnected(false);
+      });
+      
+      socketInstance.on('reconnect', (attemptNumber) => {
+        console.log('🔄 SocketContext: Socket reconnected after', attemptNumber, 'attempts');
+        // Additional data refresh on explicit reconnection
+        setTimeout(() => {
+          fetchAllData();
+        }, 1000);
       });
 
       socketInstance.on('error', (error) => {

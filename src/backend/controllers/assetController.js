@@ -291,6 +291,7 @@ exports.updateAsset = async (req, res) => {
       logger_id,
       short_stop_threshold,
       long_stop_threshold,
+      microstop_threshold,
       downtime_reasons
     } = req.body;
     
@@ -361,6 +362,7 @@ exports.updateAsset = async (req, res) => {
       logger_id: loggerInternalId,
       short_stop_threshold,
       long_stop_threshold,
+      microstop_threshold,
       downtime_reasons
     });
     
