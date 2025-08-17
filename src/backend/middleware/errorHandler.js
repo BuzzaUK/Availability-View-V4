@@ -1,11 +1,12 @@
 const logger = require('../utils/logger');
+const environmentHandler = require('./environmentHandler');
 
 const errorHandler = (err, req, res, next) => {
   let error = { ...err };
   error.message = err.message;
 
-  // Log error details using Winston
-  logger.logError(err, {
+  // Log error using environment-specific handler
+  environmentHandler.logError(err, {
     url: req.originalUrl,
     method: req.method,
     ip: req.ip,
@@ -76,18 +77,9 @@ const errorHandler = (err, req, res, next) => {
 
   // Default to 500 server error
   const statusCode = error.statusCode || 500;
-  const message = error.message || 'Internal Server Error';
-
-  // Don't expose sensitive error details in production
-  const response = {
-    success: false,
-    error: message
-  };
-
-  // Include stack trace in development
-  if (process.env.NODE_ENV === 'development') {
-    response.stack = err.stack;
-  }
+  
+  // Use environment-specific error formatting
+  const response = environmentHandler.formatErrorResponse(err, req);
 
   res.status(statusCode).json(response);
 };

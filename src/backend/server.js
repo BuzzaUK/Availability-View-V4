@@ -95,11 +95,14 @@ app.get('/api/health', async (req, res) => {
     await databaseService.sequelize.authenticate();
     healthCheck.database.status = 'connected';
     
+    // Import models for counting
+    const { User, Logger, Asset } = require('./models/database');
+    
     // Get basic database stats
     const [userCount, loggerCount, assetCount] = await Promise.all([
-      databaseService.sequelize.models.User.count(),
-      databaseService.sequelize.models.Logger.count(),
-      databaseService.sequelize.models.Asset.count()
+      User.count(),
+      Logger.count(),
+      Asset.count()
     ]);
     
     healthCheck.database.stats = {
