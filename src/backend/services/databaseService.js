@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 
 class DatabaseService {
   constructor() {
+    this.sequelize = sequelize;
     this.initialized = false;
     this.initializeDatabase();
   }
