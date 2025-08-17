@@ -10,6 +10,7 @@ const databaseService = require('./services/databaseService');
 const shiftScheduler = require('./services/shiftScheduler');
 const csvEnhancementService = require('./services/csvEnhancementService');
 const { authenticateJWT } = require('./middleware/authMiddleware');
+const errorHandler = require('./middleware/errorHandler');
 
 // Import routes
 const authRoutes = require('./routes/authRoutes');
@@ -75,13 +76,46 @@ app.use('/api/loggers', authenticateJWT, loggerRoutes);
 app.use('/api/invitations', invitationRoutes);
 app.use('/api/reports/natural-language', authenticateJWT, naturalLanguageReportRoutes);
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+// Health check endpoint with database connectivity
+app.get('/api/health', async (req, res) => {
+  const healthCheck = {
+    status: 'OK',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
-  });
+    environment: process.env.NODE_ENV || 'development',
+    database: {
+      status: 'unknown',
+      type: process.env.NODE_ENV === 'production' ? 'PostgreSQL' : 'SQLite'
+    },
+    uptime: process.uptime(),
+    memory: process.memoryUsage()
+  };
+
+  try {
+    // Test database connectivity
+    await databaseService.sequelize.authenticate();
+    healthCheck.database.status = 'connected';
+    
+    // Get basic database stats
+    const [userCount, loggerCount, assetCount] = await Promise.all([
+      databaseService.sequelize.models.User.count(),
+      databaseService.sequelize.models.Logger.count(),
+      databaseService.sequelize.models.Asset.count()
+    ]);
+    
+    healthCheck.database.stats = {
+      users: userCount,
+      loggers: loggerCount,
+      assets: assetCount
+    };
+    
+    res.status(200).json(healthCheck);
+  } catch (error) {
+    healthCheck.status = 'ERROR';
+    healthCheck.database.status = 'disconnected';
+    healthCheck.database.error = error.message;
+    
+    res.status(503).json(healthCheck);
+  }
 });
 
 // ESP32 device registration endpoint
@@ -416,6 +450,9 @@ app.post('/api/fix-bagger-logger', async (req, res) => {
     res.status(500).json({ error: 'Failed to fix asset association' });
   }
 });
+
+// Error handling middleware (must be last)
+app.use(errorHandler);
 
 // Serve static files from React build (for production)
 if (process.env.NODE_ENV === 'production') {

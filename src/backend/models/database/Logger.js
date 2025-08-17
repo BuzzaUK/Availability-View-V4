@@ -33,8 +33,11 @@ const Logger = sequelize.define('Logger', {
     defaultValue: 'offline'
   },
   ip_address: {
-    type: DataTypes.INET,
-    allowNull: true
+    type: DataTypes.STRING,
+    allowNull: true,
+    validate: {
+      isIP: true
+    }
   },
   firmware_version: {
     type: DataTypes.STRING,

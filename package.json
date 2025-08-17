@@ -17,7 +17,8 @@
     "db:reset": "node src/backend/scripts/resetDatabase.js",
     "db:clean": "node src/backend/scripts/cleanDatabase.js",
     "db:debug": "node src/backend/scripts/debugAssets.js",
-    "db:check-pins": "node src/backend/scripts/checkPinNumbers.js"
+    "db:check-pins": "node src/backend/scripts/checkPinNumbers.js",
+    "db:fix-logger": "node src/backend/scripts/fixLoggerIpAddress.js"
   },
   "keywords": [
     "esp32",
@@ -46,6 +47,7 @@
     "sequelize": "^6.35.0",
     "socket.io": "^4.7.2",
     "sqlite3": "^5.1.7",
+    "winston": "^3.11.0",
     "ws": "^8.18.3"
   },
   "devDependencies": {
