@@ -16,6 +16,9 @@ const {
   getAvailabilityAnalytics
 } = require('../controllers/analyticsController');
 
+// Protect all routes
+router.use(authenticateJWT);
+
 // Overall analytics
 router.get('/', getOverviewAnalytics);
 
