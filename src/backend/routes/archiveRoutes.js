@@ -13,7 +13,11 @@ const {
 } = require('../controllers/archiveController');
 
 // Get all archives
-router.get('/', getArchives);
+router.get('/', (req, res, next) => {
+  console.log('🔍 DEBUG: Archive route hit - GET /');
+  console.log('🔍 DEBUG: User:', req.user ? req.user.id : 'No user');
+  next();
+}, getArchives);
 
 // Get single archive
 router.get('/:id', getArchiveById);

@@ -20,6 +20,15 @@ exports.getArchives = async (req, res) => {
   try {
     // Get all archives from database
     let archives = await databaseService.getAllArchives();
+    console.log(`🔍 DEBUG: Retrieved ${archives.length} archives from database`);
+    if (archives.length > 0) {
+      console.log('🔍 DEBUG: Archive types:', [...new Set(archives.map(a => a.archive_type))]);
+      console.log('🔍 DEBUG: Sample archive:', {
+        id: archives[0].id,
+        title: archives[0].title,
+        archive_type: archives[0].archive_type
+      });
+    }
     
     // Pagination
     const page = parseInt(req.query.page, 10) || 1;

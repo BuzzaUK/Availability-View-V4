@@ -16,7 +16,7 @@ const Archive = sequelize.define('Archive', {
     allowNull: true
   },
   archive_type: {
-    type: DataTypes.ENUM('EVENTS', 'REPORTS', 'BACKUPS', 'CUSTOM'),
+    type: DataTypes.ENUM('EVENTS', 'REPORTS', 'BACKUPS', 'CUSTOM', 'SHIFT_REPORT'),
     allowNull: false,
     defaultValue: 'EVENTS'
   },
