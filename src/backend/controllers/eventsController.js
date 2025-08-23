@@ -332,7 +332,8 @@ exports.getEventArchives = async (req, res) => {
       event_count: archive.archived_data ? 
         (typeof archive.archived_data === 'string' ? 
           JSON.parse(archive.archived_data).event_count : 
-          archive.archived_data.event_count) : 0
+          archive.archived_data.event_count) : 0,
+      archived_data: archive.archived_data // Include the full archived_data for CSV export
     }));
 
     console.log(`📊 Event Archives API: Returning ${transformedArchives.length} EVENTS archives (filtered from ${allArchives.length} total archives)`);

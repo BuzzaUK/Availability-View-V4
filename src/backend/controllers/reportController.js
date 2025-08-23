@@ -175,6 +175,8 @@ exports.generateAssetReport = async (req, res) => {
 // @access  Private
 exports.getShiftReports = async (req, res) => {
   try {
+    console.log('\n\n🚀🚀🚀 DEBUG - getShiftReports FUNCTION CALLED 🚀🚀🚀');
+    console.log('🚀 DEBUG - getShiftReports called with query:', req.query);
     const { page = 1, limit = 10, search = '', startDate, endDate } = req.query;
     
     // Import reportService to get archived shift reports
@@ -205,46 +207,103 @@ exports.getShiftReports = async (req, res) => {
     // Transform archived reports to match frontend expectations
     const shiftReports = paginatedReports.map(archive => {
       const archivedData = archive.archived_data || {};
-      const analysis = archivedData.analysis || {};
-      const performanceSummary = analysis.performance_summary || {};
-      
-      // Calculate duration from start and end times
-      const startTime = new Date(archive.date_range_start);
-      const endTime = new Date(archive.date_range_end);
-      const duration = endTime - startTime; // Duration in milliseconds
-      
-      // Get events processed for basic metrics calculation
-      const eventsProcessed = archivedData.generation_metadata?.events_processed || 0;
-      
-      // Provide basic calculated metrics when detailed analysis isn't available
-      const basicAvailability = eventsProcessed > 0 ? 0.75 : 0; // Placeholder calculation
-      const basicPerformance = eventsProcessed > 0 ? 0.85 : 0; // Placeholder calculation
-      const basicQuality = eventsProcessed > 0 ? 0.95 : 0; // Placeholder calculation
-      const basicOEE = basicAvailability * basicPerformance * basicQuality;
-      
+      const metrics = archivedData.shift_metrics || archivedData; // Support both old and new structure
+      const meta = archivedData.generation_metadata || archivedData; // Support both old and new structure
+
+      // DEBUG: Log the data being processed
+      console.log('DEBUG - Processing archive:', {
+        id: archive.id,
+        title: archive.title,
+        date_range_start: archive.date_range_start,
+        date_range_end: archive.date_range_end,
+        metrics_shift_duration: metrics.shift_duration,
+        meta_shift_duration_ms: meta.shift_duration_ms,
+        has_shift_metrics: !!archivedData.shift_metrics,
+        has_generation_metadata: !!archivedData.generation_metadata
+      });
+
+      // Calculate duration - prefer shift_metrics.shift_duration, then generation_metadata, fallback to date range
+      let duration = 0;
+      if (metrics.shift_duration) {
+        duration = Number(metrics.shift_duration);
+        console.log('DEBUG - Using metrics.shift_duration:', duration);
+      } else if (meta.shift_duration_ms) {
+        duration = Number(meta.shift_duration_ms);
+        console.log('DEBUG - Using meta.shift_duration_ms:', duration);
+      } else {
+        const startTime = archive.date_range_start ? new Date(archive.date_range_start) : null;
+        const endTime = archive.date_range_end ? new Date(archive.date_range_end) : null;
+        duration = startTime && endTime ? Math.max(0, endTime - startTime) : 0; // ms
+        console.log('DEBUG - Calculated from date range:', duration);
+      }
+
+      // Helper to normalize percentage values (allow 0-100 or 0-1)
+      const toDecimal = (val) => {
+        if (val === undefined || val === null || isNaN(val)) return 0;
+        const num = Number(val);
+        return num > 1 ? num / 100 : num;
+      };
+
+      // Helper to normalize time to minutes when source may be ms or minutes
+      const toMinutes = (val, fallbackDurationMs = 0) => {
+        if (val === undefined || val === null || isNaN(val)) return 0;
+        const num = Number(val);
+        // If clearly ms (>= 60,000), convert
+        if (num >= 60000) return num / 60000;
+        // If small positive and we have a real duration (> 1 minute), assume minutes
+        if (num > 0 && fallbackDurationMs >= 60000 && num < 10000) return num;
+        // Fallback assume ms
+        return num / 60000;
+      };
+
+      // Prefer explicit fields, fall back to *_percentage, then 0
+      const availability = toDecimal(
+        metrics.availability ?? metrics.availability_percentage
+      );
+      const performance = toDecimal(
+        metrics.performance ?? metrics.performance_percentage
+      );
+      const quality = toDecimal(
+        metrics.quality ?? metrics.quality_percentage
+      );
+      const oee = toDecimal(
+        metrics.oee ?? metrics.oee_percentage
+      );
+
+      // Runtime/Downtime: prefer minutes if present, else derive from ms totals (with smart fallback)
+      const runtime = metrics.runtime_minutes !== undefined
+        ? Math.round(Number(metrics.runtime_minutes))
+        : (metrics.total_runtime !== undefined ? Math.round(toMinutes(metrics.total_runtime, duration)) : 0);
+
+      const downtime = metrics.downtime_minutes !== undefined
+        ? Math.round(Number(metrics.downtime_minutes))
+        : (metrics.total_downtime !== undefined ? Math.round(toMinutes(metrics.total_downtime, duration)) : 0);
+
+      const stops = metrics.total_stops !== undefined ? Number(metrics.total_stops) : 0;
+
       return {
         id: archive.id,
         archive_id: archive.id,
+        shift_id: archivedData.shift_id, // For dropdown filtering and linkage
         title: archive.title,
-        description: archive.description,
+        description: archivedData.description || archive.description,
         name: archive.title, // For compatibility with frontend
-        shift_number: 'N/A', // Not available in current data structure
+        shift_number: 'N/A',
         start_time: archive.date_range_start,
-        end_time: archive.date_range_end,
+        end_time: archive.date_range_end || (archive.date_range_start && duration > 0 ? new Date(new Date(archive.date_range_start).getTime() + duration).toISOString() : null),
         created_at: archive.created_at,
         status: archive.status,
         archive_type: archive.archive_type,
-        // Include metrics from analysis if available, otherwise use basic calculations
-        duration: duration > 0 ? duration : 0,
-        availability: performanceSummary.overall_availability || basicAvailability,
-        performance: performanceSummary.overall_performance || basicPerformance,
-        quality: performanceSummary.overall_quality || basicQuality,
-        oee: performanceSummary.overall_oee || basicOEE,
-        runtime: performanceSummary.total_runtime || (duration > 0 ? Math.round(duration * basicAvailability / 60000) : 0), // Convert to minutes
-        downtime: performanceSummary.total_downtime || (duration > 0 ? Math.round(duration * (1 - basicAvailability) / 60000) : 0), // Convert to minutes
-        stops: performanceSummary.total_stops || Math.max(0, eventsProcessed - 1), // Estimate stops from events
-        events_processed: eventsProcessed,
-        assets_analyzed: archivedData.generation_metadata?.assets_analyzed || 0
+        duration,
+        availability,
+        performance,
+        quality,
+        oee,
+        runtime,
+        downtime,
+        stops,
+        events_processed: meta.events_processed || 0,
+        assets_analyzed: meta.assets_analyzed || 0
       };
     });
     

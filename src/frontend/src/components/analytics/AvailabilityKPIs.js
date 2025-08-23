@@ -84,8 +84,7 @@ const AvailabilityKPIs = ({ data, loading, selectedAsset }) => {
   const { error, success } = useContext(AlertContext);
   const { token } = useContext(AuthContext);
   
-  // Debug logging
-  console.log('AvailabilityKPIs - selectedAsset:', selectedAsset);
+
   const [thresholdDialogOpen, setThresholdDialogOpen] = useState(false);
   const [selectedMetric, setSelectedMetric] = useState(null);
   const [thresholds, setThresholds] = useState({
@@ -103,7 +102,18 @@ const AvailabilityKPIs = ({ data, loading, selectedAsset }) => {
     );
   }
 
-  const { overview } = data;
+  const overview = data?.overview || {
+    overall_availability: 0,
+    total_runtime_hours: 0,
+    total_downtime_hours: 0,
+    avg_mtbf_hours: 0,
+    avg_mttr_hours: 0,
+    total_stops: 0,
+    stop_frequency_per_hour: 0,
+    micro_stops: 0,
+    micro_stop_time_hours: 0,
+    micro_stop_percentage: 0,
+  };
 
   const handleThresholdEdit = (metric) => {
     setSelectedMetric(metric);
@@ -213,15 +223,6 @@ const AvailabilityKPIs = ({ data, loading, selectedAsset }) => {
       description: 'Total time equipment was stopped or not producing'
     },
     {
-      label: 'MTBF (Mean Time Between Failures)',
-      value: formatHoursToHMS(overview.avg_mtbf_hours),
-      icon: <SpeedIcon color="info" />,
-      color: getMTBFColor(overview.avg_mtbf_hours),
-      description: 'Average time between equipment failures',
-      hasSettings: true,
-      settingsKey: 'mtbf'
-    },
-    {
       label: 'MTTR (Mean Time To Repair)',
       value: formatHoursToHMS(overview.avg_mttr_hours),
       icon: <BuildIcon color="warning" />,
@@ -229,6 +230,15 @@ const AvailabilityKPIs = ({ data, loading, selectedAsset }) => {
       description: 'Average time to repair equipment after failure',
       hasSettings: true,
       settingsKey: 'mttr'
+    },
+    {
+      label: 'MTBF (Mean Time Between Failures)',
+      value: formatHoursToHMS(overview.avg_mtbf_hours),
+      icon: <SpeedIcon color="info" />,
+      color: getMTBFColor(overview.avg_mtbf_hours),
+      description: 'Average time between equipment failures',
+      hasSettings: true,
+      settingsKey: 'mtbf'
     }
   ];
 

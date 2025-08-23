@@ -49,9 +49,17 @@ class ReportService {
         throw new Error('Shift not found');
       }
 
-      // Get all events for this shift
-      const allEvents = await this.databaseService.getAllEvents({ where: { shift_id: shiftId } });
-      const events = allEvents.rows || allEvents; // handle findAndCountAll vs findAll
+      // Get all events and filter by shift time range
+      const allEvents = await this.databaseService.getAllEvents();
+      const allEventsArray = allEvents.rows || allEvents; // handle findAndCountAll vs findAll
+      
+      // Filter events by shift time range (more reliable than shift_id)
+      const shiftStart = new Date(shift.start_time);
+      const shiftEnd = shift.end_time ? new Date(shift.end_time) : new Date();
+      const events = allEventsArray.filter(event => {
+        const eventDate = new Date(event.timestamp);
+        return eventDate >= shiftStart && eventDate <= shiftEnd;
+      });
 
       // Get all assets
       const allAssets = await this.databaseService.getAllAssets();
@@ -139,33 +147,57 @@ class ReportService {
 
     // Calculate metrics for each asset
     const assetMetrics = assets.map(asset => {
-      const assetId = asset.id || asset._id;
+      // Handle Sequelize model instances
+      const assetData = asset.toJSON ? asset.toJSON() : asset;
+      const assetId = assetData.id || assetData._id;
       const assetEvents = eventsByAsset[assetId] || [];
-      const metrics = this.calculateAssetMetrics(asset, assetEvents, shiftStart, shiftEnd);
+      const metrics = this.calculateAssetMetrics(assetData, assetEvents, shiftStart, shiftEnd);
       
       return {
         asset_id: assetId,
-        asset_name: asset.name,
-        pin_number: asset.pin_number,
-        location: asset.location,
+        asset_name: assetData.name,
+        pin_number: assetData.pin_number,
+        location: assetData.location,
         ...metrics
       };
     });
 
-    // Calculate overall shift metrics
-    const totalRuntime = assetMetrics.reduce((sum, asset) => sum + asset.runtime, 0);
-    const totalDowntime = assetMetrics.reduce((sum, asset) => sum + asset.downtime, 0);
-    const totalStops = assetMetrics.reduce((sum, asset) => sum + asset.stops, 0);
-    const totalShortStops = assetMetrics.reduce((sum, asset) => sum + asset.short_stops, 0);
+    // Calculate overall shift metrics with validation
+    const totalRuntime = assetMetrics.reduce((sum, asset) => sum + (asset.runtime || 0), 0);
+    const totalDowntime = assetMetrics.reduce((sum, asset) => sum + (asset.downtime || 0), 0);
+    const totalStops = assetMetrics.reduce((sum, asset) => sum + (asset.stops || 0), 0);
+    const totalShortStops = assetMetrics.reduce((sum, asset) => sum + (asset.short_stops || 0), 0);
     const averageAvailability = assetMetrics.length > 0 ? 
-      assetMetrics.reduce((sum, asset) => sum + asset.availability, 0) / assetMetrics.length : 0;
+      assetMetrics.reduce((sum, asset) => sum + (asset.availability || 0), 0) / assetMetrics.length : 0;
 
-    // Calculate OEE components
-    const plannedProductionTime = shiftDuration;
+    // Calculate OEE components with validation
+    const plannedProductionTime = Math.max(shiftDuration, 1); // Prevent division by zero
     const availability = totalRuntime / plannedProductionTime * 100;
     const performance = 85; // This would be calculated based on actual vs expected production
     const quality = 95; // This would be calculated based on quality metrics
     const oee = (availability * performance * quality) / 10000;
+
+    // Ensure all metrics have valid values with fallbacks
+    const safeMetrics = {
+      total_runtime: totalRuntime || 0, // ms
+      total_downtime: totalDowntime || 0, // ms
+      total_stops: totalStops || 0,
+      total_short_stops: totalShortStops || 0,
+      average_availability: isNaN(averageAvailability) ? 0 : averageAvailability,
+      availability_percentage: isNaN(availability) ? 0 : Math.max(0, Math.min(100, availability)),
+      performance_percentage: isNaN(performance) ? 0 : Math.max(0, Math.min(100, performance)),
+      quality_percentage: isNaN(quality) ? 0 : Math.max(0, Math.min(100, quality)),
+      oee_percentage: isNaN(oee) ? 0 : Math.max(0, Math.min(100, oee)),
+      // Backward-compatible fields expected by some consumers/UI
+      availability: isNaN(availability) ? 0 : Math.max(0, Math.min(100, availability)),
+      performance: isNaN(performance) ? 0 : Math.max(0, Math.min(100, performance)),
+      quality: isNaN(quality) ? 0 : Math.max(0, Math.min(100, quality)),
+      oee: isNaN(oee) ? 0 : Math.max(0, Math.min(100, oee)),
+      runtime_minutes: (totalRuntime || 0) / 60000,
+      downtime_minutes: (totalDowntime || 0) / 60000,
+      shift_duration: shiftDuration, // ms
+      planned_production_time: shiftDuration // ms
+    };
 
     return {
       shift: {
@@ -175,76 +207,109 @@ class ReportService {
         start_time_formatted: shiftStart.toLocaleString(),
         end_time_formatted: shiftEnd.toLocaleString()
       },
-      metrics: {
-        total_runtime: totalRuntime,
-        total_downtime: totalDowntime,
-        total_stops: totalStops,
-        total_short_stops: totalShortStops,
-        average_availability: averageAvailability,
-        availability_percentage: availability,
-        performance_percentage: performance,
-        quality_percentage: quality,
-        oee_percentage: oee,
-        shift_duration: shiftDuration,
-        planned_production_time: plannedProductionTime
-      },
+      metrics: safeMetrics,
       assets: assetMetrics,
-      events: events.map(event => ({
-        ...event,
-        timestamp_formatted: new Date(event.timestamp).toLocaleString(),
-        duration_minutes: event.duration ? event.duration / 60 : 0
-      }))
+      events: events.map(event => {
+        // Find the asset for this event
+        const assetId = event.asset_id || event.asset;
+        const asset = assets.find(a => {
+          const assetData = a.toJSON ? a.toJSON() : a;
+          return (assetData.id || assetData._id) === assetId;
+        });
+        const assetData = asset ? (asset.toJSON ? asset.toJSON() : asset) : null;
+        
+        return {
+          ...event,
+          asset_name: assetData ? assetData.name : (event.asset_name || 'Unknown Asset'),
+          timestamp_formatted: new Date(event.timestamp).toLocaleString(),
+          state: event.state || event.new_state || event.newState || null,
+          duration_minutes: event.duration ? event.duration / 60000 : 0
+        };
+      })
     };
   }
+  
+  
 
   /**
    * Calculate detailed metrics for a single asset
    */
   calculateAssetMetrics(asset, events, shiftStart, shiftEnd) {
-    let runtime = 0;
-    let downtime = 0;
+    let runtime = 0; // ms
+    let downtime = 0; // ms
     let stops = 0;
     let shortStops = 0;
-    let longestStop = 0;
-    let shortestStop = Infinity;
-    let totalStopDuration = 0;
+    let longestStop = 0; // ms
+    let shortestStop = Infinity; // ms
+    let totalStopDuration = 0; // ms
 
-    // Sort events by timestamp
+    const microStopThresholdMs = 5 * 60 * 1000; // 5 minutes
+
+    // Sort events by timestamp (ascending)
     const sortedEvents = events.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
     // Calculate metrics from events
-    sortedEvents.forEach(event => {
-      if (event.event_type === 'STOP') {
+    for (let i = 0; i < sortedEvents.length; i++) {
+      const event = sortedEvents[i];
+      const nextEvent = sortedEvents[i + 1];
+
+      // Determine event duration in ms
+      let eventDuration = event.duration || 0;
+      if (!eventDuration || eventDuration <= 0) {
+        const start = new Date(event.timestamp);
+        const end = nextEvent ? new Date(nextEvent.timestamp) : shiftEnd;
+        eventDuration = Math.max(0, end - start);
+      }
+
+      // Normalize event types/states
+      let isStop = false;
+      let isRun = false;
+      // Normalize strings to uppercase for robust comparisons
+      const typeVal = (event.event_type || '').toString().toUpperCase();
+      const stateValRaw = (event.new_state || event.newState || event.state || '').toString();
+      const stateVal = stateValRaw.toUpperCase();
+
+      if (typeVal === 'STATE_CHANGE' || typeVal === 'STATE' || typeVal === 'STATECHANGE') {
+        if (stateVal === 'STOPPED' || stateVal === 'STOP') isStop = true;
+        if (stateVal === 'RUNNING' || stateVal === 'START') isRun = true;
+      } else if (typeVal === 'STOP' || stateVal === 'STOPPED' || stateVal === 'STOP') {
+        isStop = true;
+      } else if (typeVal === 'START' || typeVal === 'RUNNING' || stateVal === 'RUNNING' || stateVal === 'START') {
+        isRun = true;
+      }
+
+      if (isStop) {
         stops++;
-        const stopDuration = event.duration || 0;
-        totalStopDuration += stopDuration;
-        
-        if (stopDuration > longestStop) longestStop = stopDuration;
-        if (stopDuration < shortestStop) shortestStop = stopDuration;
-        
-        if (event.is_short_stop) {
+        downtime += eventDuration;
+        totalStopDuration += eventDuration;
+        if (eventDuration > longestStop) longestStop = eventDuration;
+        if (eventDuration < shortestStop) shortestStop = eventDuration;
+        if (event.is_short_stop || eventDuration < microStopThresholdMs) {
           shortStops++;
         }
+      } else if (isRun) {
+        runtime += eventDuration;
       }
-      
-      runtime += event.runtime || 0;
-      downtime += event.downtime || 0;
-    });
 
-    const totalTime = runtime + downtime;
+      // Fallback: legacy fields
+      if (event.runtime) runtime += event.runtime;
+      if (event.downtime) downtime += event.downtime;
+    }
+
+    const totalTime = runtime + downtime; // ms
     const availability = totalTime > 0 ? (runtime / totalTime) * 100 : 0;
     const averageStopDuration = stops > 0 ? totalStopDuration / stops : 0;
 
     return {
-      runtime: runtime / 1000, // Convert to seconds
-      downtime: downtime / 1000,
+      runtime, // ms
+      downtime, // ms
       stops,
       short_stops: shortStops,
       long_stops: stops - shortStops,
-      availability: availability,
-      longest_stop: longestStop / 1000,
-      shortest_stop: shortestStop === Infinity ? 0 : shortestStop / 1000,
-      average_stop_duration: averageStopDuration / 1000,
+      availability,
+      longest_stop: longestStop, // ms
+      shortest_stop: shortestStop === Infinity ? 0 : shortestStop, // ms
+      average_stop_duration: averageStopDuration, // ms
       current_state: asset.current_state || 'UNKNOWN'
     };
   }
@@ -284,14 +349,14 @@ class ReportService {
         pin_number: asset.pin_number,
         location: asset.location || '',
         current_state: asset.current_state,
-        runtime_minutes: (asset.runtime / 60).toFixed(2),
-        downtime_minutes: (asset.downtime / 60).toFixed(2),
+        runtime_minutes: (asset.runtime / 60000).toFixed(2),
+        downtime_minutes: (asset.downtime / 60000).toFixed(2),
         availability_percentage: asset.availability.toFixed(2),
         total_stops: asset.stops,
         short_stops: asset.short_stops,
         long_stops: asset.long_stops,
-        longest_stop_minutes: (asset.longest_stop / 60).toFixed(2),
-        average_stop_duration_minutes: (asset.average_stop_duration / 60).toFixed(2)
+        longest_stop_minutes: (asset.longest_stop / 60000).toFixed(2),
+        average_stop_duration_minutes: (asset.average_stop_duration / 60000).toFixed(2)
       }));
 
       // Events CSV
@@ -299,16 +364,45 @@ class ReportService {
         timestamp: event.timestamp_formatted,
         asset_name: event.asset_name,
         event_type: event.event_type,
-        state: event.state,
-        duration_minutes: event.duration_minutes.toFixed(2),
+        state: event.state || event.new_state || '',
+        duration_minutes: Number(event.duration_minutes || 0).toFixed(2),
         is_short_stop: event.is_short_stop || false,
         note: event.note || ''
       }));
 
+      const shiftSummaryCsv = json2csv(shiftSummary);
+
+      const assetFields = [
+        'asset_name',
+        'pin_number',
+        'location',
+        'current_state',
+        'runtime_minutes',
+        'downtime_minutes',
+        'availability_percentage',
+        'total_stops',
+        'short_stops',
+        'long_stops',
+        'longest_stop_minutes',
+        'average_stop_duration_minutes'
+      ];
+      const assetCsv = assetDetails.length ? json2csv(assetDetails) : json2csv([], { fields: assetFields });
+
+      const eventFields = [
+        'timestamp',
+        'asset_name',
+        'event_type',
+        'state',
+        'duration_minutes',
+        'is_short_stop',
+        'note'
+      ];
+      const eventCsv = eventDetails.length ? json2csv(eventDetails) : json2csv([], { fields: eventFields });
+
       const csvReports = {
-        shift_summary: json2csv(shiftSummary),
-        asset_details: json2csv(assetDetails),
-        event_details: json2csv(eventDetails)
+        shift_summary: shiftSummaryCsv,
+        asset_details: assetCsv,
+        event_details: eventCsv
       };
 
       return csvReports;
@@ -496,8 +590,12 @@ class ReportService {
     // Group events by asset
     events.forEach(event => {
       const assetId = event.asset_id;
-      const asset = assets.find(a => a.id === assetId || a._id === assetId);
-      const assetName = asset?.name || event.asset?.name || 'Unknown';
+      const asset = assets.find(a => {
+        const assetData = a.toJSON ? a.toJSON() : a;
+        return (assetData.id || assetData._id) === assetId;
+      });
+      const assetData = asset ? (asset.toJSON ? asset.toJSON() : asset) : null;
+      const assetName = assetData?.name || event.asset?.name || 'Unknown';
       
       if (!assetStats[assetId]) {
         assetStats[assetId] = {
@@ -583,12 +681,25 @@ class ReportService {
       // Generate traditional CSV data
       const originalCsv = await this.generateCsvReport(reportData);
       csvContent += `"DETAILED DATA"\n`;
-      csvContent += originalCsv;
+      csvContent += `"SHIFT SUMMARY"\n`;
+      csvContent += originalCsv.shift_summary + '\n\n';
+      csvContent += `"ASSET DETAILS"\n`;
+      csvContent += originalCsv.asset_details + '\n\n';
+      csvContent += `"EVENT DETAILS"\n`;
+      csvContent += originalCsv.event_details + '\n';
       
       return csvContent;
     } catch (error) {
       console.error('Error generating enhanced CSV report:', error);
-      return await this.generateCsvReport(reportData); // Fallback to original
+      const originalCsv = await this.generateCsvReport(reportData);
+      let fallback = `"DETAILED DATA"\n`;
+      fallback += `"SHIFT SUMMARY"\n`;
+      fallback += originalCsv.shift_summary + '\n\n';
+      fallback += `"ASSET DETAILS"\n`;
+      fallback += originalCsv.asset_details + '\n\n';
+      fallback += `"EVENT DETAILS"\n`;
+      fallback += originalCsv.event_details + '\n';
+      return fallback;
     }
   }
 
@@ -948,12 +1059,19 @@ class ReportService {
           source_archive_id: archiveId,
           report_generation_timestamp: new Date().toISOString(),
           report_formats: Object.keys(reports),
-          shift_metrics: reportData.shiftSummary,
-          asset_performance: reportData.assetPerformance,
+          shift_metrics: reportData.metrics,
+          // ... existing code ...
+          asset_performance: (reportData.assets || []).map(a => ({
+            ...a,
+            name: a.asset_name,
+            runtime_minutes: Math.round(((a.runtime || 0) / 60000)),
+            downtime_minutes: Math.round(((a.downtime || 0) / 60000)),
+            stop_count: a.stops
+          })),
           reports: reports,
           generation_metadata: {
             events_processed: events.length,
-            assets_analyzed: reportData.assetPerformance?.length || 0,
+            assets_analyzed: reportData.assets?.length || 0,
             report_version: '2.0',
             data_source: 'archived_events'
           }
@@ -969,7 +1087,7 @@ class ReportService {
         success: true,
         reportArchive,
         reports,
-        metrics: reportData.shiftSummary
+        metrics: reportData.metrics
       };
       
     } catch (error) {
@@ -1007,14 +1125,31 @@ class ReportService {
           shift_id: shiftId,
           report_generation_timestamp: new Date().toISOString(),
           report_formats: Object.keys(reportResult.reports || {}),
-          shift_metrics: reportResult.shiftSummary,
-          asset_performance: reportResult.assetPerformance,
+          shift_metrics: reportResult.metrics,
+          asset_performance: (reportResult.assets || []).map(a => ({
+            asset_id: a.asset_id || a.id,
+            name: a.asset_name || a.name || 'Unknown Asset',
+            pin_number: a.pin_number || null,
+            location: a.location || null,
+            runtime_minutes: Math.round(((a.runtime || 0) / 60000)),
+            downtime_minutes: Math.round(((a.downtime || 0) / 60000)),
+            stop_count: a.stops || 0,
+            short_stop_count: a.short_stops || 0,
+            availability: isNaN(a.availability) ? 0 : Math.max(0, Math.min(100, a.availability || 0)),
+            longest_stop_minutes: a.longest_stop ? Math.round(a.longest_stop / 60000) : 0,
+            average_stop_minutes: a.average_stop_duration ? Math.round(a.average_stop_duration / 60000) : 0,
+            total_time_minutes: Math.round(((a.runtime || 0) + (a.downtime || 0)) / 60000)
+          })),
           reports: reportResult.reports,
           generation_metadata: {
-            events_processed: reportResult.totalEvents || 0,
-            assets_analyzed: reportResult.assetPerformance?.length || 0,
+            events_processed: reportResult.events?.length || 0,
+            assets_analyzed: reportResult.assets?.length || 0,
             report_version: '2.0',
-            data_source: 'live_shift_data'
+            data_source: 'live_shift_data',
+            generation_timestamp: new Date().toISOString(),
+            shift_duration_ms: shift.end_time ? new Date(shift.end_time) - new Date(shift.start_time) : 0,
+            analytics_summary_available: !!reportResult.analyticsSummary,
+            total_events_from_analytics: reportResult.analyticsSummary?.key_metrics?.totalEvents || 0
           }
         }
       };
@@ -1028,7 +1163,7 @@ class ReportService {
         success: true,
         reportArchive,
         reports: reportResult.reports,
-        metrics: reportResult.shiftSummary
+        metrics: reportResult.metrics
       };
       
     } catch (error) {
@@ -1057,15 +1192,15 @@ class ReportService {
       
       const totalStops = stopEvents.length;
       
-      // Calculate stop durations
+      // Calculate stop durations (ms)
       const stopDurations = stopEvents.map(e => e.duration || 0).filter(d => d > 0);
       const totalStopTime = stopDurations.reduce((sum, duration) => sum + duration, 0);
       
-      // Micro stops (< 5 minutes = 300 seconds)
-      const microStops = stopDurations.filter(duration => duration < 300);
+      // Micro stops (< 5 minutes)
+      const microStops = stopDurations.filter(duration => duration < 5 * 60 * 1000);
       const microStopsTime = microStops.reduce((sum, duration) => sum + duration, 0);
       
-      // Calculate MTBF and MTTR
+      // Calculate MTBF and MTTR (minutes)
       const totalRuntime = events
         .filter(e => e.event_type === 'STATE_CHANGE' && e.new_state === 'RUNNING')
         .reduce((sum, e) => sum + (e.duration || 0), 0);
@@ -1079,7 +1214,7 @@ class ReportService {
       // Micro stops percentage
       const microStopsPercentage = totalStopTime > 0 ? (microStopsTime / totalStopTime) * 100 : 0;
       
-      // Longest and average stop duration
+      // Longest and average stop duration (ms)
       const longestStopDuration = stopDurations.length > 0 ? Math.max(...stopDurations) : 0;
       const averageStopDuration = stopDurations.length > 0 ? 
         stopDurations.reduce((sum, d) => sum + d, 0) / stopDurations.length : 0;

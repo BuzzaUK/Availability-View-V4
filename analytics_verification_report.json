@@ -1,0 +1,573 @@
+{
+  "timestamp": "2025-08-20T18:44:01.117Z",
+  "scenarios": [
+    {
+      "name": "Last 24 Hours",
+      "date_range": {
+        "start": "2025-08-19T18:44:01.002Z",
+        "end": "2025-08-20T18:44:01.003Z"
+      },
+      "tests": [
+        {
+          "match": false,
+          "difference": 100,
+          "value1": 100,
+          "value2": 0,
+          "label": "System Availability (%)",
+          "tolerance": 0.1
+        },
+        {
+          "match": false,
+          "difference": 1.04,
+          "value1": 1.04,
+          "value2": 0,
+          "label": "Total Runtime (hours)",
+          "tolerance": 0.01
+        },
+        {
+          "match": true,
+          "difference": 0,
+          "value1": 0,
+          "value2": 0,
+          "label": "Total Downtime (hours)",
+          "tolerance": 0.01
+        },
+        {
+          "match": true,
+          "difference": 0,
+          "value1": 0,
+          "value2": 0,
+          "label": "Total Stops",
+          "tolerance": 0
+        },
+        {
+          "match": false,
+          "difference": 100,
+          "value1": 100,
+          "value2": 0,
+          "label": "Production Line A Availability (%)",
+          "tolerance": 0.1
+        },
+        {
+          "match": false,
+          "difference": 0.52,
+          "value1": 0.52,
+          "value2": 0,
+          "label": "Production Line A Runtime (hours)",
+          "tolerance": 0.01
+        },
+        {
+          "match": true,
+          "difference": 0,
+          "value1": 0,
+          "value2": 0,
+          "label": "Production Line A Downtime (hours)",
+          "tolerance": 0.01
+        },
+        {
+          "match": false,
+          "difference": 100,
+          "value1": 100,
+          "value2": 0,
+          "label": "Hydraulic Press #1 Availability (%)",
+          "tolerance": 0.1
+        },
+        {
+          "match": false,
+          "difference": 0.52,
+          "value1": 0.52,
+          "value2": 0,
+          "label": "Hydraulic Press #1 Runtime (hours)",
+          "tolerance": 0.01
+        },
+        {
+          "match": true,
+          "difference": 0,
+          "value1": 0,
+          "value2": 0,
+          "label": "Hydraulic Press #1 Downtime (hours)",
+          "tolerance": 0.01
+        }
+      ],
+      "discrepancies": [
+        {
+          "match": false,
+          "difference": 100,
+          "value1": 100,
+          "value2": 0,
+          "label": "System Availability (%)",
+          "tolerance": 0.1
+        },
+        {
+          "match": false,
+          "difference": 1.04,
+          "value1": 1.04,
+          "value2": 0,
+          "label": "Total Runtime (hours)",
+          "tolerance": 0.01
+        },
+        {
+          "match": false,
+          "difference": 100,
+          "value1": 100,
+          "value2": 0,
+          "label": "Production Line A Availability (%)",
+          "tolerance": 0.1
+        },
+        {
+          "match": false,
+          "difference": 0.52,
+          "value1": 0.52,
+          "value2": 0,
+          "label": "Production Line A Runtime (hours)",
+          "tolerance": 0.01
+        },
+        {
+          "match": false,
+          "difference": 100,
+          "value1": 100,
+          "value2": 0,
+          "label": "Hydraulic Press #1 Availability (%)",
+          "tolerance": 0.1
+        },
+        {
+          "match": false,
+          "difference": 0.52,
+          "value1": 0.52,
+          "value2": 0,
+          "label": "Hydraulic Press #1 Runtime (hours)",
+          "tolerance": 0.01
+        }
+      ]
+    },
+    {
+      "name": "Last 7 Days",
+      "date_range": {
+        "start": "2025-08-13T18:44:01.003Z",
+        "end": "2025-08-20T18:44:01.003Z"
+      },
+      "tests": [
+        {
+          "match": false,
+          "difference": 100,
+          "value1": 100,
+          "value2": 0,
+          "label": "System Availability (%)",
+          "tolerance": 0.1
+        },
+        {
+          "match": false,
+          "difference": 1.04,
+          "value1": 1.04,
+          "value2": 0,
+          "label": "Total Runtime (hours)",
+          "tolerance": 0.01
+        },
+        {
+          "match": true,
+          "difference": 0,
+          "value1": 0,
+          "value2": 0,
+          "label": "Total Downtime (hours)",
+          "tolerance": 0.01
+        },
+        {
+          "match": true,
+          "difference": 0,
+          "value1": 0,
+          "value2": 0,
+          "label": "Total Stops",
+          "tolerance": 0
+        },
+        {
+          "match": false,
+          "difference": 100,
+          "value1": 100,
+          "value2": 0,
+          "label": "Production Line A Availability (%)",
+          "tolerance": 0.1
+        },
+        {
+          "match": false,
+          "difference": 0.52,
+          "value1": 0.52,
+          "value2": 0,
+          "label": "Production Line A Runtime (hours)",
+          "tolerance": 0.01
+        },
+        {
+          "match": true,
+          "difference": 0,
+          "value1": 0,
+          "value2": 0,
+          "label": "Production Line A Downtime (hours)",
+          "tolerance": 0.01
+        },
+        {
+          "match": false,
+          "difference": 100,
+          "value1": 100,
+          "value2": 0,
+          "label": "Hydraulic Press #1 Availability (%)",
+          "tolerance": 0.1
+        },
+        {
+          "match": false,
+          "difference": 0.52,
+          "value1": 0.52,
+          "value2": 0,
+          "label": "Hydraulic Press #1 Runtime (hours)",
+          "tolerance": 0.01
+        },
+        {
+          "match": true,
+          "difference": 0,
+          "value1": 0,
+          "value2": 0,
+          "label": "Hydraulic Press #1 Downtime (hours)",
+          "tolerance": 0.01
+        }
+      ],
+      "discrepancies": [
+        {
+          "match": false,
+          "difference": 100,
+          "value1": 100,
+          "value2": 0,
+          "label": "System Availability (%)",
+          "tolerance": 0.1
+        },
+        {
+          "match": false,
+          "difference": 1.04,
+          "value1": 1.04,
+          "value2": 0,
+          "label": "Total Runtime (hours)",
+          "tolerance": 0.01
+        },
+        {
+          "match": false,
+          "difference": 100,
+          "value1": 100,
+          "value2": 0,
+          "label": "Production Line A Availability (%)",
+          "tolerance": 0.1
+        },
+        {
+          "match": false,
+          "difference": 0.52,
+          "value1": 0.52,
+          "value2": 0,
+          "label": "Production Line A Runtime (hours)",
+          "tolerance": 0.01
+        },
+        {
+          "match": false,
+          "difference": 100,
+          "value1": 100,
+          "value2": 0,
+          "label": "Hydraulic Press #1 Availability (%)",
+          "tolerance": 0.1
+        },
+        {
+          "match": false,
+          "difference": 0.52,
+          "value1": 0.52,
+          "value2": 0,
+          "label": "Hydraulic Press #1 Runtime (hours)",
+          "tolerance": 0.01
+        }
+      ]
+    },
+    {
+      "name": "Last 30 Days",
+      "date_range": {
+        "start": "2025-07-21T18:44:01.003Z",
+        "end": "2025-08-20T18:44:01.003Z"
+      },
+      "tests": [
+        {
+          "match": false,
+          "difference": 100,
+          "value1": 100,
+          "value2": 0,
+          "label": "System Availability (%)",
+          "tolerance": 0.1
+        },
+        {
+          "match": false,
+          "difference": 1.04,
+          "value1": 1.04,
+          "value2": 0,
+          "label": "Total Runtime (hours)",
+          "tolerance": 0.01
+        },
+        {
+          "match": true,
+          "difference": 0,
+          "value1": 0,
+          "value2": 0,
+          "label": "Total Downtime (hours)",
+          "tolerance": 0.01
+        },
+        {
+          "match": true,
+          "difference": 0,
+          "value1": 0,
+          "value2": 0,
+          "label": "Total Stops",
+          "tolerance": 0
+        },
+        {
+          "match": false,
+          "difference": 100,
+          "value1": 100,
+          "value2": 0,
+          "label": "Production Line A Availability (%)",
+          "tolerance": 0.1
+        },
+        {
+          "match": false,
+          "difference": 0.52,
+          "value1": 0.52,
+          "value2": 0,
+          "label": "Production Line A Runtime (hours)",
+          "tolerance": 0.01
+        },
+        {
+          "match": true,
+          "difference": 0,
+          "value1": 0,
+          "value2": 0,
+          "label": "Production Line A Downtime (hours)",
+          "tolerance": 0.01
+        },
+        {
+          "match": false,
+          "difference": 100,
+          "value1": 100,
+          "value2": 0,
+          "label": "Hydraulic Press #1 Availability (%)",
+          "tolerance": 0.1
+        },
+        {
+          "match": false,
+          "difference": 0.52,
+          "value1": 0.52,
+          "value2": 0,
+          "label": "Hydraulic Press #1 Runtime (hours)",
+          "tolerance": 0.01
+        },
+        {
+          "match": true,
+          "difference": 0,
+          "value1": 0,
+          "value2": 0,
+          "label": "Hydraulic Press #1 Downtime (hours)",
+          "tolerance": 0.01
+        }
+      ],
+      "discrepancies": [
+        {
+          "match": false,
+          "difference": 100,
+          "value1": 100,
+          "value2": 0,
+          "label": "System Availability (%)",
+          "tolerance": 0.1
+        },
+        {
+          "match": false,
+          "difference": 1.04,
+          "value1": 1.04,
+          "value2": 0,
+          "label": "Total Runtime (hours)",
+          "tolerance": 0.01
+        },
+        {
+          "match": false,
+          "difference": 100,
+          "value1": 100,
+          "value2": 0,
+          "label": "Production Line A Availability (%)",
+          "tolerance": 0.1
+        },
+        {
+          "match": false,
+          "difference": 0.52,
+          "value1": 0.52,
+          "value2": 0,
+          "label": "Production Line A Runtime (hours)",
+          "tolerance": 0.01
+        },
+        {
+          "match": false,
+          "difference": 100,
+          "value1": 100,
+          "value2": 0,
+          "label": "Hydraulic Press #1 Availability (%)",
+          "tolerance": 0.1
+        },
+        {
+          "match": false,
+          "difference": 0.52,
+          "value1": 0.52,
+          "value2": 0,
+          "label": "Hydraulic Press #1 Runtime (hours)",
+          "tolerance": 0.01
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total_tests": 30,
+    "passed_tests": 12,
+    "failed_tests": 18,
+    "discrepancies": [
+      {
+        "match": false,
+        "difference": 100,
+        "value1": 100,
+        "value2": 0,
+        "label": "System Availability (%)",
+        "tolerance": 0.1
+      },
+      {
+        "match": false,
+        "difference": 1.04,
+        "value1": 1.04,
+        "value2": 0,
+        "label": "Total Runtime (hours)",
+        "tolerance": 0.01
+      },
+      {
+        "match": false,
+        "difference": 100,
+        "value1": 100,
+        "value2": 0,
+        "label": "Production Line A Availability (%)",
+        "tolerance": 0.1
+      },
+      {
+        "match": false,
+        "difference": 0.52,
+        "value1": 0.52,
+        "value2": 0,
+        "label": "Production Line A Runtime (hours)",
+        "tolerance": 0.01
+      },
+      {
+        "match": false,
+        "difference": 100,
+        "value1": 100,
+        "value2": 0,
+        "label": "Hydraulic Press #1 Availability (%)",
+        "tolerance": 0.1
+      },
+      {
+        "match": false,
+        "difference": 0.52,
+        "value1": 0.52,
+        "value2": 0,
+        "label": "Hydraulic Press #1 Runtime (hours)",
+        "tolerance": 0.01
+      },
+      {
+        "match": false,
+        "difference": 100,
+        "value1": 100,
+        "value2": 0,
+        "label": "System Availability (%)",
+        "tolerance": 0.1
+      },
+      {
+        "match": false,
+        "difference": 1.04,
+        "value1": 1.04,
+        "value2": 0,
+        "label": "Total Runtime (hours)",
+        "tolerance": 0.01
+      },
+      {
+        "match": false,
+        "difference": 100,
+        "value1": 100,
+        "value2": 0,
+        "label": "Production Line A Availability (%)",
+        "tolerance": 0.1
+      },
+      {
+        "match": false,
+        "difference": 0.52,
+        "value1": 0.52,
+        "value2": 0,
+        "label": "Production Line A Runtime (hours)",
+        "tolerance": 0.01
+      },
+      {
+        "match": false,
+        "difference": 100,
+        "value1": 100,
+        "value2": 0,
+        "label": "Hydraulic Press #1 Availability (%)",
+        "tolerance": 0.1
+      },
+      {
+        "match": false,
+        "difference": 0.52,
+        "value1": 0.52,
+        "value2": 0,
+        "label": "Hydraulic Press #1 Runtime (hours)",
+        "tolerance": 0.01
+      },
+      {
+        "match": false,
+        "difference": 100,
+        "value1": 100,
+        "value2": 0,
+        "label": "System Availability (%)",
+        "tolerance": 0.1
+      },
+      {
+        "match": false,
+        "difference": 1.04,
+        "value1": 1.04,
+        "value2": 0,
+        "label": "Total Runtime (hours)",
+        "tolerance": 0.01
+      },
+      {
+        "match": false,
+        "difference": 100,
+        "value1": 100,
+        "value2": 0,
+        "label": "Production Line A Availability (%)",
+        "tolerance": 0.1
+      },
+      {
+        "match": false,
+        "difference": 0.52,
+        "value1": 0.52,
+        "value2": 0,
+        "label": "Production Line A Runtime (hours)",
+        "tolerance": 0.01
+      },
+      {
+        "match": false,
+        "difference": 100,
+        "value1": 100,
+        "value2": 0,
+        "label": "Hydraulic Press #1 Availability (%)",
+        "tolerance": 0.1
+      },
+      {
+        "match": false,
+        "difference": 0.52,
+        "value1": 0.52,
+        "value2": 0,
+        "label": "Hydraulic Press #1 Runtime (hours)",
+        "tolerance": 0.01
+      }
+    ]
+  }
+}

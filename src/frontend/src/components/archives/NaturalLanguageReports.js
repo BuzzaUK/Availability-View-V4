@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Card,
@@ -20,7 +20,11 @@ import {
   AccordionSummary,
   AccordionDetails,
   IconButton,
-  Tooltip
+  Tooltip,
+  Skeleton,
+  Fade,
+  LinearProgress,
+  Snackbar
 } from '@mui/material';
 import {
   ExpandMore as ExpandMoreIcon,
@@ -29,7 +33,10 @@ import {
   Description as DescriptionIcon,
   Assessment as AssessmentIcon,
   Schedule as ScheduleIcon,
-  TrendingUp as TrendingUpIcon
+  TrendingUp as TrendingUpIcon,
+  CheckCircle as CheckCircleIcon,
+  Error as ErrorIcon,
+  Info as InfoIcon
 } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -44,60 +51,102 @@ const NaturalLanguageReports = () => {
   const [shifts, setShifts] = useState([]);
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [loadingShifts, setLoadingShifts] = useState(true);
+  const [loadingReportTypes, setLoadingReportTypes] = useState(true);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   const [availableReportTypes, setAvailableReportTypes] = useState(null);
+  const [downloadProgress, setDownloadProgress] = useState(false);
 
   useEffect(() => {
     fetchShifts();
     fetchAvailableReportTypes();
   }, []);
 
-  const fetchShifts = async () => {
+  const fetchShifts = useCallback(async () => {
+    setLoadingShifts(true);
     try {
-      const response = await axios.get('/api/shifts');
-      const shiftsData = response.data?.data || [];
-      setShifts(shiftsData);
-      if (shiftsData && shiftsData.length > 0) {
-        setSelectedShift(shiftsData[0].id);
+      // First get all archived shift reports
+      const archivedReportsResponse = await axios.get('/api/reports/shifts');
+      const archivedReports = archivedReportsResponse.data?.data || [];
+      
+      // Extract shift IDs that have archived reports
+      const shiftIdsWithReports = new Set();
+      archivedReports.forEach(report => {
+        if (report.shift_id) {
+          shiftIdsWithReports.add(report.shift_id);
+        }
+      });
+      
+      // Get all shifts
+      const shiftsResponse = await axios.get('/api/shifts');
+      const allShifts = shiftsResponse.data?.data || [];
+      
+      // Filter shifts to only include those with archived reports
+      const shiftsWithReports = allShifts.filter(shift => 
+        shiftIdsWithReports.has(shift.id)
+      );
+      
+      setShifts(shiftsWithReports);
+      if (shiftsWithReports && shiftsWithReports.length > 0) {
+        setSelectedShift(shiftsWithReports[0].id);
       }
     } catch (err) {
       console.error('Failed to fetch shifts:', err);
+      setError('Failed to load available shifts. Please refresh the page.');
       setShifts([]);
+    } finally {
+      setLoadingShifts(false);
     }
-  };
+  }, []);
 
-  const fetchAvailableReportTypes = async () => {
+  const fetchAvailableReportTypes = useCallback(async () => {
+    setLoadingReportTypes(true);
     try {
       const response = await axios.get('/api/reports/natural-language');
       setAvailableReportTypes(response.data);
     } catch (err) {
       console.error('Failed to fetch report types:', err);
+      setError('Failed to load report type information.');
+    } finally {
+      setLoadingReportTypes(false);
     }
-  };
+  }, []);
 
   const generateReport = async () => {
     if (!selectedShift && reportType === 'shift') {
-      setError('Please select a shift');
+      setError('Please select a shift to generate the report.');
       return;
     }
 
     setLoading(true);
     setError('');
+    setSuccessMessage('');
     setReport(null);
 
     try {
       let endpoint;
+      let reportDescription;
+      
       if (reportType === 'shift') {
         endpoint = `/api/reports/natural-language/shift/${selectedShift}?includeRawData=true`;
+        const selectedShiftData = shifts.find(s => s.id.toString() === selectedShift.toString());
+        reportDescription = selectedShiftData ? 
+          `${selectedShiftData.name} - ${format(new Date(selectedShiftData.start_time), 'MMM dd, yyyy HH:mm')}` : 
+          `Shift ${selectedShift}`;
       } else if (reportType === 'daily') {
         const dateStr = format(selectedDate, 'yyyy-MM-dd');
         endpoint = `/api/reports/natural-language/daily/${dateStr}`;
+        reportDescription = `Daily Summary for ${format(selectedDate, 'MMM dd, yyyy')}`;
       }
 
       const response = await axios.get(endpoint);
       setReport(response.data);
+      setSuccessMessage(`Successfully generated ${reportType} report for ${reportDescription}`);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to generate report');
+      const errorMessage = err.response?.data?.message || 'Failed to generate report. Please try again.';
+      setError(errorMessage);
+      console.error('Report generation error:', err);
     } finally {
       setLoading(false);
     }
@@ -106,31 +155,44 @@ const NaturalLanguageReports = () => {
   const generateSampleReport = async () => {
     setLoading(true);
     setError('');
+    setSuccessMessage('');
     setReport(null);
 
     try {
       const response = await axios.get('/api/reports/natural-language/sample');
       setReport(response.data);
+      setSuccessMessage('Successfully generated sample report for demonstration purposes');
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to generate sample report');
+      const errorMessage = err.response?.data?.message || 'Failed to generate sample report. Please try again.';
+      setError(errorMessage);
+      console.error('Sample report generation error:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const downloadReport = () => {
+  const downloadReport = async () => {
     if (!report) return;
 
-    const content = formatReportForDownload(report);
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `natural-language-report-${report.shift_id || 'sample'}-${format(new Date(), 'yyyy-MM-dd-HHmm')}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    setDownloadProgress(true);
+    try {
+      const content = formatReportForDownload(report);
+      const blob = new Blob([content], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `natural-language-report-${report.shift_id || 'sample'}-${format(new Date(), 'yyyy-MM-dd-HHmm')}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setSuccessMessage('Report downloaded successfully!');
+    } catch (err) {
+      setError('Failed to download report. Please try again.');
+      console.error('Download error:', err);
+    } finally {
+      setDownloadProgress(false);
+    }
   };
 
   const formatReportForDownload = (report) => {
@@ -151,34 +213,57 @@ const NaturalLanguageReports = () => {
     return content;
   };
 
-  const renderNarrativeSection = (title, content, icon) => (
-    <Accordion defaultExpanded={title === 'Executive Summary'}>
-      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          {icon}
-          <Typography variant="h6">{title}</Typography>
-        </Box>
-      </AccordionSummary>
-      <AccordionDetails>
-        <Paper sx={{ p: 2, backgroundColor: '#f8f9fa' }}>
+  const renderNarrativeSection = (title, content, icon) => {
+    if (!content) return null;
+    
+    return (
+      <Card 
+        sx={{ 
+          mb: 2, 
+          transition: 'all 0.3s ease-in-out',
+          '&:hover': {
+            transform: 'translateY(-2px)',
+            boxShadow: 3
+          },
+          border: '1px solid',
+          borderColor: 'grey.200',
+          backgroundColor: 'background.paper'
+        }}
+      >
+        <CardContent>
+          <Typography 
+            variant="h6" 
+            sx={{ 
+              mb: 2, 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: 1,
+              color: 'primary.main',
+              fontWeight: 600,
+              borderBottom: '2px solid',
+              borderColor: 'primary.light',
+              pb: 1
+            }}
+          >
+            {icon}
+            {title}
+          </Typography>
           <Typography 
             variant="body1" 
-            component="div"
             sx={{ 
-              whiteSpace: 'pre-line',
-              '& strong': { fontWeight: 'bold' },
-              '& em': { fontStyle: 'italic' }
+              whiteSpace: 'pre-line', 
+              lineHeight: 1.7,
+              color: 'text.primary',
+              fontSize: '0.95rem',
+              textAlign: 'justify'
             }}
-            dangerouslySetInnerHTML={{ 
-              __html: content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                           .replace(/\*(.*?)\*/g, '<em>$1</em>')
-                           .replace(/\n/g, '<br/>')
-            }}
-          />
-        </Paper>
-      </AccordionDetails>
-    </Accordion>
-  );
+          >
+            {content}
+          </Typography>
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
     <LocalizationProvider dateAdapter={AdapterDateFns}>
@@ -194,9 +279,23 @@ const NaturalLanguageReports = () => {
         </Typography>
 
         {/* Report Generation Controls */}
-        <Card sx={{ mb: 3 }}>
+        <Card sx={{ mb: 3, position: 'relative' }}>
+          {loading && (
+            <LinearProgress 
+              sx={{ 
+                position: 'absolute', 
+                top: 0, 
+                left: 0, 
+                right: 0, 
+                zIndex: 1 
+              }} 
+            />
+          )}
           <CardContent>
-            <Typography variant="h6" gutterBottom>Generate Report</Typography>
+            <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <AssessmentIcon color="primary" />
+              Generate Report
+            </Typography>
             
             <Grid container spacing={3} alignItems="center">
               <Grid item xs={12} md={3}>
@@ -204,11 +303,26 @@ const NaturalLanguageReports = () => {
                   <InputLabel>Report Type</InputLabel>
                   <Select
                     value={reportType}
-                    onChange={(e) => setReportType(e.target.value)}
+                    onChange={(e) => {
+                      setReportType(e.target.value);
+                      setError('');
+                      setSuccessMessage('');
+                    }}
                     label="Report Type"
+                    disabled={loading}
                   >
-                    <MenuItem value="shift">Shift Report</MenuItem>
-                    <MenuItem value="daily">Daily Summary</MenuItem>
+                    <MenuItem value="shift">
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <ScheduleIcon fontSize="small" />
+                        Shift Report
+                      </Box>
+                    </MenuItem>
+                    <MenuItem value="daily">
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <TrendingUpIcon fontSize="small" />
+                        Daily Summary
+                      </Box>
+                    </MenuItem>
                   </Select>
                 </FormControl>
               </Grid>
@@ -217,18 +331,39 @@ const NaturalLanguageReports = () => {
                 <Grid item xs={12} md={4}>
                   <FormControl fullWidth>
                     <InputLabel>Select Shift</InputLabel>
-                    <Select
-                      value={selectedShift}
-                      onChange={(e) => setSelectedShift(e.target.value)}
-                      label="Select Shift"
-                    >
-                      {shifts.map((shift) => (
-                        <MenuItem key={shift.id} value={shift.id}>
-                          {shift.name} - {format(new Date(shift.start_time), 'MMM dd, yyyy HH:mm')}
-                        </MenuItem>
-                      ))}
-                    </Select>
+                    {loadingShifts ? (
+                      <Skeleton variant="rectangular" height={56} />
+                    ) : (
+                      <Select
+                        value={selectedShift}
+                        onChange={(e) => {
+                          setSelectedShift(e.target.value);
+                          setError('');
+                          setSuccessMessage('');
+                        }}
+                        label="Select Shift"
+                        disabled={loading || shifts.length === 0}
+                      >
+                        {shifts.map((shift) => (
+                          <MenuItem key={shift.id} value={shift.id}>
+                            <Box>
+                              <Typography variant="body2" fontWeight="medium">
+                                {shift.name}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {format(new Date(shift.start_time), 'MMM dd, yyyy HH:mm')}
+                              </Typography>
+                            </Box>
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    )}
                   </FormControl>
+                  {!loadingShifts && shifts.length === 0 && (
+                    <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block' }}>
+                      No shifts available. Please check your data or try refreshing.
+                    </Typography>
+                  )}
                 </Grid>
               )}
 
@@ -237,7 +372,12 @@ const NaturalLanguageReports = () => {
                   <DatePicker
                     label="Select Date"
                     value={selectedDate}
-                    onChange={(newValue) => setSelectedDate(newValue)}
+                    onChange={(newValue) => {
+                      setSelectedDate(newValue);
+                      setError('');
+                      setSuccessMessage('');
+                    }}
+                    disabled={loading}
                     renderInput={(params) => <TextField {...params} fullWidth />}
                   />
                 </Grid>
@@ -248,9 +388,17 @@ const NaturalLanguageReports = () => {
                   <Button
                     variant="contained"
                     onClick={generateReport}
-                    disabled={loading}
+                    disabled={loading || (reportType === 'shift' && (!selectedShift || loadingShifts))}
                     startIcon={loading ? <CircularProgress size={20} /> : <AssessmentIcon />}
                     fullWidth
+                    sx={{
+                      minHeight: 48,
+                      transition: 'all 0.2s ease-in-out',
+                      '&:hover': {
+                        transform: 'translateY(-1px)',
+                        boxShadow: 2
+                      }
+                    }}
                   >
                     {loading ? 'Generating...' : 'Generate Report'}
                   </Button>
@@ -264,6 +412,14 @@ const NaturalLanguageReports = () => {
                   disabled={loading}
                   startIcon={<DescriptionIcon />}
                   fullWidth
+                  sx={{
+                    minHeight: 48,
+                    transition: 'all 0.2s ease-in-out',
+                    '&:hover': {
+                      transform: 'translateY(-1px)',
+                      boxShadow: 1
+                    }
+                  }}
                 >
                   Sample Report
                 </Button>
@@ -271,126 +427,321 @@ const NaturalLanguageReports = () => {
             </Grid>
 
             {error && (
-              <Alert severity="error" sx={{ mt: 2 }}>
-                {error}
-              </Alert>
+              <Fade in={!!error}>
+                <Alert 
+                  severity="error" 
+                  sx={{ mt: 2 }}
+                  icon={<ErrorIcon />}
+                  action={
+                    <IconButton
+                      aria-label="close"
+                      color="inherit"
+                      size="small"
+                      onClick={() => setError('')}
+                    >
+                      ×
+                    </IconButton>
+                  }
+                >
+                  {error}
+                </Alert>
+              </Fade>
+            )}
+
+            {successMessage && (
+              <Fade in={!!successMessage}>
+                <Alert 
+                  severity="success" 
+                  sx={{ mt: 2 }}
+                  icon={<CheckCircleIcon />}
+                  action={
+                    <IconButton
+                      aria-label="close"
+                      color="inherit"
+                      size="small"
+                      onClick={() => setSuccessMessage('')}
+                    >
+                      ×
+                    </IconButton>
+                  }
+                >
+                  {successMessage}
+                </Alert>
+              </Fade>
             )}
           </CardContent>
         </Card>
 
         {/* Available Report Types Info */}
-        {availableReportTypes && (
-          <Card sx={{ mb: 3 }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>Available Report Types</Typography>
-              <Grid container spacing={2}>
-                {availableReportTypes.available_reports?.map((reportType, index) => (
-                  <Grid item xs={12} md={6} key={index}>
-                    <Paper sx={{ p: 2, height: '100%' }}>
-                      <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                        {reportType.name}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                        {reportType.description}
-                      </Typography>
-                      <Chip 
-                        label={reportType.type} 
-                        size="small" 
-                        color="primary" 
-                        variant="outlined" 
-                      />
-                    </Paper>
-                  </Grid>
-                ))}
-              </Grid>
-              
-              <Divider sx={{ my: 2 }} />
-              
-              <Typography variant="subtitle2" gutterBottom>Key Features:</Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                {availableReportTypes.features?.map((feature, index) => (
-                  <Chip key={index} label={feature} size="small" variant="outlined" />
-                ))}
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <InfoIcon color="info" />
+              Available Report Types
+            </Typography>
+            
+            {loadingReportTypes ? (
+              <Box>
+                <Grid container spacing={2}>
+                  {[1, 2].map((item) => (
+                    <Grid item xs={12} md={6} key={item}>
+                      <Paper sx={{ p: 2, height: '100%' }}>
+                        <Skeleton variant="text" width="60%" height={24} sx={{ mb: 1 }} />
+                        <Skeleton variant="text" width="100%" height={20} sx={{ mb: 1 }} />
+                        <Skeleton variant="text" width="100%" height={20} sx={{ mb: 1 }} />
+                        <Skeleton variant="rectangular" width={80} height={24} />
+                      </Paper>
+                    </Grid>
+                  ))}
+                </Grid>
+                <Divider sx={{ my: 2 }} />
+                <Skeleton variant="text" width="30%" height={20} sx={{ mb: 1 }} />
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                  {[1, 2, 3, 4].map((item) => (
+                    <Skeleton key={item} variant="rectangular" width={120} height={24} sx={{ borderRadius: 12 }} />
+                  ))}
+                </Box>
               </Box>
-            </CardContent>
-          </Card>
-        )}
+            ) : availableReportTypes ? (
+              <Box>
+                <Grid container spacing={2}>
+                  {availableReportTypes.available_reports?.map((reportType, index) => (
+                    <Grid item xs={12} md={6} key={index}>
+                      <Paper 
+                        sx={{ 
+                          p: 2, 
+                          height: '100%',
+                          transition: 'all 0.2s ease-in-out',
+                          '&:hover': {
+                            transform: 'translateY(-2px)',
+                            boxShadow: 3
+                          }
+                        }}
+                      >
+                        <Typography variant="subtitle1" fontWeight="bold" gutterBottom sx={{ color: 'primary.main' }}>
+                          {reportType.name}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2, lineHeight: 1.5 }}>
+                          {reportType.description}
+                        </Typography>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Chip 
+                            label={reportType.type} 
+                            size="small" 
+                            color="primary" 
+                            variant="outlined" 
+                          />
+                          <Typography variant="caption" color="text.secondary">
+                            {reportType.endpoint?.includes('shift') ? 'Per Shift' : 'Daily Summary'}
+                          </Typography>
+                        </Box>
+                      </Paper>
+                    </Grid>
+                  ))}
+                </Grid>
+                
+                <Divider sx={{ my: 2 }} />
+                
+                <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <TrendingUpIcon fontSize="small" color="success" />
+                  Key Features:
+                </Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                  {availableReportTypes.features?.map((feature, index) => (
+                    <Chip 
+                      key={index} 
+                      label={feature} 
+                      size="small" 
+                      variant="outlined"
+                      sx={{
+                        transition: 'all 0.2s ease-in-out',
+                        '&:hover': {
+                          backgroundColor: 'primary.light',
+                          color: 'white'
+                        }
+                      }}
+                    />
+                  ))}
+                </Box>
+              </Box>
+            ) : (
+              <Alert severity="info" icon={<InfoIcon />}>
+                Report type information is currently unavailable. The system will still generate reports normally.
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Generated Report Display */}
         {report && (
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'between', alignItems: 'center', mb: 2 }}>
-                <Typography variant="h6">
-                  Generated Report - {report.shift_id === 'SAMPLE' ? 'Sample Report' : `Shift ${report.shift_id}`}
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                  <Chip 
-                    label={`Generated: ${format(new Date(report.generated_at), 'MMM dd, yyyy HH:mm')}`}
-                    size="small"
-                    color="info"
-                    icon={<ScheduleIcon />}
-                  />
-                  <Tooltip title="Download Report">
-                    <IconButton onClick={downloadReport} color="primary">
-                      <DownloadIcon />
-                    </IconButton>
-                  </Tooltip>
+          <Fade in={!!report}>
+            <Card sx={{ 
+              background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
+              border: '1px solid',
+              borderColor: 'primary.light'
+            }}>
+              <CardContent>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
+                  <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <DescriptionIcon color="primary" />
+                    Generated Report - {report.shift_id === 'SAMPLE' ? 'Sample Report' : `Shift ${report.shift_id}`}
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <Chip 
+                      label={`Generated: ${format(new Date(report.generated_at), 'MMM dd, yyyy HH:mm')}`}
+                      size="small"
+                      color="info"
+                      icon={<ScheduleIcon />}
+                      variant="outlined"
+                      sx={{ backgroundColor: 'white' }}
+                    />
+                    <Tooltip title={downloadProgress ? 'Downloading...' : 'Download Report'}>
+                      <span>
+                        <IconButton 
+                          onClick={downloadReport} 
+                          color="primary"
+                          disabled={downloadProgress}
+                          sx={{
+                            backgroundColor: 'white',
+                            '&:hover': {
+                              backgroundColor: 'primary.light',
+                              color: 'white'
+                            },
+                            transition: 'all 0.2s ease-in-out'
+                          }}
+                        >
+                          {downloadProgress ? <CircularProgress size={20} /> : <DownloadIcon />}
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  </Box>
                 </Box>
-              </Box>
 
               {report.narrative && (
-                <Box sx={{ mt: 2 }}>
-                  {renderNarrativeSection(
-                    'Executive Summary', 
-                    report.narrative.executive_summary,
-                    <TrendingUpIcon color="primary" />
-                  )}
-                  {renderNarrativeSection(
-                    'Shift Overview', 
-                    report.narrative.shift_overview,
-                    <ScheduleIcon color="info" />
-                  )}
-                  {renderNarrativeSection(
-                    'Asset Performance', 
-                    report.narrative.asset_performance,
-                    <AssessmentIcon color="success" />
-                  )}
-                  {renderNarrativeSection(
-                    'Key Events', 
-                    report.narrative.key_events,
-                    <DescriptionIcon color="warning" />
-                  )}
-                  {renderNarrativeSection(
-                    'Recommendations', 
-                    report.narrative.recommendations,
-                    <TrendingUpIcon color="secondary" />
-                  )}
-                  {renderNarrativeSection(
-                    'Conclusion', 
-                    report.narrative.conclusion,
-                    <AssessmentIcon color="primary" />
-                  )}
+                <Box sx={{ mt: 3 }}>
+                  <Divider sx={{ mb: 3, borderColor: 'primary.light' }} />
+                  <Grid container spacing={3}>
+                    {report.narrative.executive_summary && (
+                      <Grid item xs={12}>
+                        {renderNarrativeSection(
+                          'Executive Summary', 
+                          report.narrative.executive_summary,
+                          <TrendingUpIcon color="primary" />
+                        )}
+                      </Grid>
+                    )}
+                    {report.narrative.shift_overview && (
+                      <Grid item xs={12} md={6}>
+                        {renderNarrativeSection(
+                          'Shift Overview', 
+                          report.narrative.shift_overview,
+                          <ScheduleIcon color="info" />
+                        )}
+                      </Grid>
+                    )}
+                    {report.narrative.asset_performance && (
+                      <Grid item xs={12} md={6}>
+                        {renderNarrativeSection(
+                          'Asset Performance', 
+                          report.narrative.asset_performance,
+                          <AssessmentIcon color="success" />
+                        )}
+                      </Grid>
+                    )}
+                    {report.narrative.key_events && (
+                      <Grid item xs={12}>
+                        {renderNarrativeSection(
+                          'Key Events', 
+                          report.narrative.key_events,
+                          <DescriptionIcon color="warning" />
+                        )}
+                      </Grid>
+                    )}
+                    {report.narrative.recommendations && (
+                      <Grid item xs={12} md={6}>
+                        {renderNarrativeSection(
+                          'Recommendations', 
+                          report.narrative.recommendations,
+                          <TrendingUpIcon color="secondary" />
+                        )}
+                      </Grid>
+                    )}
+                    {report.narrative.conclusion && (
+                      <Grid item xs={12} md={6}>
+                        {renderNarrativeSection(
+                          'Conclusion', 
+                          report.narrative.conclusion,
+                          <AssessmentIcon color="primary" />
+                        )}
+                      </Grid>
+                    )}
+                  </Grid>
                 </Box>
               )}
 
               {/* Raw Data Section (if included) */}
               {report.raw_data && (
-                <Accordion sx={{ mt: 2 }}>
-                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                    <Typography variant="h6">Raw Data & Metrics</Typography>
-                  </AccordionSummary>
-                  <AccordionDetails>
-                    <Paper sx={{ p: 2, backgroundColor: '#f5f5f5' }}>
-                      <pre style={{ fontSize: '12px', overflow: 'auto' }}>
-                        {JSON.stringify(report.raw_data, null, 2)}
-                      </pre>
-                    </Paper>
-                  </AccordionDetails>
-                </Accordion>
+                <Box sx={{ mt: 4 }}>
+                  <Divider sx={{ mb: 3, borderColor: 'primary.light' }} />
+                  <Accordion 
+                    sx={{ 
+                      border: '1px solid',
+                      borderColor: 'grey.300',
+                      borderRadius: 2,
+                      '&:before': {
+                        display: 'none'
+                      },
+                      boxShadow: 1
+                    }}
+                  >
+                    <AccordionSummary 
+                      expandIcon={<ExpandMoreIcon />}
+                      sx={{
+                        backgroundColor: 'grey.50',
+                        borderRadius: '8px 8px 0 0',
+                        '&:hover': {
+                          backgroundColor: 'grey.100'
+                        }
+                      }}
+                    >
+                      <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <AssessmentIcon color="primary" />
+                        Raw Data & Metrics
+                        <Chip 
+                          label="Technical Details" 
+                          size="small" 
+                          variant="outlined" 
+                          color="info"
+                        />
+                      </Typography>
+                    </AccordionSummary>
+                    <AccordionDetails sx={{ p: 0 }}>
+                      <Box sx={{ 
+                        backgroundColor: '#1e1e1e', 
+                        color: '#d4d4d4',
+                        p: 2,
+                        borderRadius: '0 0 8px 8px',
+                        fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace'
+                      }}>
+                        <pre style={{ 
+                          margin: 0,
+                          overflow: 'auto',
+                          fontSize: '13px',
+                          lineHeight: 1.4,
+                          maxHeight: '500px',
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word'
+                        }}>
+                          {JSON.stringify(report.raw_data, null, 2)}
+                        </pre>
+                      </Box>
+                    </AccordionDetails>
+                  </Accordion>
+                </Box>
               )}
             </CardContent>
           </Card>
+          </Fade>
         )}
       </Box>
     </LocalizationProvider>

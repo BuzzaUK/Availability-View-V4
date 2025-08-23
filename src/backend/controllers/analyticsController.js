@@ -48,9 +48,26 @@ exports.getOverviewAnalytics = async (req, res) => {
     let totalStops = 0;
     let activeAssets = 0;
 
+    const now = new Date();
     userAssets.forEach(asset => {
-      totalRuntime += asset.runtime || 0;
-      totalDowntime += asset.downtime || 0;
+      // Use stored values and add real-time calculation like dashboard
+      let assetRuntime = asset.runtime || 0;
+      let assetDowntime = asset.downtime || 0;
+      
+      // Add time since last state change for real-time display
+      if (asset.last_state_change) {
+        const lastStateChange = new Date(asset.last_state_change);
+        const timeSinceChangeSeconds = Math.max(0, Math.floor((now - lastStateChange) / 1000));
+        
+        if (asset.current_state === 'RUNNING') {
+          assetRuntime += timeSinceChangeSeconds;
+        } else if (asset.current_state === 'STOPPED') {
+          assetDowntime += timeSinceChangeSeconds;
+        }
+      }
+      
+      totalRuntime += assetRuntime;
+      totalDowntime += assetDowntime;
       totalStops += asset.total_stops || 0;
       if (asset.current_state === 'RUNNING') {
         activeAssets++;
@@ -95,112 +112,7 @@ exports.getOverviewAnalytics = async (req, res) => {
   }
 };
 
-// @desc    Get OEE Analytics
-// @route   GET /api/analytics/oee
-// @access  Private
-exports.getOEEAnalytics = async (req, res) => {
-  try {
-    const { start_date, end_date, asset_id, groupBy = 'day' } = req.query;
-    const { start, end } = getDateRangeFilter(start_date, end_date);
-    const { userAssets, userEvents } = await getUserScopedData(req);
 
-    const assets = asset_id ? 
-      userAssets.filter(asset => asset.id == asset_id || asset._id == asset_id) : 
-      userAssets;
-
-    const oeeData = [];
-    
-    const generateDateRange = (start, end, groupBy) => {
-      const dates = [];
-      const current = new Date(start);
-      
-      while (current <= end) {
-        dates.push(new Date(current));
-        
-        switch (groupBy) {
-          case 'day':
-            current.setDate(current.getDate() + 1);
-            break;
-          case 'week':
-            current.setDate(current.getDate() + 7);
-            break;
-          case 'month':
-            current.setMonth(current.getMonth() + 1);
-            break;
-          default:
-            current.setDate(current.getDate() + 1);
-        }
-      }
-      return dates;
-    };
-    
-    const dateRange = generateDateRange(start, end, groupBy);
-    
-    dateRange.forEach(date => {
-      const nextDate = new Date(date);
-      switch (groupBy) {
-        case 'day':
-          nextDate.setDate(nextDate.getDate() + 1);
-          break;
-        case 'week':
-          nextDate.setDate(nextDate.getDate() + 7);
-          break;
-        case 'month':
-          nextDate.setMonth(nextDate.getMonth() + 1);
-          break;
-      }
-      
-      const periodEvents = userEvents.filter(event => {
-        const eventDate = new Date(event.timestamp);
-        return eventDate >= date && eventDate < nextDate;
-      });
-      
-      let totalRuntime = 0;
-      let totalDowntime = 0;
-      let plannedProductionTime = 8 * 60 * 60;
-      
-      periodEvents.forEach(event => {
-        if (event.event_type === 'STATE_CHANGE') {
-          if (event.new_state === 'RUNNING') {
-            totalRuntime += event.duration || 0;
-          } else if (event.new_state === 'STOPPED') {
-            totalDowntime += event.duration || 0;
-          }
-        }
-      });
-      
-      const availability = plannedProductionTime > 0 ? (totalRuntime / plannedProductionTime) : 0;
-      const performance = 0.85;
-      const quality = 0.95;
-      const oee = availability * performance * quality;
-      
-      oeeData.push({
-        date: date.toISOString(),
-        availability: parseFloat(availability.toFixed(4)),
-        performance: parseFloat(performance.toFixed(4)),
-        quality: parseFloat(quality.toFixed(4)),
-        oee: parseFloat(oee.toFixed(4)),
-        runtime: parseFloat(totalRuntime.toFixed(2)),
-        downtime: parseFloat(totalDowntime.toFixed(2))
-      });
-    });
-
-    res.status(200).json({
-      success: true,
-      data: oeeData,
-      date_range: {
-        start: start.toISOString(),
-        end: end.toISOString()
-      }
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Server Error',
-      error: error.message
-    });
-  }
-};
 
 // @desc    Get downtime analytics
 // @route   GET /api/analytics/downtime
@@ -347,38 +259,34 @@ exports.getPerformanceMetrics = async (req, res) => {
   try {
     const { start_date, end_date, asset_id } = req.query;
     const { start, end } = getDateRangeFilter(start_date, end_date);
-    const { userAssets, userEvents } = await getUserScopedData(req);
+    const { userAssets } = await getUserScopedData(req);
 
     const assets = asset_id ? 
       userAssets.filter(asset => asset.id == asset_id || asset._id == asset_id) : 
       userAssets;
 
-    const events = userEvents.filter(event => {
-      const eventDate = new Date(event.timestamp);
-      return eventDate >= start && eventDate <= end;
-    });
-
     let totalRuntime = 0;
     let totalDowntime = 0;
     let totalStops = 0;
+    const now = new Date();
 
     const assetMetrics = assets.map(asset => {
-      const assetEvents = events.filter(event => event.asset_id == asset.id);
+      // Use reliable asset.runtime and asset.downtime fields with real-time calculation
+      let assetRuntime = asset.runtime || 0; // in seconds
+      let assetDowntime = asset.downtime || 0; // in seconds
+      const assetStops = asset.total_stops || 0;
       
-      let assetRuntime = 0;
-      let assetDowntime = 0;
-      let assetStops = 0;
-
-      assetEvents.forEach(event => {
-        if (event.event_type === 'STATE_CHANGE') {
-          if (event.new_state === 'RUNNING') {
-            assetRuntime += event.duration || 0;
-          } else if (event.new_state === 'STOPPED') {
-            assetDowntime += event.duration || 0;
-            assetStops++;
-          }
+      // Add time since last state change for real-time display like dashboard
+      if (asset.last_state_change) {
+        const lastStateChange = new Date(asset.last_state_change);
+        const timeSinceChangeSeconds = Math.max(0, Math.floor((now - lastStateChange) / 1000));
+        
+        if (asset.current_state === 'RUNNING') {
+          assetRuntime += timeSinceChangeSeconds;
+        } else if (asset.current_state === 'STOPPED') {
+          assetDowntime += timeSinceChangeSeconds;
         }
-      });
+      }
 
       totalRuntime += assetRuntime;
       totalDowntime += assetDowntime;
@@ -807,11 +715,25 @@ exports.getAvailabilityAnalytics = async (req, res) => {
     let totalDowntime = 0;
     let totalStops = 0;
     let activeAssets = 0;
+    const now = new Date();
 
     const assetAnalytics = assets.map(asset => {
-      const assetRuntime = asset.runtime || 0;
-      const assetDowntime = asset.downtime || 0;
+      // Use stored values and add real-time calculation like dashboard
+      let assetRuntime = asset.runtime || 0;
+      let assetDowntime = asset.downtime || 0;
       const assetStops = asset.total_stops || 0;
+      
+      // Add time since last state change for real-time display
+      if (asset.last_state_change) {
+        const lastStateChange = new Date(asset.last_state_change);
+        const timeSinceChangeSeconds = Math.max(0, Math.floor((now - lastStateChange) / 1000));
+        
+        if (asset.current_state === 'RUNNING') {
+          assetRuntime += timeSinceChangeSeconds;
+        } else if (asset.current_state === 'STOPPED') {
+          assetDowntime += timeSinceChangeSeconds;
+        }
+      }
 
       totalRuntime += assetRuntime;
       totalDowntime += assetDowntime;

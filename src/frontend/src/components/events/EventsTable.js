@@ -112,6 +112,23 @@ const EventsTable = ({
       .join(' ');
   };
 
+  // Helper function to safely format timestamp
+  const formatTimestamp = (timestamp) => {
+    if (!timestamp) return 'N/A';
+    
+    try {
+      const date = new Date(timestamp);
+      if (isNaN(date.getTime())) {
+        console.warn('Invalid timestamp:', timestamp);
+        return 'Invalid Date';
+      }
+      return format(date, 'yyyy-MM-dd HH:mm:ss');
+    } catch (error) {
+      console.warn('Error formatting timestamp:', timestamp, error);
+      return 'Invalid Date';
+    }
+  };
+
   // Render loading state
   if (loading && events.length === 0) {
     return (
@@ -150,7 +167,7 @@ const EventsTable = ({
             {events.map((event) => (
               <StyledTableRow key={event._id}>
                 <TableCell component="th" scope="row">
-                  {format(new Date(event.timestamp), 'yyyy-MM-dd HH:mm:ss')}
+                  {formatTimestamp(event.timestamp)}
                 </TableCell>
                 <TableCell>{event.assetName || getAssetName(event.assetId)}</TableCell>
                 <TableCell>

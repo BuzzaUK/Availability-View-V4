@@ -17,18 +17,19 @@ import TimelineIcon from '@mui/icons-material/Timeline';
 import PieChartIcon from '@mui/icons-material/PieChart';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import AvailabilityIcon from '@mui/icons-material/Assessment';
+import DescriptionIcon from '@mui/icons-material/Description';
 import ClearIcon from '@mui/icons-material/Clear';
 // Date utilities
 import { format } from 'date-fns';
 import axios from 'axios';
 
 // Components
-import OeeChart from './OeeChart';
 import DowntimePareto from './DowntimePareto';
 import StateDistribution from './StateDistribution';
 import PerformanceMetrics from './PerformanceMetrics';
 import AvailabilityKPIs from './AvailabilityKPIs';
 import MicroStopsChart from './MicroStopsChart';
+import NaturalLanguageReports from '../archives/NaturalLanguageReports';
 
 // Context
 import SocketContext from '../../context/SocketContext';
@@ -57,7 +58,6 @@ const AnalyticsPage = () => {
   
   // State for data
   const [analyticsData, setAnalyticsData] = useState({
-    oeeData: [],
     downtimeData: [],
     stateDistribution: [],
     performanceMetrics: null,
@@ -92,9 +92,9 @@ const AnalyticsPage = () => {
   // Tab labels and icons
   const tabs = [
     { label: 'Availability KPIs', icon: <AvailabilityIcon /> },
-    { label: 'OEE Trends', icon: <TimelineIcon /> },
     { label: 'Downtime Analysis', icon: <BarChartIcon /> },
     { label: 'State Distribution', icon: <PieChartIcon /> },
+    { label: 'Natural Language Reports', icon: <DescriptionIcon /> },
   ];
 
   // Group by options
@@ -139,13 +139,11 @@ const AnalyticsPage = () => {
       // Fetch all analytics data in parallel
       const [
         availabilityResponse,
-        oeeResponse,
         downtimeResponse,
         stateResponse,
         metricsResponse
       ] = await Promise.all([
         axios.get('/api/analytics/availability', { params }),
-        axios.get('/api/analytics/oee', { params }),
         axios.get('/api/analytics/downtime', { params }),
         axios.get('/api/analytics/state-distribution', { params }),
         axios.get('/api/analytics/performance-metrics', { params })
@@ -153,7 +151,6 @@ const AnalyticsPage = () => {
       
       setAnalyticsData({
         availabilityData: availabilityResponse.data.data || null,
-        oeeData: oeeResponse.data.data || [],
         downtimeData: downtimeResponse.data.data?.downtime_by_reason || [],
         stateDistribution: stateResponse.data.data?.distribution || [],
         performanceMetrics: metricsResponse.data.data?.[0] || null,
@@ -201,11 +198,11 @@ const AnalyticsPage = () => {
           </Box>
         );
       case 1:
-        return <OeeChart data={analyticsData.oeeData} loading={loading} />;
-      case 2:
         return <DowntimePareto data={analyticsData.downtimeData} loading={loading} />;
-      case 3:
+      case 2:
         return <StateDistribution data={analyticsData.stateDistribution} loading={loading} />;
+      case 3:
+        return <NaturalLanguageReports />;
       default:
         return null;
     }

@@ -1,4 +1,5 @@
 const { Sequelize } = require('sequelize');
+const path = require('path');
 require('dotenv').config();
 
 // Database configuration for different environments
@@ -6,7 +7,7 @@ const config = {
   development: {
     // Use SQLite for local development (no PostgreSQL required)
     dialect: 'sqlite',
-    storage: './database.sqlite',
+    storage: path.join(__dirname, '..', '..', '..', 'database.sqlite'),
     logging: console.log,
     pool: {
       max: 5,

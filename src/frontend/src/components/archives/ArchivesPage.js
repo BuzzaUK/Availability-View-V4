@@ -36,7 +36,6 @@ import DailyReportTable from './DailyReportTable';
 import MonthlyReportTable from './MonthlyReportTable';
 import CsvManagement from './CsvManagement';
 import EventArchiveTable from './EventArchiveTable';
-import NaturalLanguageReports from './NaturalLanguageReports';
 
 // Styled components
 const TabPanel = styled(Box)(({ theme }) => ({
@@ -70,7 +69,6 @@ const ArchivesPage = () => {
     { label: 'Shift Reports', icon: <AssignmentIcon /> },
     { label: 'Daily Reports', icon: <TodayIcon /> },
     { label: 'Monthly Reports', icon: <CalendarMonthIcon /> },
-    { label: 'Natural Language Reports', icon: <DescriptionIcon /> },
     { label: 'Event Archives', icon: <ArchiveIcon /> },
     { label: 'CSV Management', icon: <StorageIcon /> },
   ];
@@ -194,12 +192,9 @@ const ArchivesPage = () => {
         fetchMonthlyReports();
         break;
       case 3:
-        // Natural Language Reports tab - no data fetching needed
-        break;
-      case 4:
         fetchEventArchives();
         break;
-      case 5:
+      case 4:
         // CSV Management tab - no data fetching needed
         break;
       default:
@@ -271,7 +266,7 @@ const ArchivesPage = () => {
   useEffect(() => {
     console.log('ArchivesPage useEffect triggered, tabValue:', tabValue);
     console.log('Current authentication state:', { isAuthenticated, token: token ? 'present' : 'missing', user });
-    if (tabValue === 4) {
+    if (tabValue === 3) {
       console.log('Event Archives tab selected, calling fetchEventArchives directly');
       fetchEventArchives();
     } else {
@@ -394,7 +389,7 @@ const ArchivesPage = () => {
         </Paper>
       )}
       
-      {loading && tabValue < 4 && tabValue !== 3 ? (
+      {loading && tabValue < 3 ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
           <CircularProgress />
         </Box>
@@ -421,15 +416,8 @@ const ArchivesPage = () => {
             </TabPanel>
           )}
           
-          {/* Natural Language Reports Tab */}
-          {tabValue === 3 && (
-            <TabPanel>
-              <NaturalLanguageReports />
-            </TabPanel>
-          )}
-          
           {/* Event Archives Tab */}
-          {tabValue === 4 && (
+          {tabValue === 3 && (
             <TabPanel>
               <EventArchiveTable 
                 archives={eventArchives} 
@@ -439,7 +427,7 @@ const ArchivesPage = () => {
           )}
           
           {/* CSV Management Tab */}
-          {tabValue === 5 && (
+          {tabValue === 4 && (
             <TabPanel>
               <CsvManagement />
             </TabPanel>

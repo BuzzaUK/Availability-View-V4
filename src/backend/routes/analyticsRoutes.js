@@ -9,7 +9,6 @@ const {
   getShiftAnalytics,
   getEventAnalytics,
   getAvailabilityTrends,
-  getOEEAnalytics,
   getDowntimeAnalytics,
   getStateDistribution,
   getPerformanceMetrics,
@@ -36,9 +35,6 @@ router.get('/trends', getAvailabilityTrends);
 
 // Comprehensive availability analytics
 router.get('/availability', getAvailabilityAnalytics);
-
-// OEE Analytics
-router.get('/oee', getOEEAnalytics);
 
 // Downtime Analytics
 router.get('/downtime', getDowntimeAnalytics);

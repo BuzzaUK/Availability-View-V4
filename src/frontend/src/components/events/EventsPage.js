@@ -48,6 +48,28 @@ const EventsPage = () => {
   const { error, success } = useContext(AlertContext);
   const { settings } = useContext(SettingsContext);
   
+  // Safe format helpers
+  const safeFormat = (value, fmt) => {
+    if (!value) return 'N/A';
+    try {
+      const date = typeof value === 'string' ? new Date(value) : value;
+      if (!(date instanceof Date) || isNaN(date.getTime())) return 'N/A';
+      return format(date, fmt);
+    } catch {
+      return 'N/A';
+    }
+  };
+
+  const toDateOrNull = (value) => {
+    if (!value) return null;
+    try {
+      const d = new Date(value);
+      return isNaN(d.getTime()) ? null : d;
+    } catch {
+      return null;
+    }
+  };
+  
   // State for events data
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -528,7 +550,7 @@ const EventsPage = () => {
                   value={filters.startDate ? format(filters.startDate, "yyyy-MM-dd'T'HH:mm") : ''}
                   onChange={(e) => setFilters(prev => ({ 
                     ...prev, 
-                    startDate: e.target.value ? new Date(e.target.value) : null 
+                    startDate: toDateOrNull(e.target.value) 
                   }))}
                   size="small"
                   variant="outlined"
@@ -546,7 +568,7 @@ const EventsPage = () => {
                   value={filters.endDate ? format(filters.endDate, "yyyy-MM-dd'T'HH:mm") : ''}
                   onChange={(e) => setFilters(prev => ({ 
                     ...prev, 
-                    endDate: e.target.value ? new Date(e.target.value) : null 
+                    endDate: toDateOrNull(e.target.value) 
                   }))}
                   size="small"
                   variant="outlined"
@@ -686,10 +708,15 @@ const EventsPage = () => {
                 Name: {currentShift.shift_name || currentShift.name}
               </Typography>
               <Typography variant="body2">
-                Started: {format(new Date(currentShift.start_time), 'PPpp')}
+                Started: {safeFormat(currentShift.start_time, 'PPpp')}
               </Typography>
               <Typography variant="body2">
-                Duration: {Math.round((new Date() - new Date(currentShift.start_time)) / (1000 * 60))} minutes
+                {(() => {
+                  const d = toDateOrNull(currentShift.start_time);
+                  if (!d) return 'Duration: N/A';
+                  const mins = Math.round((Date.now() - d.getTime()) / (1000 * 60));
+                  return `Duration: ${mins} minutes`;
+                })()}
               </Typography>
             </Box>
           )}

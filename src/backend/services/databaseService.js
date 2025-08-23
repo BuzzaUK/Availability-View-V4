@@ -726,6 +726,9 @@ class DatabaseService {
 
   async getShifts() {
     return await Shift.findAll({
+      where: {
+        archived: false
+      },
       order: [['start_time', 'DESC']]
     });
   }
@@ -735,7 +738,12 @@ class DatabaseService {
   }
 
   async findShiftById(id) {
-    return await Shift.findByPk(id);
+    return await Shift.findOne({
+      where: {
+        id: id,
+        archived: false
+      }
+    });
   }
 
   async updateShift(id, updates) {
@@ -748,7 +756,10 @@ class DatabaseService {
 
   async getCurrentShift() {
     return await Shift.findOne({
-      where: { status: 'active' },
+      where: { 
+        status: 'active',
+        archived: false
+      },
       order: [['start_time', 'DESC']]
     });
   }
@@ -773,6 +784,7 @@ class DatabaseService {
 
     return await Shift.findAll({
       where: {
+        archived: false,
         start_time: {
           [sequelize.Op.between]: [startOfDay, endOfDay]
         }
