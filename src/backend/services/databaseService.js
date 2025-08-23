@@ -384,6 +384,20 @@ class DatabaseService {
   }
 
   async createEvent(eventData) {
+    // Auto-assign current shift_id if not provided and an active shift exists
+    if (!eventData.shift_id) {
+      try {
+        const currentShift = await this.getCurrentShift();
+        if (currentShift) {
+          eventData.shift_id = currentShift.id;
+          console.log(`🔄 Auto-assigned shift_id ${currentShift.id} to event (${eventData.event_type})`);
+        }
+      } catch (error) {
+        console.warn('⚠️ Could not auto-assign shift_id to event:', error.message);
+        // Continue creating event without shift_id rather than failing
+      }
+    }
+    
     return await Event.create(eventData);
   }
 

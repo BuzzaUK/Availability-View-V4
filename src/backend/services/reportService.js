@@ -49,16 +49,14 @@ class ReportService {
         throw new Error('Shift not found');
       }
 
-      // Get all events and filter by shift time range
+      // Get events for this shift using shift_id for consistency with archives
       const allEvents = await this.databaseService.getAllEvents();
       const allEventsArray = allEvents.rows || allEvents; // handle findAndCountAll vs findAll
       
-      // Filter events by shift time range (more reliable than shift_id)
-      const shiftStart = new Date(shift.start_time);
-      const shiftEnd = shift.end_time ? new Date(shift.end_time) : new Date();
+      // Filter events by shift_id for consistency with archive filtering
+      // This ensures reports and archives show the same data
       const events = allEventsArray.filter(event => {
-        const eventDate = new Date(event.timestamp);
-        return eventDate >= shiftStart && eventDate <= shiftEnd;
+        return event.shift_id === shiftId;
       });
 
       // Get all assets

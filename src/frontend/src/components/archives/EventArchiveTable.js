@@ -28,11 +28,13 @@ import {
   Download as DownloadIcon,
   Delete as DeleteIcon,
   Info as InfoIcon,
-  Email as EmailIcon
+  Email as EmailIcon,
+  Visibility as VisibilityIcon
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 import axios from 'axios';
 import AlertContext from '../../context/AlertContext';
+import EventArchiveDetailView from './EventArchiveDetailView';
 
 const EventArchiveTable = ({ archives, onRefresh }) => {
   const { error, success } = useContext(AlertContext);
@@ -46,6 +48,10 @@ const EventArchiveTable = ({ archives, onRefresh }) => {
   const [emailMessage, setEmailMessage] = useState('');
   const [sendingEmail, setSendingEmail] = useState(false);
   const [loadingUsers, setLoadingUsers] = useState(false);
+  
+  // State for Detail View functionality
+  const [detailViewOpen, setDetailViewOpen] = useState(false);
+  const [selectedArchiveForDetail, setSelectedArchiveForDetail] = useState(null);
 
   // Fetch users when component mounts
   useEffect(() => {
@@ -88,6 +94,16 @@ const EventArchiveTable = ({ archives, onRefresh }) => {
     setSelectedUser('');
     setEmailSubject('');
     setEmailMessage('');
+  };
+
+  const handleOpenDetailView = (archive) => {
+    setSelectedArchiveForDetail(archive);
+    setDetailViewOpen(true);
+  };
+
+  const handleCloseDetailView = () => {
+    setDetailViewOpen(false);
+    setSelectedArchiveForDetail(null);
   };
 
   const handleSendEmail = async () => {
@@ -219,7 +235,10 @@ const EventArchiveTable = ({ archives, onRefresh }) => {
           No event archives found
         </Typography>
         <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
-          Create archives from the Events page to see them here
+          Event archives contain all asset events from shifts. Create archives from the Events page or they are automatically created at the end of each shift.
+        </Typography>
+        <Typography variant="body2" color="primary" sx={{ mt: 1, fontWeight: 'medium' }}>
+          Each archive will show individual asset events like state changes, stops, and maintenance activities.
         </Typography>
       </Box>
     );
@@ -236,7 +255,7 @@ const EventArchiveTable = ({ archives, onRefresh }) => {
             <TableCell align="center">Event Count</TableCell>
             <TableCell>Created Date</TableCell>
             <TableCell>Filters Applied</TableCell>
-            <TableCell align="center">Actions</TableCell>
+            <TableCell align="center">View Events & Actions</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -251,6 +270,24 @@ const EventArchiveTable = ({ archives, onRefresh }) => {
                 <Typography variant="body2" color="textSecondary">
                   {archive.description || 'No description'}
                 </Typography>
+                {(() => {
+                  const eventCount = (() => {
+                    if (archive.archived_data) {
+                      if (typeof archive.archived_data === 'string') {
+                        const parsedData = JSON.parse(archive.archived_data);
+                        return parsedData.events ? parsedData.events.length : (parsedData.eventCount || parsedData.event_count || 0);
+                      } else {
+                        return archive.archived_data.events ? archive.archived_data.events.length : (archive.archived_data.eventCount || archive.archived_data.event_count || 0);
+                      }
+                    }
+                    return 0;
+                  })();
+                  return eventCount > 0 ? (
+                    <Typography variant="caption" color="primary" sx={{ mt: 0.5, display: 'block', fontWeight: 'medium' }}>
+                      Contains {eventCount} asset events - Click "View Details" to see all events
+                    </Typography>
+                  ) : null;
+                })()}
               </TableCell>
               <TableCell align="center">
                 <Chip 
@@ -266,8 +303,21 @@ const EventArchiveTable = ({ archives, onRefresh }) => {
                     }
                     return 0;
                   })()} 
-                  color="primary" 
-                  variant="outlined" 
+                  color={(() => {
+                    const eventCount = (() => {
+                      if (archive.archived_data) {
+                        if (typeof archive.archived_data === 'string') {
+                          const parsedData = JSON.parse(archive.archived_data);
+                          return parsedData.events ? parsedData.events.length : (parsedData.eventCount || parsedData.event_count || 0);
+                        } else {
+                          return archive.archived_data.events ? archive.archived_data.events.length : (archive.archived_data.eventCount || archive.archived_data.event_count || 0);
+                        }
+                      }
+                      return 0;
+                    })();
+                    return eventCount > 0 ? 'success' : 'default';
+                  })()} 
+                  variant="filled" 
                   size="small"
                 />
               </TableCell>
@@ -293,6 +343,16 @@ const EventArchiveTable = ({ archives, onRefresh }) => {
               </TableCell>
               <TableCell align="center">
                 <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    size="small"
+                    startIcon={<VisibilityIcon />}
+                    onClick={() => handleOpenDetailView(archive)}
+                    sx={{ mr: 1, minWidth: 'auto' }}
+                  >
+                    View Events
+                  </Button>
                   <Tooltip title="Send email with archive details">
                     <IconButton
                       color="info"
@@ -304,7 +364,7 @@ const EventArchiveTable = ({ archives, onRefresh }) => {
                   </Tooltip>
                   <Tooltip title="Export events as CSV">
                     <IconButton
-                      color="primary"
+                      color="secondary"
                       onClick={() => handleExportCsv(archive)}
                       size="small"
                     >
@@ -389,6 +449,15 @@ const EventArchiveTable = ({ archives, onRefresh }) => {
         </Button>
       </DialogActions>
     </Dialog>
+    
+    {/* Detail View Dialog */}
+    {selectedArchiveForDetail && (
+      <EventArchiveDetailView
+        open={detailViewOpen}
+        onClose={handleCloseDetailView}
+        archive={selectedArchiveForDetail}
+      />
+    )}
     </>
   );
 };

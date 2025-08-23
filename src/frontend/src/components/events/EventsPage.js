@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useCallback } from 'react';
 import { styled } from '@mui/material/styles';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -44,7 +44,7 @@ const FiltersContainer = styled(Box)(({ theme }) => ({
 }));
 
 const EventsPage = () => {
-  const { assets, currentShift, fetchAllData } = useContext(SocketContext);
+  const { assets, currentShift } = useContext(SocketContext);
   const { error, success } = useContext(AlertContext);
   const { settings } = useContext(SettingsContext);
   
@@ -135,7 +135,7 @@ const EventsPage = () => {
   ];
 
   // Fetch events with filters and pagination
-  const fetchEvents = async () => {
+  const fetchEvents = useCallback(async () => {
     try {
       setLoading(true);
       
@@ -161,7 +161,7 @@ const EventsPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, rowsPerPage, currentShiftOnly, filters, error]);
 
   // Delete event function
   const handleDeleteEvent = async (eventId) => {
@@ -179,13 +179,29 @@ const EventsPage = () => {
   useEffect(() => {
     fetchEvents();
     fetchCurrentShift();
-  }, [page, rowsPerPage, currentShiftOnly]);
+  }, [page, rowsPerPage, currentShiftOnly, fetchEvents]);
 
   // Fetch current shift periodically
   useEffect(() => {
     const interval = setInterval(fetchCurrentShift, 30000); // Check every 30 seconds
     return () => clearInterval(interval);
   }, []);
+
+  // Auto-refresh events based on settings
+  useEffect(() => {
+    if (settings?.autoRefresh && settings?.refreshInterval) {
+      console.log('🔄 EventsPage: Setting up auto-refresh with interval:', settings.refreshInterval, 'seconds');
+      const interval = setInterval(() => {
+        console.log('🔄 EventsPage: Auto-refreshing events at:', new Date().toISOString());
+        fetchEvents();
+      }, settings.refreshInterval * 1000); // Convert seconds to milliseconds
+      
+      return () => {
+        console.log('🔄 EventsPage: Clearing auto-refresh interval');
+        clearInterval(interval);
+      };
+    }
+  }, [settings?.autoRefresh, settings?.refreshInterval, fetchEvents]);
 
 
 

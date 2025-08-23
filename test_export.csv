@@ -1,0 +1,3 @@
+Timestamp,Asset Name,Event Type,Previous State,New State,Duration (minutes),Description
+21/08/2025, 18:39:33,"Production Line A",SHIFT_END,RUNNING,,,""
+21/08/2025, 18:39:33,"Hydraulic Press #1",SHIFT_END,RUNNING,,,""

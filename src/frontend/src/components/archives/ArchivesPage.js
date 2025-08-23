@@ -25,6 +25,12 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { format } from 'date-fns';
 import axios from 'axios';
 
+// Add missing MUI imports for pagination controls
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import Select from '@mui/material/Select';
+import Pagination from '@mui/material/Pagination';
+
 // Context imports
 import SocketContext from '../../context/SocketContext';
 import AlertContext from '../../context/AlertContext';
@@ -56,6 +62,12 @@ const ArchivesPage = () => {
     startDate: new Date(new Date().setDate(new Date().getDate() - 30)), // Default to last 30 days
     endDate: new Date(),
   });
+  
+  // Shift reports pagination state (server-side)
+  const [shiftPage, setShiftPage] = useState(1);
+  const [shiftLimit, setShiftLimit] = useState(25);
+  const [shiftTotal, setShiftTotal] = useState(0);
+  const [shiftTotalPages, setShiftTotalPages] = useState(1);
   
   // State for data
   const [shiftReports, setShiftReports] = useState([]);
@@ -89,7 +101,7 @@ const ArchivesPage = () => {
     setFilters(prev => ({ ...prev, [name]: date }));
   };
 
-  // Fetch shift reports
+  // Fetch shift reports (server-side pagination)
   const fetchShiftReports = useCallback(async () => {
     try {
       setLoading(true);
@@ -98,19 +110,33 @@ const ArchivesPage = () => {
         ...(filters.asset && { asset: filters.asset }),
         ...(filters.startDate && { startDate: filters.startDate.toISOString() }),
         ...(filters.endDate && { endDate: filters.endDate.toISOString() }),
+        page: shiftPage,
+        limit: shiftLimit,
       };
       
       const response = await axios.get('/api/reports/shifts', { params });
-      // Handle API response structure {success: true, data: [...]}
-      const reportsData = response.data?.data || response.data;
-      setShiftReports(Array.isArray(reportsData) ? reportsData : []);
+      const respData = response.data || {};
+      const reportsData = Array.isArray(respData?.data) ? respData.data : (Array.isArray(respData) ? respData : []);
+      setShiftReports(reportsData);
+      
+      const pagination = respData.pagination || {};
+      let totalItems = pagination.total_items ?? respData.total;
+      if (typeof totalItems !== 'number') {
+        totalItems = Array.isArray(reportsData) ? reportsData.length : 0;
+      }
+      setShiftTotal(totalItems);
+      
+      const computedTotalPages = pagination.total_pages ?? (totalItems && shiftLimit ? Math.ceil(totalItems / shiftLimit) : 1);
+      setShiftTotalPages(computedTotalPages || 1);
     } catch (err) {
       error('Failed to fetch shift reports: ' + (err.response?.data?.message || err.message));
       setShiftReports([]); // Reset to empty array on error
+      setShiftTotal(0);
+      setShiftTotalPages(1);
     } finally {
       setLoading(false);
     }
-  }, [filters.asset, filters.startDate, filters.endDate, error]);
+  }, [filters.asset, filters.startDate, filters.endDate, shiftPage, shiftLimit, error]);
 
   // Fetch daily reports
   const fetchDailyReports = useCallback(async () => {
@@ -177,10 +203,13 @@ const ArchivesPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [error]);
+  }, [error, isAuthenticated, token, user]);
 
   // Apply filters and fetch data based on current tab
   const applyFilters = useCallback(() => {
+    // Reset shift pagination when filters change
+    setShiftPage(1);
+    
     switch (tabValue) {
       case 0:
         fetchShiftReports();
@@ -262,6 +291,13 @@ const ArchivesPage = () => {
     }
   }, [registerArchiveRefreshCallback, fetchEventArchives]);
 
+  // Refetch shift reports when page/limit changes and relevant tab is active
+  useEffect(() => {
+    if (tabValue === 0) {
+      fetchShiftReports();
+    }
+  }, [shiftPage, shiftLimit, tabValue, fetchShiftReports]);
+
   // Fetch data when component mounts or tab changes
   useEffect(() => {
     console.log('ArchivesPage useEffect triggered, tabValue:', tabValue);
@@ -272,7 +308,7 @@ const ArchivesPage = () => {
     } else {
       applyFilters();
     }
-  }, [tabValue, isAuthenticated, token, fetchEventArchives, applyFilters]);
+  }, [tabValue, isAuthenticated, token, fetchEventArchives, applyFilters, user]);
 
   return (
     <Box sx={{ flexGrow: 1 }}>
@@ -399,6 +435,34 @@ const ArchivesPage = () => {
           {tabValue === 0 && (
             <TabPanel>
               <ShiftReportTable reports={shiftReports} onRefresh={fetchShiftReports} />
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2 }}>
+                <Typography variant="body2">
+                  {shiftTotal > 0
+                    ? `Showing ${((shiftPage - 1) * shiftLimit) + 1}-${Math.min(shiftPage * shiftLimit, shiftTotal)} of ${shiftTotal}`
+                    : 'No results'}
+                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <FormControl size="small" sx={{ minWidth: 100 }}>
+                    <InputLabel id="rows-per-page-label">Rows</InputLabel>
+                    <Select
+                      labelId="rows-per-page-label"
+                      value={shiftLimit}
+                      label="Rows"
+                      onChange={(e) => { setShiftLimit(Number(e.target.value)); setShiftPage(1); }}
+                    >
+                      {[10, 25, 50, 100].map((n) => (
+                        <MenuItem key={n} value={n}>{n}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <Pagination
+                    count={shiftTotalPages}
+                    page={shiftPage}
+                    onChange={(e, value) => setShiftPage(value)}
+                    color="primary"
+                  />
+                </Box>
+              </Box>
             </TabPanel>
           )}
           

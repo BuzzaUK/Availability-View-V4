@@ -61,18 +61,18 @@ async function simulateShiftActivity() {
 // Count existing archives
 async function countExistingArchives(token) {
   try {
-    const response = await axios.get(`${BASE_URL}/api/archives`, {
+    const response = await axios.get(`${BASE_URL}/api/events/archives`, {
       headers: {
         'Authorization': `Bearer ${token}`
       }
     });
     
-    console.log(`✅ Archives API response: ${response.status}`);
-    const archives = response.data.archives || response.data || [];
-    console.log(`📊 Current archive count: ${archives.length}`);
+    console.log(`✅ Event Archives API response: ${response.status}`);
+    const archives = Array.isArray(response.data?.data) ? response.data.data : [];
+    console.log(`📊 Current event archive count: ${archives.length}`);
     return archives.length;
   } catch (error) {
-    console.error('❌ Failed to count archives:', error.response?.data || error.message);
+    console.error('❌ Failed to count event archives:', error.response?.data || error.message);
     return 0;
   }
 }
@@ -80,15 +80,22 @@ async function countExistingArchives(token) {
 // Count existing shift reports
 async function countShiftReports(token) {
   try {
-    const response = await axios.get(`${BASE_URL}/api/archives?type=REPORTS`, {
+    const response = await axios.get(`${BASE_URL}/api/reports/shifts`, {
       headers: {
         'Authorization': `Bearer ${token}`
+      },
+      params: {
+        // Ensure we fetch enough items so count reflects actual total on first page
+        limit: 1000,
+        page: 1
       }
     });
     
-    const reports = response.data.archives || response.data || [];
-    console.log(`📊 Current shift report count: ${reports.length}`);
-    return reports.length;
+    const total = typeof response.data?.total === 'number' ? response.data.total : 0;
+    const reports = Array.isArray(response.data?.data) ? response.data.data : [];
+    console.log(`📊 Current shift report total (API): ${total}`);
+    console.log(`📊 Current shift report page size (data.length): ${reports.length}`);
+    return total || reports.length;
   } catch (error) {
     console.error('❌ Failed to count shift reports:', error.response?.data || error.message);
     return 0;
@@ -118,14 +125,30 @@ async function endShiftAndMonitor(token, initialArchiveCount, initialReportCount
         receivedEvents.push({ type: 'SHIFT_UPDATE', data });
       });
       
+      // Also listen to lowercase event names emitted by backend
+      socket.on('shift_update', (data) => {
+        console.log('📡 Received shift_update:', data);
+        receivedEvents.push({ type: 'shift_update', data });
+      });
+      
       socket.on('DASHBOARD_RESET', (data) => {
         console.log('📡 Received DASHBOARD_RESET:', data);
         receivedEvents.push({ type: 'DASHBOARD_RESET', data });
       });
       
+      socket.on('dashboard_reset', (data) => {
+        console.log('📡 Received dashboard_reset:', data);
+        receivedEvents.push({ type: 'dashboard_reset', data });
+      });
+      
       socket.on('EVENTS_UPDATE', (data) => {
         console.log('📡 Received EVENTS_UPDATE:', data);
         receivedEvents.push({ type: 'EVENTS_UPDATE', data });
+      });
+      
+      socket.on('events_update', (data) => {
+        console.log('📡 Received events_update:', data);
+        receivedEvents.push({ type: 'events_update', data });
       });
       
       socket.on('archive_created', (data) => {
