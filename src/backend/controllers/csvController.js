@@ -26,7 +26,16 @@ exports.getTemplates = async (req, res) => {
 // @access  Private
 exports.exportData = async (req, res) => {
   try {
-    const { type, format = 'standard', filters = {} } = req.body;
+    const { 
+      type, 
+      format = 'standard', 
+      filters = {},
+      dateRange = {},
+      customFields = [],
+      exportFormat = 'csv',
+      includeHeaders = true,
+      delimiter = ','
+    } = req.body;
     
     if (!type) {
       return res.status(400).json({
@@ -48,17 +57,57 @@ exports.exportData = async (req, res) => {
 
     let data = [];
     
-    // Get data based on template data source
+    // Get data based on template data source with advanced filtering
     switch (templateConfig.data_source) {
       case 'assets':
         data = await databaseService.getAllAssets();
+        // Apply asset-specific filters
+        if (filters.status) {
+          data = data.filter(asset => asset.current_state === filters.status);
+        }
+        if (filters.availability_min) {
+          data = data.filter(asset => asset.availability_percentage >= filters.availability_min);
+        }
         break;
+        
       case 'events':
         data = await databaseService.getAllEvents();
+        // Apply date range filtering for events
+        if (dateRange.startDate || dateRange.endDate) {
+          data = data.filter(event => {
+            const eventDate = new Date(event.timestamp);
+            if (dateRange.startDate && eventDate < new Date(dateRange.startDate)) return false;
+            if (dateRange.endDate && eventDate > new Date(dateRange.endDate)) return false;
+            return true;
+          });
+        }
+        // Apply event type filtering
+        if (filters.eventTypes && filters.eventTypes.length > 0) {
+          data = data.filter(event => filters.eventTypes.includes(event.event_type));
+        }
+        // Apply asset filtering
+        if (filters.assetNames && filters.assetNames.length > 0) {
+          data = data.filter(event => filters.assetNames.includes(event.asset_name));
+        }
         break;
+        
       case 'shifts':
         data = await databaseService.getAllShifts();
+        // Apply date range filtering for shifts
+        if (dateRange.startDate || dateRange.endDate) {
+          data = data.filter(shift => {
+            const shiftDate = new Date(shift.start_time);
+            if (dateRange.startDate && shiftDate < new Date(dateRange.startDate)) return false;
+            if (dateRange.endDate && shiftDate > new Date(dateRange.endDate)) return false;
+            return true;
+          });
+        }
+        // Apply shift status filtering
+        if (filters.status) {
+          data = data.filter(shift => shift.status === filters.status);
+        }
         break;
+        
       default:
         return res.status(400).json({
           success: false,
@@ -79,25 +128,61 @@ exports.exportData = async (req, res) => {
       });
     }
 
-    // Transform data according to template
-    const csvData = data.map(item => {
-      const row = {};
-      templateConfig.fields.forEach(field => {
-        row[field.label] = item[field.key] || '';
-      });
-      return row;
-    });
+    // Apply custom field selection if provided
+    let fieldsToUse = templateConfig.fields;
+    if (customFields && customFields.length > 0) {
+      fieldsToUse = templateConfig.fields.filter(field => 
+        customFields.includes(field.key) || customFields.includes(field.label)
+      );
+    }
 
-    // Convert to CSV format
-    const headers = templateConfig.fields.map(field => field.label);
-    const csvContent = [
-      headers.join(','),
-      ...csvData.map(row => headers.map(header => `"${row[header] || ''}"`).join(','))
-    ].join('\n');
+    // Apply transformations if defined
+    if (templateConfig.transformations) {
+      data = applyTransformations(data, templateConfig.transformations);
+    }
 
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="${type}_export_${new Date().toISOString().slice(0, 10)}.csv"`);
-    res.status(200).send(csvContent);
+    // Generate export data based on format
+    let exportData, contentType, fileExtension;
+    
+    switch (exportFormat.toLowerCase()) {
+      case 'json':
+        exportData = JSON.stringify(data.map(row => {
+          const filteredRow = {};
+          fieldsToUse.forEach(field => {
+            filteredRow[field.label] = row[field.key] || '';
+          });
+          return filteredRow;
+        }), null, 2);
+        contentType = 'application/json';
+        fileExtension = 'json';
+        break;
+        
+      case 'xml':
+        exportData = generateXML(data, fieldsToUse);
+        contentType = 'application/xml';
+        fileExtension = 'xml';
+        break;
+        
+      case 'excel':
+        exportData = generateExcel(data, fieldsToUse, includeHeaders);
+        contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        fileExtension = 'xlsx';
+        break;
+        
+      default: // CSV
+        exportData = generateCSV(data, fieldsToUse, delimiter, includeHeaders);
+        contentType = 'text/csv';
+        fileExtension = 'csv';
+        break;
+    }
+    
+    // Set response headers
+    const timestamp = new Date().toISOString().split('T')[0];
+    const filename = `${type}_export_${timestamp}.${fileExtension}`;
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    
+    res.status(200).send(exportData);
 
   } catch (error) {
     res.status(500).json({
@@ -550,6 +635,119 @@ exports.getAnalytics = async (req, res) => {
     });
   }
 };
+
+// Helper function to generate CSV from data
+function generateCSV(data, fields, delimiter = ',', includeHeaders = true) {
+  if (!data || data.length === 0) {
+    return includeHeaders ? fields.map(field => field.label).join(delimiter) + '\n' : '';
+  }
+
+  const headers = fields.map(field => field.label);
+  const rows = data.map(item => {
+    return fields.map(field => {
+      const value = item[field.key] || '';
+      // Escape quotes and wrap in quotes if contains delimiter or quote
+      if (typeof value === 'string' && (value.includes(delimiter) || value.includes('"') || value.includes('\n'))) {
+        return `"${value.replace(/"/g, '""')}"`;
+      }
+      return value;
+    }).join(delimiter);
+  });
+
+  const result = includeHeaders ? [headers.join(delimiter), ...rows] : rows;
+  return result.join('\n');
+}
+
+// Helper function to generate XML from data
+function generateXML(data, fields) {
+  let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<data>\n';
+  
+  data.forEach(item => {
+    xml += '  <record>\n';
+    fields.forEach(field => {
+      const value = item[field.key] || '';
+      const escapedValue = String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+      xml += `    <${field.key}>${escapedValue}</${field.key}>\n`;
+    });
+    xml += '  </record>\n';
+  });
+  
+  xml += '</data>';
+  return xml;
+}
+
+// Helper function to generate Excel-compatible CSV (placeholder for future Excel library integration)
+function generateExcel(data, fields, includeHeaders = true) {
+  // For now, return enhanced CSV format that Excel can read
+  // In the future, this could use a library like xlsx to generate actual Excel files
+  const csvData = generateCSV(data, fields, ',', includeHeaders);
+  
+  // Add BOM for proper UTF-8 encoding in Excel
+  return '\uFEFF' + csvData;
+}
+
+// Helper function to apply transformations to data
+ function applyTransformations(data, transformations) {
+   return data.map(item => {
+     const transformedItem = { ...item };
+     
+     transformations.forEach(transform => {
+       switch (transform.type) {
+         case 'calculate_field':
+           // Simple formula evaluation for basic calculations
+           try {
+             const formula = transform.formula.replace(/([a-zA-Z_][a-zA-Z0-9_]*)/g, (match) => {
+               return transformedItem[match] !== undefined ? transformedItem[match] : 0;
+             });
+             // Use Function constructor for safer evaluation than eval
+             const result = new Function('return ' + formula)();
+             transformedItem[transform.target_field] = isNaN(result) ? 0 : Math.round(result * 100) / 100;
+           } catch (e) {
+             transformedItem[transform.target_field] = 0;
+           }
+           break;
+         case 'format_date':
+           if (transformedItem[transform.field]) {
+             const date = new Date(transformedItem[transform.field]);
+             transformedItem[transform.field] = date.toLocaleDateString();
+           }
+           break;
+         case 'convert_ms_to_hours':
+           if (transformedItem[transform.field]) {
+             transformedItem[transform.field] = (transformedItem[transform.field] / (1000 * 60 * 60)).toFixed(2);
+           }
+           break;
+         case 'convert_ms_to_minutes':
+           if (transformedItem[transform.field]) {
+             transformedItem[transform.field] = (transformedItem[transform.field] / (1000 * 60)).toFixed(2);
+           }
+           break;
+         case 'round_number':
+           if (transformedItem[transform.field] && !isNaN(transformedItem[transform.field])) {
+             transformedItem[transform.field] = Math.round(parseFloat(transformedItem[transform.field]) * 100) / 100;
+           }
+           break;
+         case 'uppercase':
+           if (transformedItem[transform.field]) {
+             transformedItem[transform.field] = transformedItem[transform.field].toString().toUpperCase();
+           }
+           break;
+         case 'lowercase':
+           if (transformedItem[transform.field]) {
+             transformedItem[transform.field] = transformedItem[transform.field].toString().toLowerCase();
+           }
+           break;
+       }
+     });
+     
+     return transformedItem;
+   });
+ }
 
 module.exports = {
   getTemplates: exports.getTemplates,

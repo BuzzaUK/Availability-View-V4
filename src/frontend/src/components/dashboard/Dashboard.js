@@ -38,6 +38,7 @@ import {
 import SocketContext from '../../context/SocketContext';
 import SettingsContext from '../../context/SettingsContext';
 import AuthContext from '../../context/AuthContext';
+import RealTimeMetricsWidget from './RealTimeMetricsWidget';
 
 // Register Chart.js components
 ChartJS.register(
@@ -754,6 +755,13 @@ const Dashboard = () => {
             </Paper>
           </Grid>
         )}
+      </Grid>
+
+      {/* Real-Time Metrics Widget */}
+      <Grid container spacing={3} sx={{ mb: 4 }}>
+        <Grid item xs={12}>
+          <RealTimeMetricsWidget />
+        </Grid>
       </Grid>
     </Box>
   );

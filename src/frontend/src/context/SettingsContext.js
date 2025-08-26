@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import AuthContext from './AuthContext';
 
 const SettingsContext = createContext();
@@ -62,10 +62,7 @@ export const SettingsProvider = ({ children }) => {
 
     try {
       setLoading(true);
-      const headers = {
-        Authorization: `Bearer ${token}`
-      };
-      const response = await axios.get('/api/settings', { headers });
+      const response = await api.get('/settings');
       console.log('🔍 FETCHED SETTINGS FROM BACKEND:', response.data);
       
       // Merge backend settings with current settings to preserve any local changes
@@ -87,10 +84,7 @@ export const SettingsProvider = ({ children }) => {
 
     try {
       setLoading(true);
-      const headers = {
-        Authorization: `Bearer ${token}`
-      };
-      const response = await axios.put('/api/settings', newSettings, { headers });
+      const response = await api.put('/settings', newSettings);
       console.log('🔍 UPDATE RESPONSE FROM BACKEND:', response.data);
       if (response.data.success) {
         console.log('🔍 SETTING NEW SETTINGS:', response.data.data);

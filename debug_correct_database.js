@@ -13,7 +13,7 @@ async function debugCorrectDatabase() {
     // Use the same relative path as the service (from backend directory)
     const sequelize = new Sequelize({
       dialect: 'sqlite',
-      storage: './src/backend/database.sqlite', // This should match the service
+      storage: './database.sqlite', // This should match the service
       logging: false
     });
     

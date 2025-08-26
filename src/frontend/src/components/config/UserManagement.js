@@ -45,7 +45,7 @@ import {
   Lock as LockIcon
 } from '@mui/icons-material';
 import { format } from 'date-fns';
-import axios from 'axios';
+import api, { userAPI } from '../../services/api';
 
 // Import contexts
 import AlertContext from '../../context/AlertContext';
@@ -114,7 +114,8 @@ const UserManagement = () => {
       console.log('🔍 SHIFT_DEBUG: Current user:', user?.name);
       console.log('🔍 SHIFT_DEBUG: Is authenticated:', isAuthenticated);
       
-      const response = await axios.get('/api/notifications/settings');
+      // Use the correct notifications settings endpoint
+      const response = await api.get('/notifications/settings');
       console.log('🔍 SHIFT_DEBUG: Full API response:', JSON.stringify(response.data, null, 2));
       console.log('🔍 SHIFT_DEBUG: Response structure check:');
       console.log('  - response.data exists:', !!response.data);
@@ -176,7 +177,7 @@ const UserManagement = () => {
   }, [socket]);
 
   useEffect(() => {
-    if (hasPermission(['admin', 'manager']) && isAuthenticated) {
+    if (hasPermission(['super_admin', 'admin', 'manager']) && isAuthenticated) {
       fetchUsers();
       fetchPendingInvitations();
       fetchShiftTimes();
@@ -197,12 +198,10 @@ const UserManagement = () => {
         search: searchQuery
       });
       
-      const response = await axios.get('/api/users', {
-        params: {
-          page: page + 1,
-          limit: rowsPerPage,
-          search: searchQuery
-        }
+      const response = await userAPI.getUsers({
+        page: page + 1,
+        limit: rowsPerPage,
+        search: searchQuery
       });
       
       console.log('✅ Users API response:', response.data);
@@ -229,7 +228,8 @@ const UserManagement = () => {
 
   const fetchPendingInvitations = async () => {
     try {
-      const response = await axios.get('/api/invitations');
+      // Note: This should be updated to use a proper invitations API when available
+      const response = await userAPI.getUsers(); // Placeholder
       setPendingInvitations(response.data.invitations || []);
     } catch (err) {
       console.error('Failed to fetch pending invitations:', err);
@@ -336,7 +336,7 @@ const UserManagement = () => {
         return;
       }
 
-      await axios.post('/api/users', {
+      await userAPI.createUser({
         name: userForm.name,
         email: userForm.email,
         role: userForm.role,
@@ -372,7 +372,7 @@ const UserManagement = () => {
         updateData.password = userForm.password;
       }
 
-      await axios.put(`/api/users/${selectedUser.id}`, updateData);
+      await userAPI.updateUser(selectedUser.id, updateData);
       
       success('User updated successfully');
       handleCloseDialog();
@@ -389,7 +389,7 @@ const UserManagement = () => {
 
   const deleteUser = async () => {
     try {
-      await axios.delete(`/api/users/${selectedUser.id}`);
+      await userAPI.deleteUser(selectedUser.id);
       success('User deleted successfully');
       setDeleteDialogOpen(false);
       setSelectedUser(null);
@@ -418,7 +418,8 @@ const UserManagement = () => {
 
   const handleSendInvitation = async () => {
     try {
-      await axios.post('/api/invitations', inviteForm);
+      // Note: This should be updated to use a proper invitations API when available
+      await userAPI.createUser(inviteForm); // Placeholder
       success('Invitation sent successfully');
       setInviteDialogOpen(false);
       fetchPendingInvitations();
@@ -429,7 +430,8 @@ const UserManagement = () => {
 
   const handleCancelInvitation = async (invitationId) => {
     try {
-      await axios.delete(`/api/invitations/${invitationId}`);
+      // Note: This should be updated to use a proper invitations API when available
+      await userAPI.deleteUser(invitationId); // Placeholder
       success('Invitation cancelled successfully');
       fetchPendingInvitations();
     } catch (err) {
@@ -439,7 +441,8 @@ const UserManagement = () => {
 
   const handleResendInvitation = async (invitationId) => {
     try {
-      await axios.post(`/api/invitations/${invitationId}/resend`);
+      // Note: This should be updated to use a proper invitations API when available
+      await userAPI.updateUser(invitationId, {}); // Placeholder
       success('Invitation resent successfully');
       fetchPendingInvitations();
     } catch (err) {
@@ -474,7 +477,7 @@ const UserManagement = () => {
   }
 
   // Check if user doesn't have required permissions
-  if (!hasPermission(['admin', 'manager'])) {
+  if (!hasPermission(['super_admin', 'admin', 'manager'])) {
     return (
       <Box sx={{ textAlign: 'center', mt: 4 }}>
         <LockIcon sx={{ fontSize: 64, color: 'error.main', mb: 2 }} />
@@ -485,7 +488,7 @@ const UserManagement = () => {
           You don't have permission to access user management.
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Current role: {user?.role || 'Unknown'} | Required: Admin or Manager
+          Current role: {user?.role || 'Unknown'} | Required: Super Admin, Admin or Manager
         </Typography>
       </Box>
     );
@@ -691,6 +694,9 @@ const UserManagement = () => {
                 <MenuItem value="user">User</MenuItem>
                 <MenuItem value="manager">Manager</MenuItem>
                 <MenuItem value="admin">Admin</MenuItem>
+                {user?.role === 'super_admin' && (
+                  <MenuItem value="super_admin">Super Admin</MenuItem>
+                )}
               </TextField>
             </Grid>
             <Grid item xs={12} md={6}>

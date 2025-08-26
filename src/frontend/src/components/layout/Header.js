@@ -7,8 +7,7 @@ import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import MenuIcon from '@mui/icons-material/Menu';
 import AccountCircle from '@mui/icons-material/AccountCircle';
-import NotificationsIcon from '@mui/icons-material/Notifications';
-import Badge from '@mui/material/Badge';
+import NotificationBell from '../common/NotificationBell';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Divider from '@mui/material/Divider';
@@ -122,11 +121,7 @@ const Header = ({ open, sidebarWidth, handleDrawerToggle, user }) => {
         </Typography>
         
         {/* Notifications */}
-        <IconButton color="inherit" sx={{ mr: 1 }}>
-          <Badge badgeContent={0} color="secondary">
-            <NotificationsIcon />
-          </Badge>
-        </IconButton>
+        <NotificationBell />
         
         {/* User menu */}
         <div>

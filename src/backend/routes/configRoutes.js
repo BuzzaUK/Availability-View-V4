@@ -24,28 +24,28 @@ const {
 // Get configuration
 router.get('/', getConfig);
 
-// Update configuration - admin only
-router.put('/', authorizeRoles('admin'), updateConfig);
+// Update configuration - super admin/admin only
+router.put('/', authorizeRoles('super_admin', 'admin'), updateConfig);
 
 // Downtime reasons
 router.get('/downtime-reasons', getDowntimeReasons);
-router.post('/downtime-reasons', authorizeRoles('admin', 'manager'), addDowntimeReason);
-router.put('/downtime-reasons/:id', authorizeRoles('admin', 'manager'), updateDowntimeReason);
-router.delete('/downtime-reasons/:id', authorizeRoles('admin', 'manager'), deleteDowntimeReason);
+router.post('/downtime-reasons', authorizeRoles('super_admin', 'admin', 'manager'), addDowntimeReason);
+router.put('/downtime-reasons/:id', authorizeRoles('super_admin', 'admin', 'manager'), updateDowntimeReason);
+router.delete('/downtime-reasons/:id', authorizeRoles('super_admin', 'admin', 'manager'), deleteDowntimeReason);
 
 // Shift schedules
 router.get('/shift-schedules', getShiftSchedules);
-router.post('/shift-schedules', authorizeRoles('admin', 'manager'), addShiftSchedule);
-router.put('/shift-schedules/:id', authorizeRoles('admin', 'manager'), updateShiftSchedule);
-router.delete('/shift-schedules/:id', authorizeRoles('admin', 'manager'), deleteShiftSchedule);
+router.post('/shift-schedules', authorizeRoles('super_admin', 'admin', 'manager'), addShiftSchedule);
+router.put('/shift-schedules/:id', authorizeRoles('super_admin', 'admin', 'manager'), updateShiftSchedule);
+router.delete('/shift-schedules/:id', authorizeRoles('super_admin', 'admin', 'manager'), deleteShiftSchedule);
 
 // Report recipients
-router.get('/report-recipients', authorizeRoles('admin', 'manager'), getReportRecipients);
-router.post('/report-recipients', authorizeRoles('admin'), addReportRecipient);
-router.put('/report-recipients/:id', authorizeRoles('admin'), updateReportRecipient);
-router.delete('/report-recipients/:id', authorizeRoles('admin'), deleteReportRecipient);
+router.get('/report-recipients', authorizeRoles('super_admin', 'admin', 'manager'), getReportRecipients);
+router.post('/report-recipients', authorizeRoles('super_admin', 'admin'), addReportRecipient);
+router.put('/report-recipients/:id', authorizeRoles('super_admin', 'admin'), updateReportRecipient);
+router.delete('/report-recipients/:id', authorizeRoles('super_admin', 'admin'), deleteReportRecipient);
 
 // Report schedule
-router.put('/report-schedule', authorizeRoles('admin'), updateReportSchedule);
+router.put('/report-schedule', authorizeRoles('super_admin', 'admin'), updateReportSchedule);
 
 module.exports = router;

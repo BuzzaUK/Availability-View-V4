@@ -20,7 +20,7 @@ import StopIcon from '@mui/icons-material/Stop';
 import SpeedIcon from '@mui/icons-material/Speed';
 import SettingsIcon from '@mui/icons-material/Settings';
 import EditIcon from '@mui/icons-material/Edit';
-import axios from 'axios';
+import api from '../../services/api';
 import AlertContext from '../../context/AlertContext';
 import AuthContext from '../../context/AuthContext';
 
@@ -145,18 +145,13 @@ const AvailabilityKPIs = ({ data, loading, selectedAsset }) => {
     }
     
     try {
-      const headers = {};
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-      }
-      
       // Convert minutes to seconds for storage
       const thresholdInSeconds = microstopThreshold * 60;
       
-      await axios.put(`/api/assets/${selectedAsset.id}`, {
+      await api.put(`/assets/${selectedAsset.id}`, {
         ...selectedAsset,
         microstop_threshold: thresholdInSeconds
-      }, { headers });
+      });
       
       success('Microstop threshold updated successfully');
       setMicrostopDialogOpen(false);

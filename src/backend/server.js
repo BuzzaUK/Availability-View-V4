@@ -4,6 +4,7 @@ const path = require('path');
 const http = require('http');
 const socketIo = require('socket.io');
 require('dotenv').config({ path: __dirname + '/.env' });
+// Server restart
 
 // Import services and middleware
 const databaseService = require('./services/databaseService');
@@ -29,6 +30,11 @@ const shiftRoutes = require('./routes/shiftRoutes');
 const loggerRoutes = require('./routes/loggerRoutes');
 const invitationRoutes = require('./routes/invitationRoutes');
 const naturalLanguageReportRoutes = require('./routes/naturalLanguageReportRoutes');
+const advancedAnalyticsRoutes = require('./routes/advancedAnalyticsRoutes');
+const alertRoutes = require('./routes/alertRoutes');
+const teamRoutes = require('./routes/teamRoutes');
+const shiftPatternRoutes = require('./routes/shiftPatternRoutes');
+const alertService = require('./services/alertService');
 
 // Initialize Express app
 const app = express();
@@ -75,6 +81,10 @@ app.use('/api/shifts', authenticateJWT, shiftRoutes);
 app.use('/api/loggers', authenticateJWT, loggerRoutes);
 app.use('/api/invitations', invitationRoutes);
 app.use('/api/reports/natural-language', authenticateJWT, naturalLanguageReportRoutes);
+app.use('/api/advanced-analytics', authenticateJWT, advancedAnalyticsRoutes);
+app.use('/api/alerts', authenticateJWT, alertRoutes);
+app.use('/api/teams', authenticateJWT, teamRoutes);
+app.use('/api/shift-patterns', authenticateJWT, shiftPatternRoutes);
 
 // Health check endpoint with database connectivity
 app.get('/api/health', async (req, res) => {
@@ -321,7 +331,7 @@ app.post('/api/asset-state', async (req, res) => {
       const totalTime = totalRuntime + totalDowntime;
       
       if (totalTime > 0) {
-        updateData.availability_percentage = ((totalRuntime / totalTime) * 100).toFixed(2);
+        updateData.availability_percentage = (((totalRuntime / totalTime) * 100) || 0).toFixed(2);
       }
 
       // Update asset with accumulated statistics
@@ -542,7 +552,7 @@ const startServer = async () => {
       throw new Error('Database initialization timeout');
     }
     
-    server.listen(PORT, () => {
+    server.listen(PORT, async () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`💾 Database: ${process.env.NODE_ENV === 'production' ? 'PostgreSQL' : 'SQLite'}`);
@@ -550,6 +560,15 @@ const startServer = async () => {
       // Start background services
       shiftScheduler.initialize(io);
       csvEnhancementService.initialize();
+      
+      // Initialize alert service with Socket.IO
+      alertService.setSocketIO(io);
+      await alertService.initialize();
+      console.log('✅ Alert service initialized successfully');
+      
+      // Start alert monitoring
+      alertService.startMonitoring();
+      console.log('✅ Alert monitoring started');
     });
     
   } catch (error) {

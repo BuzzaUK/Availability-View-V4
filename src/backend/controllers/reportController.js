@@ -300,6 +300,7 @@ exports.getShiftReports = async (req, res) => {
         quality,
         oee,
         runtime,
+        run_time: runtime, // Add run_time field for frontend compatibility
         downtime,
         stops,
         events_processed: meta.events_processed || 0,
@@ -409,6 +410,45 @@ exports.getDailyReports = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server Error',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Generate and archive shift report
+// @route   POST /api/reports/shift/:id/archive
+// @access  Private
+exports.generateAndArchiveShiftReport = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const reportService = require('../services/reportService');
+    
+    console.log('🎯 API ENDPOINT: generateAndArchiveShiftReport called with shift ID:', id);
+    console.log('🎯 API ENDPOINT: Request params:', req.params);
+    console.log('🎯 API ENDPOINT: Request body:', req.body);
+    
+    // Generate and archive the shift report
+    console.log('🎯 API ENDPOINT: About to call reportService.generateAndArchiveShiftReportFromShift...');
+    const result = await reportService.generateAndArchiveShiftReportFromShift(id, {
+      includeEvents: true,
+      includeAssets: true
+    });
+    console.log('🎯 API ENDPOINT: reportService call completed successfully');
+    
+    res.status(200).json({
+      success: true,
+      message: 'Shift report generated and archived successfully',
+      data: result
+    });
+    
+  } catch (error) {
+    console.error('❌ API ENDPOINT ERROR: Error generating and archiving shift report:', error.message);
+    console.error('❌ API ENDPOINT ERROR: Stack trace:', error.stack);
+    console.error('❌ API ENDPOINT ERROR: Full error object:', error);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate and archive shift report',
       error: error.message
     });
   }

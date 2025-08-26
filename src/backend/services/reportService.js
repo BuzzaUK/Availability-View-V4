@@ -43,7 +43,10 @@ class ReportService {
    */
   async generateShiftReport(shiftId, options = {}) {
     try {
+      console.log('🔍 generateShiftReport: Starting for shift ID:', shiftId);
+      
       const shift = await this.databaseService.findShiftById(shiftId);
+      console.log('🔍 generateShiftReport: Found shift:', shift ? 'YES' : 'NO');
 
       if (!shift) {
         throw new Error('Shift not found');
@@ -52,17 +55,29 @@ class ReportService {
       // Get events for this shift using shift_id for consistency with archives
       const allEvents = await this.databaseService.getAllEvents();
       const allEventsArray = allEvents.rows || allEvents; // handle findAndCountAll vs findAll
+      console.log('🔍 generateShiftReport: Total events found:', allEventsArray.length);
       
       // Filter events by shift_id for consistency with archive filtering
       // This ensures reports and archives show the same data
       const events = allEventsArray.filter(event => {
         return event.shift_id === shiftId;
       });
+      console.log('🔍 generateShiftReport: Events for this shift:', events.length);
 
       // Get all assets
       const allAssets = await this.databaseService.getAllAssets();
+      console.log('🔍 generateShiftReport: Total assets found:', allAssets.length);
 
-      const reportData = this.calculateShiftMetrics(shift, events, allAssets);
+      console.log('🔍 generateShiftReport: About to calculate shift metrics...');
+      let reportData;
+      try {
+        reportData = this.calculateShiftMetrics(shift, events, allAssets);
+        console.log('✅ generateShiftReport: calculateShiftMetrics completed');
+      } catch (metricsError) {
+        console.error('❌ generateShiftReport: Error in calculateShiftMetrics:', metricsError.message);
+        console.error('Stack trace:', metricsError.stack);
+        throw metricsError;
+      }
       
       // Generate enhanced analytics summary
       const archivedData = {
@@ -98,17 +113,41 @@ class ReportService {
 
       // Generate CSV report with analytics
       if (options.includeCsv !== false) {
-        reports.csv = await this.generateEnhancedCsvReport(reportData, analyticsSummary);
+        try {
+          console.log('🔍 generateShiftReport: Generating CSV report...');
+          reports.csv = await this.generateEnhancedCsvReport(reportData, analyticsSummary);
+          console.log('✅ generateShiftReport: CSV report generated');
+        } catch (csvError) {
+          console.error('❌ generateShiftReport: Error in generateEnhancedCsvReport:', csvError.message);
+          console.error('Stack trace:', csvError.stack);
+          throw csvError;
+        }
       }
 
       // Generate HTML report with analytics
       if (options.includeHtml !== false) {
-        reports.html = this.generateEnhancedHtmlReport(reportData, analyticsSummary);
+        try {
+          console.log('🔍 generateShiftReport: Generating HTML report...');
+          reports.html = this.generateEnhancedHtmlReport(reportData, analyticsSummary);
+          console.log('✅ generateShiftReport: HTML report generated');
+        } catch (htmlError) {
+          console.error('❌ generateShiftReport: Error in generateEnhancedHtmlReport:', htmlError.message);
+          console.error('Stack trace:', htmlError.stack);
+          throw htmlError;
+        }
       }
 
       // Generate detailed analysis (enhanced)
       if (options.includeAnalysis !== false) {
-        reports.analysis = this.generateEnhancedDetailedAnalysis(reportData, analyticsSummary);
+        try {
+          console.log('🔍 generateShiftReport: Generating detailed analysis...');
+          reports.analysis = this.generateEnhancedDetailedAnalysis(reportData, analyticsSummary);
+          console.log('✅ generateShiftReport: Detailed analysis generated');
+        } catch (analysisError) {
+          console.error('❌ generateShiftReport: Error in generateEnhancedDetailedAnalysis:', analysisError.message);
+          console.error('Stack trace:', analysisError.stack);
+          throw analysisError;
+        }
       }
 
       return {
@@ -168,14 +207,11 @@ class ReportService {
     const averageAvailability = assetMetrics.length > 0 ? 
       assetMetrics.reduce((sum, asset) => sum + (asset.availability || 0), 0) / assetMetrics.length : 0;
 
-    // Calculate OEE components with validation
+    // Calculate availability metrics only
     const plannedProductionTime = Math.max(shiftDuration, 1); // Prevent division by zero
     const availability = totalRuntime / plannedProductionTime * 100;
-    const performance = 85; // This would be calculated based on actual vs expected production
-    const quality = 95; // This would be calculated based on quality metrics
-    const oee = (availability * performance * quality) / 10000;
 
-    // Ensure all metrics have valid values with fallbacks
+    // Ensure all metrics have valid values with fallbacks - availability tracking only
     const safeMetrics = {
       total_runtime: totalRuntime || 0, // ms
       total_downtime: totalDowntime || 0, // ms
@@ -183,23 +219,22 @@ class ReportService {
       total_short_stops: totalShortStops || 0,
       average_availability: isNaN(averageAvailability) ? 0 : averageAvailability,
       availability_percentage: isNaN(availability) ? 0 : Math.max(0, Math.min(100, availability)),
-      performance_percentage: isNaN(performance) ? 0 : Math.max(0, Math.min(100, performance)),
-      quality_percentage: isNaN(quality) ? 0 : Math.max(0, Math.min(100, quality)),
-      oee_percentage: isNaN(oee) ? 0 : Math.max(0, Math.min(100, oee)),
+      // Add missing OEE percentage field to prevent toFixed() errors
+      oee_percentage: isNaN(availability) ? 0 : Math.max(0, Math.min(100, availability)),
       // Backward-compatible fields expected by some consumers/UI
       availability: isNaN(availability) ? 0 : Math.max(0, Math.min(100, availability)),
-      performance: isNaN(performance) ? 0 : Math.max(0, Math.min(100, performance)),
-      quality: isNaN(quality) ? 0 : Math.max(0, Math.min(100, quality)),
-      oee: isNaN(oee) ? 0 : Math.max(0, Math.min(100, oee)),
       runtime_minutes: (totalRuntime || 0) / 60000,
       downtime_minutes: (totalDowntime || 0) / 60000,
       shift_duration: shiftDuration, // ms
       planned_production_time: shiftDuration // ms
     };
 
+    // Convert Sequelize model to plain object
+    const shiftData = shift.toJSON ? shift.toJSON() : shift;
+    
     return {
       shift: {
-        ...shift,
+        ...shiftData,
         duration: shiftDuration,
         duration_hours: shiftDuration / (1000 * 60 * 60),
         start_time_formatted: shiftStart.toLocaleString(),
@@ -319,51 +354,51 @@ class ReportService {
     try {
       // Shift summary CSV with enhanced analytics
       const shiftSummary = [{
-        shift_number: reportData.shift.shift_number,
-        shift_name: reportData.shift.name,
-        start_time: reportData.shift.start_time_formatted,
-        end_time: reportData.shift.end_time_formatted,
-        duration_hours: reportData.shift.duration_hours.toFixed(2),
-        total_runtime_minutes: (reportData.metrics.total_runtime / 60000).toFixed(2),
-        total_downtime_minutes: (reportData.metrics.total_downtime / 60000).toFixed(2),
-        total_stops: reportData.metrics.total_stops,
-        average_availability: reportData.metrics.average_availability.toFixed(2),
-        oee_percentage: reportData.metrics.oee_percentage.toFixed(2),
+        shift_number: reportData.shift?.shift_number || 0,
+        shift_name: reportData.shift?.name || 'Unknown',
+        start_time: reportData.shift?.start_time_formatted || '',
+        end_time: reportData.shift?.end_time_formatted || '',
+        duration_hours: ((reportData.shift?.duration_hours || 0)).toFixed(2),
+        total_runtime_minutes: ((reportData.metrics?.total_runtime || 0) / 60000).toFixed(2),
+        total_downtime_minutes: ((reportData.metrics?.total_downtime || 0) / 60000).toFixed(2),
+        total_stops: reportData.metrics?.total_stops || 0,
+        average_availability: ((reportData.metrics?.average_availability || 0)).toFixed(2),
+        oee_percentage: ((reportData.metrics?.oee_percentage || 0)).toFixed(2),
         // Enhanced Analytics from Database
-        mtbf_minutes: reportData.shift.mtbf_minutes || 0,
-        mttr_minutes: reportData.shift.mttr_minutes || 0,
-        stop_frequency_per_hour: reportData.shift.stop_frequency || 0,
-        micro_stops_count: reportData.shift.micro_stops_count || 0,
-        micro_stops_time_minutes: reportData.shift.micro_stops_time ? (reportData.shift.micro_stops_time / 60).toFixed(2) : 0,
-        micro_stops_percentage: reportData.shift.micro_stops_percentage || 0,
-        longest_stop_duration_minutes: reportData.shift.longest_stop_duration ? (reportData.shift.longest_stop_duration / 60).toFixed(2) : 0,
-        average_stop_duration_minutes: reportData.shift.average_stop_duration ? (reportData.shift.average_stop_duration / 60).toFixed(2) : 0,
-        notes: reportData.shift.notes || ''
+        mtbf_minutes: reportData.shift?.mtbf_minutes || 0,
+        mttr_minutes: reportData.shift?.mttr_minutes || 0,
+        stop_frequency_per_hour: reportData.shift?.stop_frequency || 0,
+        micro_stops_count: reportData.shift?.micro_stops_count || 0,
+        micro_stops_time_minutes: reportData.shift?.micro_stops_time ? ((reportData.shift.micro_stops_time || 0) / 60).toFixed(2) : 0,
+        micro_stops_percentage: reportData.shift?.micro_stops_percentage || 0,
+        longest_stop_duration_minutes: reportData.shift?.longest_stop_duration ? ((reportData.shift.longest_stop_duration || 0) / 60).toFixed(2) : 0,
+        average_stop_duration_minutes: reportData.shift?.average_stop_duration ? ((reportData.shift.average_stop_duration || 0) / 60).toFixed(2) : 0,
+        notes: reportData.shift?.notes || ''
       }];
 
       // Asset details CSV
-      const assetDetails = reportData.assets.map(asset => ({
+      const assetDetails = (reportData.assets || []).map(asset => ({
         asset_name: asset.asset_name,
         pin_number: asset.pin_number,
         location: asset.location || '',
         current_state: asset.current_state,
-        runtime_minutes: (asset.runtime / 60000).toFixed(2),
-        downtime_minutes: (asset.downtime / 60000).toFixed(2),
-        availability_percentage: asset.availability.toFixed(2),
-        total_stops: asset.stops,
-        short_stops: asset.short_stops,
-        long_stops: asset.long_stops,
-        longest_stop_minutes: (asset.longest_stop / 60000).toFixed(2),
-        average_stop_duration_minutes: (asset.average_stop_duration / 60000).toFixed(2)
+        runtime_minutes: (((asset.runtime || 0)) / 60000).toFixed(2),
+        downtime_minutes: (((asset.downtime || 0)) / 60000).toFixed(2),
+        availability_percentage: ((asset.availability || 0)).toFixed(2),
+        total_stops: asset.stops || 0,
+        short_stops: asset.short_stops || 0,
+        long_stops: asset.long_stops || 0,
+        longest_stop_minutes: (((asset.longest_stop || 0)) / 60000).toFixed(2),
+        average_stop_duration_minutes: (((asset.average_stop_duration || 0)) / 60000).toFixed(2)
       }));
 
       // Events CSV
-      const eventDetails = reportData.events.map(event => ({
+      const eventDetails = (reportData.events || []).map(event => ({
         timestamp: event.timestamp_formatted,
         asset_name: event.asset_name,
         event_type: event.event_type,
         state: event.state || event.new_state || '',
-        duration_minutes: Number(event.duration_minutes || 0).toFixed(2),
+        duration_minutes: (Number(event.duration_minutes || 0)).toFixed(2),
         is_short_stop: event.is_short_stop || false,
         note: event.note || ''
       }));
@@ -442,22 +477,22 @@ class ReportService {
             <h1>Shift Report: ${shift.name}</h1>
             <p><strong>Shift Number:</strong> ${shift.shift_number}</p>
             <p><strong>Date:</strong> ${shift.start_time_formatted} - ${shift.end_time_formatted}</p>
-            <p><strong>Duration:</strong> ${shift.duration_hours.toFixed(2)} hours</p>
+            <p><strong>Duration:</strong> ${((shift.duration_hours || 0)).toFixed(2)} hours</p>
             ${shift.notes ? `<p><strong>Notes:</strong> ${shift.notes}</p>` : ''}
         </div>
 
         <div class="metrics">
             <div class="metric-card">
-                <div class="metric-value">${metrics.average_availability.toFixed(1)}%</div>
+                <div class="metric-value">${((metrics.average_availability || 0)).toFixed(1)}%</div>
                 <div class="metric-label">Average Availability</div>
             </div>
             <div class="metric-card">
-                <div class="metric-value">${metrics.oee_percentage.toFixed(1)}%</div>
-                <div class="metric-label">Overall OEE</div>
+                <div class="metric-value">${((metrics.total_runtime || 0) / 60000).toFixed(1)}</div>
+                <div class="metric-label">Total Runtime (min)</div>
             </div>
             <div class="metric-card">
-                <div class="metric-value">${(metrics.total_runtime / 60000).toFixed(1)}</div>
-                <div class="metric-label">Total Runtime (min)</div>
+                <div class="metric-value">${((metrics.total_downtime || 0) / 60000).toFixed(1)}</div>
+                <div class="metric-label">Total Downtime (min)</div>
             </div>
             <div class="metric-card">
                 <div class="metric-value">${metrics.total_stops}</div>
@@ -488,11 +523,11 @@ class ReportService {
                 <tr>
                     <td>${asset.asset_name}</td>
                     <td>${asset.current_state}</td>
-                    <td>${(asset.runtime / 60).toFixed(1)}</td>
-                    <td>${(asset.downtime / 60).toFixed(1)}</td>
-                    <td class="${availabilityClass}">${asset.availability.toFixed(1)}%</td>
-                    <td>${asset.stops}</td>
-                    <td>${(asset.average_stop_duration / 60).toFixed(1)}</td>
+                    <td>${(((asset.runtime || 0)) / 60).toFixed(1)}</td>
+                    <td>${(((asset.downtime || 0)) / 60).toFixed(1)}</td>
+                    <td class="${availabilityClass}">${((asset.availability || 0)).toFixed(1)}%</td>
+                    <td>${asset.stops || 0}</td>
+                    <td>${(((asset.average_stop_duration || 0)) / 60).toFixed(1)}</td>
                 </tr>`;
     });
 
@@ -653,10 +688,10 @@ class ReportService {
       
       // Add key metrics
       csvContent += `"KEY METRICS"\n`;
-      csvContent += `"Overall Availability","${analyticsSummary.key_metrics.overallAvailability.toFixed(1)}%"\n`;
-      csvContent += `"Total Downtime","${Math.round(analyticsSummary.key_metrics.totalDowntime)} minutes"\n`;
-      csvContent += `"Total Events","${analyticsSummary.key_metrics.totalEvents}"\n`;
-      csvContent += `"Critical Stops","${analyticsSummary.key_metrics.criticalStops}"\n\n`;
+      csvContent += `"Overall Availability","${((analyticsSummary.key_metrics?.overallAvailability || 0)).toFixed(1)}%"\n`;
+      csvContent += `"Total Downtime","${Math.round(analyticsSummary.key_metrics?.totalDowntime || 0)} minutes"\n`;
+      csvContent += `"Total Events","${analyticsSummary.key_metrics?.totalEvents || 0}"\n`;
+      csvContent += `"Critical Stops","${analyticsSummary.key_metrics?.criticalStops || 0}"\n\n`;
       
       // Add performance insights
       if (analyticsSummary.performance_insights && analyticsSummary.performance_insights.length > 0) {
@@ -709,160 +744,564 @@ class ReportService {
       const { shift, metrics, assets } = reportData;
       const shiftDate = new Date(shift.start_time).toLocaleDateString();
       const shiftTime = new Date(shift.start_time).toLocaleTimeString();
+      const shiftDuration = Math.round((new Date(shift.end_time) - new Date(shift.start_time)) / (1000 * 60 * 60 * 10)) / 10;
+      const performanceColor = analyticsSummary.key_metrics.overallAvailability >= 90 ? '#28a745' : 
+                              analyticsSummary.key_metrics.overallAvailability >= 75 ? '#ffc107' : '#dc3545';
       
       let html = `
         <!DOCTYPE html>
         <html>
         <head>
           <title>Enhanced Shift Report - ${shift.shift_name} - ${shiftDate}</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <style>
-            body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
-            .container { max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-            .header { text-align: center; border-bottom: 3px solid #007bff; padding-bottom: 20px; margin-bottom: 30px; }
-            .analytics-summary { background: linear-gradient(135deg, #007bff, #0056b3); color: white; padding: 25px; border-radius: 8px; margin-bottom: 30px; }
-            .analytics-summary h2 { margin-top: 0; font-size: 24px; }
-            .executive-summary { font-size: 18px; line-height: 1.6; margin-bottom: 20px; }
-            .key-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
-            .metric-card { background: rgba(255,255,255,0.1); padding: 15px; border-radius: 6px; text-align: center; }
-            .metric-value { font-size: 28px; font-weight: bold; display: block; }
-            .metric-label { font-size: 14px; opacity: 0.9; }
-            .insights-section { background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
-            .insights-section h3 { color: #495057; margin-top: 0; }
-            .insight-item { background: white; padding: 12px; margin: 8px 0; border-left: 4px solid #28a745; border-radius: 4px; }
-            .recommendations-section { background: #fff3cd; padding: 20px; border-radius: 8px; border: 1px solid #ffeaa7; }
-            .recommendations-section h3 { color: #856404; margin-top: 0; }
-            .recommendation-item { background: white; padding: 12px; margin: 8px 0; border-left: 4px solid #ffc107; border-radius: 4px; }
-            .traditional-data { margin-top: 30px; }
-            .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin: 20px 0; }
-            .metric-box { background: #f8f9fa; padding: 20px; border-radius: 8px; border: 1px solid #dee2e6; }
-            .asset-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            .asset-table th, .asset-table td { padding: 12px; text-align: left; border-bottom: 1px solid #dee2e6; }
-            .asset-table th { background-color: #007bff; color: white; }
-            .asset-table tr:hover { background-color: #f8f9fa; }
+            * { box-sizing: border-box; }
+            body { 
+              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+              margin: 0; 
+              padding: 20px; 
+              background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+              min-height: 100vh;
+            }
+            .container { 
+              max-width: 1200px; 
+              margin: 0 auto; 
+              background: white; 
+              padding: 40px; 
+              border-radius: 16px; 
+              box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            }
+            
+            /* Mobile Responsive Styles */
+            @media (max-width: 768px) {
+              body { padding: 10px; }
+              .container { padding: 20px; }
+              .header h1 { font-size: 24px; }
+              .header h2 { font-size: 20px; }
+              .key-metrics { grid-template-columns: 1fr 1fr; gap: 12px; }
+              .metrics-grid { grid-template-columns: 1fr; }
+              .metric-card { padding: 16px; }
+              .metric-value { font-size: 24px; }
+              .asset-table { font-size: 14px; }
+              .asset-table th, .asset-table td { padding: 8px; }
+            }
+            
+            @media (max-width: 480px) {
+              .key-metrics { grid-template-columns: 1fr; }
+              .metric-value { font-size: 20px; }
+            }
+            
+            .header { 
+              text-align: center; 
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              color: white;
+              padding: 40px;
+              border-radius: 12px;
+              margin-bottom: 40px;
+              box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
+            }
+            .header h1 { 
+              margin: 0 0 15px 0; 
+              font-size: 32px; 
+              font-weight: 700;
+            }
+            .header h2 { 
+              margin: 0 0 20px 0; 
+              font-size: 24px; 
+              font-weight: 500;
+              opacity: 0.9;
+            }
+            .header-icon { 
+              font-size: 48px; 
+              margin-bottom: 15px; 
+              display: block;
+            }
+            
+            .analytics-summary { 
+              background: linear-gradient(135deg, #007bff, #0056b3); 
+              color: white; 
+              padding: 35px; 
+              border-radius: 16px; 
+              margin-bottom: 40px;
+              box-shadow: 0 6px 24px rgba(0, 123, 255, 0.3);
+            }
+            .analytics-summary h2 { 
+              margin: 0 0 25px 0; 
+              font-size: 28px; 
+              font-weight: 700;
+              display: flex;
+              align-items: center;
+            }
+            .analytics-summary h2::before {
+              content: '📊';
+              font-size: 36px;
+              margin-right: 15px;
+            }
+            .executive-summary { 
+              font-size: 16px; 
+              line-height: 1.7; 
+              margin-bottom: 30px;
+              background: rgba(255,255,255,0.15);
+              padding: 20px;
+              border-radius: 10px;
+              border-left: 4px solid #ffc107;
+            }
+            .executive-summary::before {
+              content: '📋';
+              font-size: 24px;
+              margin-right: 10px;
+              display: inline-block;
+            }
+            
+            .key-metrics { 
+              display: grid; 
+              grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); 
+              gap: 20px; 
+              margin-bottom: 30px; 
+            }
+            .metric-card { 
+              background: rgba(255,255,255,0.95); 
+              padding: 24px; 
+              border-radius: 12px; 
+              text-align: center;
+              box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+              border: 2px solid transparent;
+              transition: transform 0.2s ease, box-shadow 0.2s ease;
+              position: relative;
+              overflow: hidden;
+            }
+            .metric-card:hover {
+              transform: translateY(-2px);
+              box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+            }
+            .metric-card::before {
+              content: '';
+              position: absolute;
+              top: 0;
+              left: 0;
+              right: 0;
+              height: 4px;
+              background: var(--card-color, #007bff);
+            }
+            .metric-card.availability { --card-color: ${performanceColor}; }
+            .metric-card.downtime { --card-color: #dc3545; }
+            .metric-card.events { --card-color: #007bff; }
+            .metric-card.critical { --card-color: #ffc107; }
+            .metric-card.mtbf { --card-color: #17a2b8; }
+            .metric-card.mttr { --card-color: #6f42c1; }
+            .metric-card.frequency { --card-color: #fd7e14; }
+            .metric-card.micro { --card-color: #20c997; }
+            
+            .metric-icon {
+              font-size: 32px;
+              margin-bottom: 12px;
+              display: block;
+            }
+            .metric-value { 
+              font-size: 32px; 
+              font-weight: 700; 
+              display: block;
+              color: var(--card-color, #007bff);
+              margin-bottom: 8px;
+              line-height: 1;
+            }
+            .metric-label { 
+              font-size: 13px; 
+              color: #495057;
+              font-weight: 600;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .metric-sublabel {
+              font-size: 11px;
+              color: #6c757d;
+              margin-top: 6px;
+            }
+            
+            .insights-section { 
+              background: white; 
+              padding: 30px; 
+              border-radius: 16px; 
+              margin-bottom: 30px;
+              box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+              border-top: 4px solid #28a745;
+            }
+            .insights-section h3 { 
+              color: #495057; 
+              margin: 0 0 25px 0;
+              font-size: 24px;
+              font-weight: 600;
+              display: flex;
+              align-items: center;
+            }
+            .insights-section h3::before {
+              content: '🔍';
+              font-size: 28px;
+              margin-right: 12px;
+            }
+            .insight-item { 
+              background: linear-gradient(135deg, #e8f5e8, #f0f9f0); 
+              padding: 18px; 
+              margin: 15px 0; 
+              border-left: 5px solid #28a745; 
+              border-radius: 10px;
+              box-shadow: 0 2px 8px rgba(40,167,69,0.1);
+              display: flex;
+              align-items: flex-start;
+            }
+            .insight-item::before {
+              content: counter(insight-counter);
+              counter-increment: insight-counter;
+              background: #28a745;
+              color: white;
+              border-radius: 50%;
+              width: 24px;
+              height: 24px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 12px;
+              font-weight: bold;
+              margin-right: 15px;
+              flex-shrink: 0;
+            }
+            .insights-section { counter-reset: insight-counter; }
+            
+            .recommendations-section { 
+              background: linear-gradient(135deg, #fff3cd, #fef9e7); 
+              padding: 30px; 
+              border-radius: 16px; 
+              border: 2px solid #ffeaa7;
+              box-shadow: 0 4px 16px rgba(255,193,7,0.2);
+              border-top: 4px solid #ffc107;
+              margin-bottom: 30px;
+            }
+            .recommendations-section h3 { 
+              color: #856404; 
+              margin: 0 0 25px 0;
+              font-size: 24px;
+              font-weight: 600;
+              display: flex;
+              align-items: center;
+            }
+            .recommendations-section h3::before {
+              content: '💡';
+              font-size: 28px;
+              margin-right: 12px;
+            }
+            .recommendation-item { 
+              background: white; 
+              padding: 20px; 
+              margin: 15px 0; 
+              border-left: 5px solid #ffc107; 
+              border-radius: 10px;
+              box-shadow: 0 2px 8px rgba(255,193,7,0.15);
+            }
+            .recommendation-item::before {
+              content: '💡';
+              font-size: 18px;
+              margin-right: 10px;
+              opacity: 0.7;
+            }
+            
+            .traditional-data { 
+              margin-top: 40px; 
+            }
+            .section-title {
+              font-size: 28px;
+              font-weight: 700;
+              color: #495057;
+              margin-bottom: 30px;
+              display: flex;
+              align-items: center;
+              padding-bottom: 15px;
+              border-bottom: 3px solid #007bff;
+            }
+            .section-title::before {
+              font-size: 32px;
+              margin-right: 15px;
+            }
+            
+            .metrics-grid { 
+              display: grid; 
+              grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); 
+              gap: 25px; 
+              margin: 30px 0; 
+            }
+            .metric-box { 
+              background: white; 
+              padding: 25px; 
+              border-radius: 12px; 
+              border: 1px solid #e9ecef;
+              box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+              transition: transform 0.2s ease;
+            }
+            .metric-box:hover {
+              transform: translateY(-2px);
+              box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+            }
+            .metric-box h4 {
+              color: #495057;
+              margin: 0 0 15px 0;
+              font-size: 18px;
+              font-weight: 600;
+              display: flex;
+              align-items: center;
+            }
+            .metric-box h4::before {
+              font-size: 20px;
+              margin-right: 8px;
+            }
+            
+            .asset-table { 
+              width: 100%; 
+              border-collapse: collapse; 
+              margin-top: 25px;
+              background: white;
+              border-radius: 12px;
+              overflow: hidden;
+              box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            }
+            .asset-table th, .asset-table td { 
+              padding: 16px; 
+              text-align: left; 
+              border-bottom: 1px solid #e9ecef; 
+            }
+            .asset-table th { 
+              background: linear-gradient(135deg, #007bff, #0056b3); 
+              color: white;
+              font-weight: 600;
+              text-transform: uppercase;
+              font-size: 12px;
+              letter-spacing: 0.5px;
+            }
+            .asset-table tr:hover { 
+              background-color: #f8f9fa; 
+            }
+            .asset-table tr:last-child td {
+              border-bottom: none;
+            }
+            
             .availability-excellent { color: #28a745; font-weight: bold; }
             .availability-good { color: #ffc107; font-weight: bold; }
             .availability-poor { color: #dc3545; font-weight: bold; }
+            
+            .status-badge {
+              padding: 4px 12px;
+              border-radius: 20px;
+              font-size: 11px;
+              font-weight: bold;
+              text-transform: uppercase;
+            }
+            .status-excellent { background: #d4edda; color: #155724; }
+            .status-good { background: #fff3cd; color: #856404; }
+            .status-poor { background: #f8d7da; color: #721c24; }
           </style>
         </head>
         <body>
           <div class="container">
             <div class="header">
+              <span class="header-icon">🏭</span>
               <h1>Enhanced Shift Report</h1>
               <h2>${shift.shift_name}</h2>
-              <p><strong>Date:</strong> ${shiftDate} | <strong>Time:</strong> ${shiftTime}</p>
+              <p><strong>📅 Date:</strong> ${shiftDate} | <strong>⏰ Duration:</strong> ${shiftDuration} hours</p>
             </div>
             
             <div class="analytics-summary">
-              <h2>📊 Analytics Summary</h2>
+              <h2>Analytics Summary</h2>
               <div class="executive-summary">
                 ${analyticsSummary.executive_summary}
               </div>
               
               <div class="key-metrics">
-                <div class="metric-card">
-                  <span class="metric-value">${analyticsSummary.key_metrics.overallAvailability.toFixed(1)}%</span>
+                <div class="metric-card availability">
+                  <span class="metric-icon">${(analyticsSummary.key_metrics?.overallAvailability || 0) >= 90 ? '🟢' : (analyticsSummary.key_metrics?.overallAvailability || 0) >= 75 ? '🟡' : '🔴'}</span>
+                  <span class="metric-value">${((analyticsSummary.key_metrics?.overallAvailability || 0)).toFixed(1)}%</span>
                   <span class="metric-label">Overall Availability</span>
+                  <div class="metric-sublabel">${(analyticsSummary.key_metrics?.overallAvailability || 0) >= 90 ? 'Excellent Performance' : (analyticsSummary.key_metrics?.overallAvailability || 0) >= 75 ? 'Good Performance' : 'Needs Attention'}</div>
                 </div>
-                <div class="metric-card">
-                  <span class="metric-value">${Math.round(analyticsSummary.key_metrics.totalDowntime)}</span>
+                <div class="metric-card downtime">
+                  <span class="metric-icon">⏱️</span>
+                  <span class="metric-value">${Math.round(analyticsSummary.key_metrics?.totalDowntime || 0)}</span>
                   <span class="metric-label">Total Downtime (min)</span>
+                  <div class="metric-sublabel">${Math.round((analyticsSummary.key_metrics?.totalDowntime || 0) / 60 * 10) / 10} hours</div>
                 </div>
-                <div class="metric-card">
+                <div class="metric-card mtbf">
+                  <span class="metric-icon">🔧</span>
                   <span class="metric-value">${shift.mtbf_minutes || 0}</span>
                   <span class="metric-label">MTBF (min)</span>
+                  <div class="metric-sublabel">Mean Time Between Failures</div>
                 </div>
-                <div class="metric-card">
+                <div class="metric-card mttr">
+                  <span class="metric-icon">⚡</span>
                   <span class="metric-value">${shift.mttr_minutes || 0}</span>
                   <span class="metric-label">MTTR (min)</span>
+                  <div class="metric-sublabel">Mean Time To Repair</div>
                 </div>
-                <div class="metric-card">
+                <div class="metric-card frequency">
+                  <span class="metric-icon">📊</span>
                   <span class="metric-value">${shift.stop_frequency || 0}</span>
                   <span class="metric-label">Stop Frequency (/hr)</span>
+                  <div class="metric-sublabel">Stops per hour</div>
                 </div>
-                <div class="metric-card">
+                <div class="metric-card micro">
+                  <span class="metric-icon">⚡</span>
                   <span class="metric-value">${shift.micro_stops_count || 0}</span>
                   <span class="metric-label">Micro Stops</span>
+                  <div class="metric-sublabel">Brief interruptions</div>
                 </div>
-                <div class="metric-card">
-                  <span class="metric-value">${analyticsSummary.key_metrics.totalEvents}</span>
+                <div class="metric-card events">
+                  <span class="metric-icon">📈</span>
+                  <span class="metric-value">${analyticsSummary.key_metrics?.totalEvents || 0}</span>
                   <span class="metric-label">Total Events</span>
+                  <div class="metric-sublabel">Activity Level: ${(analyticsSummary.key_metrics?.totalEvents || 0) > 50 ? 'High' : (analyticsSummary.key_metrics?.totalEvents || 0) > 20 ? 'Medium' : 'Low'}</div>
                 </div>
-                <div class="metric-card">
-                  <span class="metric-value">${analyticsSummary.key_metrics.criticalStops}</span>
+                <div class="metric-card critical">
+                  <span class="metric-icon">⚠️</span>
+                  <span class="metric-value">${analyticsSummary.key_metrics?.criticalStops || 0}</span>
                   <span class="metric-label">Critical Stops</span>
+                  <div class="metric-sublabel">${(analyticsSummary.key_metrics?.criticalStops || 0) === 0 ? 'No Issues' : 'Requires Review'}</div>
                 </div>
               </div>
             </div>`;
       
-      // Add performance insights
+      // Add enhanced performance insights
       if (analyticsSummary.performance_insights && analyticsSummary.performance_insights.length > 0) {
         html += `
             <div class="insights-section">
-              <h3>🔍 Performance Insights</h3>`;
+              <h3>Performance Insights</h3>`;
         analyticsSummary.performance_insights.forEach(insight => {
-          html += `<div class="insight-item">${insight}</div>`;
+          html += `<div class="insight-item"><div style="color: #155724; line-height: 1.6; font-size: 15px;">${insight}</div></div>`;
         });
         html += `</div>`;
       }
       
-      // Add recommendations
+      // Add enhanced recommendations with priority indicators
       if (analyticsSummary.recommendations && analyticsSummary.recommendations.length > 0) {
         html += `
             <div class="recommendations-section">
-              <h3>💡 Recommendations</h3>`;
-        analyticsSummary.recommendations.forEach(recommendation => {
-          html += `<div class="recommendation-item">${recommendation}</div>`;
+              <h3>Actionable Recommendations</h3>`;
+        analyticsSummary.recommendations.forEach((recommendation, index) => {
+          const priorityIcon = index === 0 ? '🔥' : index === 1 ? '⭐' : '📌';
+          const priorityLabel = index === 0 ? 'High Priority' : index === 1 ? 'Medium Priority' : 'Standard';
+          const priorityColor = index === 0 ? '#dc3545' : index === 1 ? '#ffc107' : '#6c757d';
+          html += `
+            <div class="recommendation-item">
+              <div style="display: flex; align-items: flex-start; margin-bottom: 8px;">
+                <span style="font-size: 18px; margin-right: 8px;">${priorityIcon}</span>
+                <span style="background: ${priorityColor}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; text-transform: uppercase;">${priorityLabel}</span>
+              </div>
+              <div style="color: #856404; line-height: 1.6; font-size: 15px; margin-left: 26px;">${recommendation}</div>
+            </div>`;
         });
         html += `</div>`;
       }
       
-      // Add enhanced analytics section
+      // Add enhanced analytics section with better styling
       html += `
             <div class="insights-section">
-              <h3>📊 Enhanced Analytics</h3>
+              <h3 style="display: flex; align-items: center;"><span style="font-size: 28px; margin-right: 12px;">📊</span>Enhanced Analytics</h3>
               <div class="metrics-grid">
                 <div class="metric-box">
-                  <h4>Mean Time Between Failures (MTBF)</h4>
-                  <p><strong>${shift.mtbf_minutes || 0} minutes</strong></p>
-                  <small>Average time between equipment failures</small>
+                  <h4 style="display: flex; align-items: center;"><span style="font-size: 20px; margin-right: 8px;">🔧</span>Mean Time Between Failures</h4>
+                  <p style="font-size: 24px; font-weight: 700; color: #17a2b8; margin: 10px 0;">${shift.mtbf_minutes || 0} minutes</p>
+                  <small style="color: #6c757d;">Average time between equipment failures</small>
                 </div>
                 <div class="metric-box">
-                  <h4>Mean Time To Repair (MTTR)</h4>
-                  <p><strong>${shift.mttr_minutes || 0} minutes</strong></p>
-                  <small>Average time to resolve failures</small>
+                  <h4 style="display: flex; align-items: center;"><span style="font-size: 20px; margin-right: 8px;">⚡</span>Mean Time To Repair</h4>
+                  <p style="font-size: 24px; font-weight: 700; color: #6f42c1; margin: 10px 0;">${shift.mttr_minutes || 0} minutes</p>
+                  <small style="color: #6c757d;">Average time to resolve failures</small>
                 </div>
                 <div class="metric-box">
-                  <h4>Stop Frequency</h4>
-                  <p><strong>${shift.stop_frequency || 0} stops/hour</strong></p>
-                  <small>Frequency of production stops</small>
+                  <h4 style="display: flex; align-items: center;"><span style="font-size: 20px; margin-right: 8px;">📊</span>Stop Frequency</h4>
+                  <p style="font-size: 24px; font-weight: 700; color: #fd7e14; margin: 10px 0;">${shift.stop_frequency || 0} /hour</p>
+                  <small style="color: #6c757d;">Frequency of production stops</small>
                 </div>
                 <div class="metric-box">
-                  <h4>Micro Stops</h4>
-                  <p><strong>Count:</strong> ${shift.micro_stops_count || 0}</p>
-                  <p><strong>Total Time:</strong> ${shift.micro_stops_total_time || 0} min</p>
-                  <p><strong>Percentage:</strong> ${shift.micro_stops_percentage || 0}%</p>
-                  <small>Brief interruptions in production</small>
+                  <h4 style="display: flex; align-items: center;"><span style="font-size: 20px; margin-right: 8px;">⚡</span>Micro Stops Analysis</h4>
+                  <div style="margin: 15px 0;">
+                    <p style="margin: 5px 0;"><strong style="color: #20c997;">Count:</strong> ${shift.micro_stops_count || 0}</p>
+                    <p style="margin: 5px 0;"><strong style="color: #20c997;">Total Time:</strong> ${shift.micro_stops_total_time || 0} min</p>
+                    <p style="margin: 5px 0;"><strong style="color: #20c997;">Percentage:</strong> ${shift.micro_stops_percentage || 0}%</p>
+                  </div>
+                  <small style="color: #6c757d;">Brief interruptions in production</small>
                 </div>
                 <div class="metric-box">
-                  <h4>Stop Duration Analysis</h4>
-                  <p><strong>Longest Stop:</strong> ${shift.longest_stop_duration || 0} min</p>
-                  <p><strong>Average Stop:</strong> ${shift.average_stop_duration || 0} min</p>
-                  <small>Duration analysis of production stops</small>
+                  <h4 style="display: flex; align-items: center;"><span style="font-size: 20px; margin-right: 8px;">⏱️</span>Stop Duration Analysis</h4>
+                  <div style="margin: 15px 0;">
+                    <p style="margin: 5px 0;"><strong style="color: #dc3545;">Longest Stop:</strong> ${shift.longest_stop_duration || 0} min</p>
+                    <p style="margin: 5px 0;"><strong style="color: #dc3545;">Average Stop:</strong> ${shift.average_stop_duration || 0} min</p>
+                  </div>
+                  <small style="color: #6c757d;">Duration analysis of production stops</small>
                 </div>
               </div>
             </div>`;
       
-      // Add traditional report data
-      const originalHtml = this.generateHtmlReport(reportData);
-      const traditionalDataMatch = originalHtml.match(/<div class="metrics-grid">[\s\S]*<\/body>/i);
-      if (traditionalDataMatch) {
-        html += `
+      // Add enhanced traditional report data section
+      html += `
             <div class="traditional-data">
-              <h2>📈 Detailed Metrics</h2>
-              ${traditionalDataMatch[0].replace('</body>', '')}`;
+              <h2 class="section-title" style="display: flex; align-items: center;"><span style="font-size: 32px; margin-right: 15px;">📈</span>Detailed Asset Performance</h2>`;
+      
+      // Add asset performance table with enhanced styling
+      if (assets && assets.length > 0) {
+        html += `
+              <div style="overflow-x: auto;">
+                <table class="asset-table">
+                  <thead>
+                    <tr>
+                      <th>🏷️ Asset Name</th>
+                      <th>📍 Location</th>
+                      <th>🟢 Availability</th>
+                      <th>⏱️ Runtime (min)</th>
+                      <th>🔴 Downtime (min)</th>
+                      <th>🛑 Total Stops</th>
+                      <th>⚡ Short Stops</th>
+                      <th>📊 Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>`;
+        
+        assets.forEach(asset => {
+          const availability = asset.availability || 0;
+          const availabilityClass = availability >= 90 ? 'availability-excellent' : 
+                                   availability >= 75 ? 'availability-good' : 'availability-poor';
+          const statusClass = availability >= 90 ? 'status-excellent' : 
+                             availability >= 75 ? 'status-good' : 'status-poor';
+          const statusText = availability >= 90 ? 'Excellent' : 
+                            availability >= 75 ? 'Good' : 'Needs Attention';
+          
+          html += `
+                    <tr>
+                      <td><strong>${asset.asset_name || 'Unknown'}</strong><br><small>Pin: ${asset.pin_number || 'N/A'}</small></td>
+                      <td>${asset.location || 'Unknown'}</td>
+                      <td class="${availabilityClass}">${(availability || 0).toFixed(1)}%</td>
+                      <td>${Math.round(asset.runtime || 0)}</td>
+                      <td>${Math.round(asset.downtime || 0)}</td>
+                      <td>${asset.stops || 0}</td>
+                      <td>${asset.short_stops || 0}</td>
+                      <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                    </tr>`;
+        });
+        
+        html += `
+                  </tbody>
+                </table>
+              </div>`;
       }
       
       html += `
+              
+              <!-- Enhanced Footer -->
+              <div style="margin-top: 40px; text-align: center; padding: 25px; background: linear-gradient(135deg, #f8f9fa, #e9ecef); border-radius: 12px; border: 1px solid #dee2e6;">
+                <div style="font-size: 24px; margin-bottom: 10px;">🏭</div>
+                <div style="font-size: 14px; color: #6c757d; font-weight: 600; margin-bottom: 5px;">
+                  Manufacturing Dashboard System - Enhanced Report
+                </div>
+                <div style="font-size: 12px; color: #adb5bd;">
+                  Generated on ${new Date().toLocaleString()} | Report ID: ${shift.id || 'N/A'}
+                </div>
+              </div>
+            </div>
           </div>
         </body>
         </html>`;
@@ -1101,8 +1540,17 @@ class ReportService {
     try {
       console.log('📊 Generating and archiving report for shift ID:', shiftId);
       
-      // Generate the standard report
-      const reportResult = await this.generateShiftReport(shiftId, options);
+      // Generate the standard report with detailed error logging
+      let reportResult;
+      try {
+        console.log('🔍 About to call generateShiftReport...');
+        reportResult = await this.generateShiftReport(shiftId, options);
+        console.log('✅ generateShiftReport completed successfully');
+      } catch (reportError) {
+        console.error('❌ Error in generateShiftReport:', reportError.message);
+        console.error('Stack trace:', reportError.stack);
+        throw reportError;
+      }
       
       // Get shift information
       const shift = await this.databaseService.findShiftById(shiftId);
@@ -1218,14 +1666,14 @@ class ReportService {
         stopDurations.reduce((sum, d) => sum + d, 0) / stopDurations.length : 0;
       
       return {
-        mtbf_minutes: parseFloat(mtbfMinutes.toFixed(2)),
-        mttr_minutes: parseFloat(mttrMinutes.toFixed(2)),
-        stop_frequency: parseFloat(stopFrequency.toFixed(2)),
+        mtbf_minutes: parseFloat(((mtbfMinutes || 0)).toFixed(2)),
+        mttr_minutes: parseFloat(((mttrMinutes || 0)).toFixed(2)),
+        stop_frequency: parseFloat(((stopFrequency || 0)).toFixed(2)),
         micro_stops_count: microStops.length,
         micro_stops_time: microStopsTime,
-        micro_stops_percentage: parseFloat(microStopsPercentage.toFixed(2)),
+        micro_stops_percentage: parseFloat(((microStopsPercentage || 0)).toFixed(2)),
         longest_stop_duration: longestStopDuration,
-        average_stop_duration: parseFloat(averageStopDuration.toFixed(2))
+        average_stop_duration: parseFloat(((averageStopDuration || 0)).toFixed(2))
       };
     } catch (error) {
       console.error('❌ Error calculating enhanced analytics:', error.message);

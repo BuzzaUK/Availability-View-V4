@@ -1,5 +1,5 @@
 const { sequelize } = require('../config/database');
-const { User, Logger, Asset, Event, Shift, Archive, Settings } = require('../models/database');
+const { User, Logger, Asset, Event, Shift, Archive, Settings, Team, TeamMember } = require('../models/database');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
@@ -40,14 +40,14 @@ class DatabaseService {
       const adminUser = await User.findOne({ where: { email: 'admin@example.com' } });
       if (!adminUser) {
         await User.create({
-          name: 'Admin User',
+          name: 'Super Admin User',
           email: 'admin@example.com',
           password: 'admin123',
-          role: 'admin',
+          role: 'super_admin',
           isActive: true,
           receive_reports: false
         });
-        console.log('✅ Admin user created');
+        console.log('✅ Super Admin user created');
       }
 
       // Ensure test user exists
@@ -116,16 +116,11 @@ class DatabaseService {
             long_stop_threshold: 30,
             downtime_reasons: ['Maintenance', 'Breakdown', 'Setup', 'Material shortage', 'Quality issue'],
             thresholds: {
-              availability: 85,
-              performance: 85,
-              quality: 95,
-              oee: 75
+              availability: 85
             },
             settings: {
               idleTimeThreshold: 5,
-              warningTimeThreshold: 10,
-              collectQualityData: true,
-              collectPerformanceData: true
+              warningTimeThreshold: 10
             }
           });
 
@@ -140,16 +135,11 @@ class DatabaseService {
             long_stop_threshold: 15,
             downtime_reasons: ['Maintenance', 'Tool change', 'Material jam', 'Safety stop'],
             thresholds: {
-              availability: 90,
-              performance: 80,
-              quality: 98,
-              oee: 70
+              availability: 90
             },
             settings: {
               idleTimeThreshold: 3,
-              warningTimeThreshold: 8,
-              collectQualityData: true,
-              collectPerformanceData: true
+              warningTimeThreshold: 8
             }
           });
 
@@ -390,11 +380,14 @@ class DatabaseService {
         const currentShift = await this.getCurrentShift();
         if (currentShift) {
           eventData.shift_id = currentShift.id;
-          console.log(`🔄 Auto-assigned shift_id ${currentShift.id} to event (${eventData.event_type})`);
+        } else if (eventData.event_type === 'SHIFT_END') {
+          const lastShift = await this.getLastCompletedShift();
+          if (lastShift) {
+            eventData.shift_id = lastShift.id;
+          }
         }
       } catch (error) {
         console.warn('⚠️ Could not auto-assign shift_id to event:', error.message);
-        // Continue creating event without shift_id rather than failing
       }
     }
     
@@ -770,11 +763,17 @@ class DatabaseService {
 
   async getCurrentShift() {
     return await Shift.findOne({
-      where: { 
-        status: 'active',
-        archived: false
-      },
+      where: { status: 'active', archived: false },
       order: [['start_time', 'DESC']]
+    });
+  }
+
+  async getLastCompletedShift() {
+    return await Shift.findOne({
+      where: {
+        status: 'completed'
+      },
+      order: [['end_time', 'DESC']]
     });
   }
 

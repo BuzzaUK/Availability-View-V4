@@ -272,7 +272,7 @@ void loop() {
 // ===== ASSET MONITORING =====
 void checkAssetStates() {
   for (int i = 0; i < MAX_ASSETS; i++) {
-    bool currentState = digitalRead(assets[i].pin) == LOW; // Assuming LOW = running
+    bool currentState = digitalRead(assets[i].pin) == HIGH; // Assuming HIGH = running
     
     if (currentState != assets[i].lastState) {
       // State change detected

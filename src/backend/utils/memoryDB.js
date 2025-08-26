@@ -138,10 +138,10 @@ class MemoryDB {
     // Use fixed ID for admin user to maintain consistency across restarts
     this.users.push({
       _id: 1,
-      name: 'Admin User',
+      name: 'Super Admin User',
       email: 'admin@example.com',
       password: hashedPassword,
-      role: 'admin',
+      role: 'super_admin',
       isActive: true,
       receive_reports: false,
       shiftReportPreferences: {

@@ -8,8 +8,8 @@ router.get('/verify/:token', invitationController.verifyInvitation);
 router.post('/accept', invitationController.acceptInvitation);
 
 // Protected routes
-router.post('/send', authenticateJWT, authorizeRoles('admin'), invitationController.sendInvitation);
-router.get('/', authenticateJWT, authorizeRoles('admin', 'manager'), invitationController.getPendingInvitations);
-router.delete('/:id', authenticateJWT, authorizeRoles('admin'), invitationController.cancelInvitation);
+router.post('/send', authenticateJWT, authorizeRoles('super_admin', 'admin'), invitationController.sendInvitation);
+router.get('/', authenticateJWT, authorizeRoles('super_admin', 'admin', 'manager'), invitationController.getPendingInvitations);
+router.delete('/:id', authenticateJWT, authorizeRoles('super_admin', 'admin'), invitationController.cancelInvitation);
 
 module.exports = router;

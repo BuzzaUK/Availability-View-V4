@@ -40,10 +40,10 @@ async function createEssentialData() {
       const hashedPassword = await bcrypt.hash('admin123', salt);
       
       const admin = await models.User.create({
-        name: 'Admin User',
+        name: 'Super Admin User',
         email: 'admin@example.com',
         password: hashedPassword,
-        role: 'admin',
+        role: 'super_admin',
         isActive: true,
         receive_reports: false
       });

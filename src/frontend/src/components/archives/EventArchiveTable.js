@@ -32,7 +32,7 @@ import {
   Visibility as VisibilityIcon
 } from '@mui/icons-material';
 import { format } from 'date-fns';
-import axios from 'axios';
+import api from '../../services/api';
 import AlertContext from '../../context/AlertContext';
 import EventArchiveDetailView from './EventArchiveDetailView';
 
@@ -61,7 +61,7 @@ const EventArchiveTable = ({ archives, onRefresh }) => {
   const fetchUsers = async () => {
     try {
       setLoadingUsers(true);
-      const response = await axios.get('/api/users');
+      const response = await api.get('/users');
       setUsers(response.data.data || []);
     } catch (err) {
       error('Failed to fetch users: ' + (err.response?.data?.message || err.message));
@@ -116,7 +116,7 @@ const EventArchiveTable = ({ archives, onRefresh }) => {
       setSendingEmail(true);
       const selectedUserData = users.find(user => user.id === selectedUser);
       
-      await axios.post('/api/archives/send-email', {
+      await api.post('/archives/send-email', {
         archiveId: selectedArchive.id,
         recipientEmail: selectedUserData.email,
         recipientName: selectedUserData.name,
@@ -199,7 +199,7 @@ const EventArchiveTable = ({ archives, onRefresh }) => {
   const handleDelete = async (archiveId) => {
     if (window.confirm('Are you sure you want to permanently delete this archive?')) {
       try {
-        const response = await axios.delete(`/api/events/archives/${archiveId}`);
+        const response = await api.delete(`/events/archives/${archiveId}`);
         
         if (response.data.success) {
           success(response.data.message);

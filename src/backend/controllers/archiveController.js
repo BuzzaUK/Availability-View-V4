@@ -69,15 +69,18 @@ exports.getArchives = async (req, res) => {
     const total = archives.length;
     const paginatedArchives = archives.slice(startIndex, startIndex + limit);
     
-    // Add asset names to archives
+    // Add asset names to archives and format data
     const assets = await databaseService.getAllAssets();
     const enrichedArchives = paginatedArchives.map(archive => {
       const archiveData = archive.toJSON ? archive.toJSON() : archive;
       const archiveAssets = archiveData.filters?.asset_ids ? archiveData.filters.asset_ids.map(assetId => {
         const asset = assets.find(a => (a._id || a.id) == assetId);
-        return asset ? { _id: asset._id || asset.id, name: asset.name } : { _id: assetId, name: 'Unknown' };
+        return asset ? { _id: asset._id || a.id, name: asset.name } : { _id: assetId, name: 'Unknown' };
       }) : [];
       
+      // Format performance value
+      const performance = (archiveData.performance || 0) * 100;
+
       return {
         ...archiveData,
         assets: archiveAssets,
@@ -86,7 +89,10 @@ exports.getArchives = async (req, res) => {
         event_count: archiveData.archived_data?.event_count || 0,
         filename: archiveData.filters?.filename || archiveData.title,
         start_date: archiveData.date_range_start,
-        end_date: archiveData.date_range_end
+        end_date: archiveData.date_range_end,
+        run_time: archiveData.availability ? `${(archiveData.availability * 100).toFixed(2)}%` : '0.00%',
+        downtime: '0.00%',
+        performance: `${performance.toFixed(2)}%`
       };
     });
     

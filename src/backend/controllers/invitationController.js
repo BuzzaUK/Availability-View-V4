@@ -11,6 +11,14 @@ const nodemailer = require('nodemailer');
 exports.sendInvitation = async (req, res) => {
   console.log('🚀 INVITATION CONTROLLER: sendInvitation called with:', req.body);
   try {
+    // Check permissions - only admins and super_admins can send invitations
+    if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'super_admin')) {
+      return res.status(403).json({
+        success: false,
+        message: 'Insufficient permissions to send invitations'
+      });
+    }
+
     const { email, role = 'viewer', receive_shift_reports = false, metadata = {} } = req.body;
     
     // Validation
@@ -479,6 +487,14 @@ exports.verifyInvitation = async (req, res) => {
 // @access  Private (Admin, Manager)
 exports.getPendingInvitations = async (req, res) => {
   try {
+    // Check permissions - only admins and super_admins can view pending invitations
+    if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'super_admin')) {
+      return res.status(403).json({
+        success: false,
+        message: 'Insufficient permissions to view pending invitations'
+      });
+    }
+
     let invitations = [];
     
     try {
@@ -517,6 +533,14 @@ exports.getPendingInvitations = async (req, res) => {
 // @access  Private (Admin only)
 exports.cancelInvitation = async (req, res) => {
   try {
+    // Check permissions - only admins and super_admins can cancel invitations
+    if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'super_admin')) {
+      return res.status(403).json({
+        success: false,
+        message: 'Insufficient permissions to cancel invitations'
+      });
+    }
+
     const { id } = req.params;
 
     let invitation = null;

@@ -1,8 +1,11 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { styled } from '@mui/material/styles';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Paper from '@mui/material/Paper';
+import Button from '@mui/material/Button';
+import DownloadIcon from '@mui/icons-material/Download';
+import html2canvas from 'html2canvas';
 import {
   LineChart,
   Line,
@@ -24,6 +27,27 @@ const ChartContainer = styled(Paper)(({ theme }) => ({
 }));
 
 const MicroStopsChart = ({ data, loading, selectedAsset }) => {
+  const chartRef = useRef(null);
+
+  const handleExportPNG = async () => {
+    if (chartRef.current) {
+      try {
+        const canvas = await html2canvas(chartRef.current, {
+          backgroundColor: '#ffffff',
+          scale: 2, // Higher resolution
+          useCORS: true,
+          allowTaint: true
+        });
+        
+        const link = document.createElement('a');
+        link.download = `microstop-chart-${new Date().toISOString().split('T')[0]}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      } catch (error) {
+        console.error('Error exporting chart:', error);
+      }
+    }
+  };
   if (loading || !data || !data.micro_stop_trend) {
     return (
       <ChartContainer>
@@ -82,10 +106,21 @@ const MicroStopsChart = ({ data, loading, selectedAsset }) => {
   };
 
   return (
-    <ChartContainer>
-      <Typography variant="h6" gutterBottom>
-        Micro Stops Analysis (Stops &lt; {selectedAsset?.microstop_threshold ? Math.round(selectedAsset.microstop_threshold / 60) : 3} minutes)
-      </Typography>
+    <ChartContainer ref={chartRef}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+        <Typography variant="h6">
+          Micro Stops Analysis (Stops &lt; {selectedAsset?.microstop_threshold ? Math.round(selectedAsset.microstop_threshold / 60) : 3} minutes)
+        </Typography>
+        <Button
+          variant="outlined"
+          size="small"
+          startIcon={<DownloadIcon />}
+          onClick={handleExportPNG}
+          sx={{ ml: 2 }}
+        >
+          Create PNG
+        </Button>
+      </Box>
       <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 2 }}>
         Daily trend of micro stops count and accumulated time
       </Typography>

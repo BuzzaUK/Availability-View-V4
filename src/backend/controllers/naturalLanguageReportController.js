@@ -7,7 +7,7 @@ class NaturalLanguageReportController {
   async generateShiftReport(req, res) {
     try {
       const { shiftId } = req.params;
-      const { includeRawData = false } = req.query;
+      const { includeRawData = false, useAI = true } = req.query;
 
       if (!shiftId) {
         return res.status(400).json({
@@ -18,7 +18,10 @@ class NaturalLanguageReportController {
 
       const report = await naturalLanguageReportService.generateNaturalLanguageShiftReport(
         parseInt(shiftId),
-        { includeRawData: includeRawData === 'true' }
+        { 
+          includeRawData: includeRawData === 'true',
+          useAI: useAI === 'true'
+        }
       );
 
       res.json(report);
@@ -131,7 +134,7 @@ class NaturalLanguageReportController {
       const sampleReport = {
         success: true,
         shift_id: 'SAMPLE',
-        report_type: 'natural_language_sample',
+        report_type: 'shift',
         generated_at: new Date().toISOString(),
         narrative: {
           executive_summary: `**Shift Sample Performance Summary**

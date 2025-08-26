@@ -19,10 +19,10 @@ router.use(authenticateJWT);
 // Routes
 router.get('/', authorizeRoles('admin', 'manager'), getBackups);
 router.get('/:id', authorizeRoles('admin', 'manager'), getBackupById);
-router.post('/', authorizeRoles('admin'), createBackup);
-router.post('/:id/restore', authorizeRoles('admin'), restoreBackup);
+router.post('/', authorizeRoles('super_admin', 'admin'), createBackup);
+router.post('/:id/restore', authorizeRoles('super_admin', 'admin'), restoreBackup);
 router.get('/:id/download', authorizeRoles('admin', 'manager'), downloadBackup);
-router.delete('/:id', authorizeRoles('admin'), deleteBackup);
+router.delete('/:id', authorizeRoles('super_admin', 'admin'), deleteBackup);
 router.post('/upload', authorizeRoles('admin'), uploadBackup);
 
 module.exports = router;

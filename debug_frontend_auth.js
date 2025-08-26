@@ -62,7 +62,7 @@ async function debugFrontendAuth() {
     
     // Show available users
     const sqlite3 = require('sqlite3').verbose();
-    const db = new sqlite3.Database('./src/backend/database.sqlite');
+    const db = new sqlite3.Database('./database.sqlite');
     
     db.all('SELECT id, name, email, role FROM users', (err, rows) => {
       if (err) {

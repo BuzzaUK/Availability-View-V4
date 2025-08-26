@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Box, Typography, Chip, Tooltip } from '@mui/material';
 import { AccessTime as TimeIcon, Warning as WarningIcon } from '@mui/icons-material';
-import axios from 'axios';
+import api from '../../services/api';
 import SocketContext from '../../context/SocketContext';
 import SettingsContext from '../../context/SettingsContext';
 
@@ -18,7 +18,7 @@ const ShiftCountdownTimer = () => {
     const fetchShiftTimes = async () => {
       try {
         // Try primary endpoint shape
-        let response = await axios.get('/api/settings/notifications');
+        let response = await api.get('/settings/notifications');
         let fetched = response?.data?.data?.shiftSettings?.shiftTimes 
           || response?.data?.shiftSettings?.shiftTimes 
           || response?.data?.shiftSettings 
@@ -26,7 +26,7 @@ const ShiftCountdownTimer = () => {
 
         // Fallback to alternative endpoint if not found
         if (!Array.isArray(fetched) || fetched.length === 0) {
-          response = await axios.get('/api/notifications/settings');
+          response = await api.get('/notifications/settings');
           fetched = response?.data?.data?.shiftSettings?.shiftTimes 
             || response?.data?.shiftSettings?.shiftTimes 
             || response?.data?.shiftSettings 

@@ -149,20 +149,7 @@ const notificationSettingsSchema = new mongoose.Schema({
         ref: 'User'
       }]
     },
-    oeeThresholdAlert: {
-      enabled: {
-        type: Boolean,
-        default: true
-      },
-      channels: [{
-        type: String,
-        enum: ['inApp', 'email', 'sms']
-      }],
-      recipients: [{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User'
-      }]
-    }
+
   }
 }, {
   timestamps: true

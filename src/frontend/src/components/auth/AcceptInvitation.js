@@ -12,7 +12,7 @@ import {
 } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
-import axios from 'axios';
+import api from '../../services/api';
 
 import AuthContext from '../../context/AuthContext';
 import AlertContext from '../../context/AlertContext';
@@ -44,7 +44,7 @@ const AcceptInvitation = () => {
       }
 
       try {
-        const res = await axios.get(`/api/invitations/verify/${token}`, {
+        const res = await api.get(`/invitations/verify/${token}`, {
           params: { email }
         });
         setInviteInfo(res.data.data);
@@ -74,7 +74,7 @@ const AcceptInvitation = () => {
 
     setSubmitting(true);
     try {
-      const res = await axios.post('/api/invitations/accept', {
+      const res = await api.post('/invitations/accept', {
         token,
         email,
         name,

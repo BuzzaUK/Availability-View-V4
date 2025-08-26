@@ -78,7 +78,7 @@ class AnalyticsSummaryService {
     const criticalIssues = keyMetrics.criticalStops;
     
     let summary = `${shiftInfo.name} completed with ${performanceLevel.toLowerCase()} performance. `;
-    summary += `${activeAssets} assets monitored with ${keyMetrics.overallAvailability.toFixed(1)}% overall availability. `;
+    summary += `${activeAssets} assets monitored with ${((keyMetrics?.overallAvailability || 0)).toFixed(1)}% overall availability. `;
     
     if (criticalIssues > 0) {
       summary += `${criticalIssues} critical stops detected requiring attention. `;
@@ -105,7 +105,7 @@ class AnalyticsSummaryService {
     summary += `• Total Events: ${eventMetrics.totalEvents}\n\n`;
     
     summary += `**Performance Metrics:**\n`;
-    summary += `• Overall Availability: ${performanceMetrics.overallAvailability.toFixed(1)}%\n`;
+    summary += `• Overall Availability: ${(performanceMetrics.overallAvailability || 0).toFixed(1)}%\n`;
     summary += `• Total Runtime: ${Math.round(performanceMetrics.totalRuntime / 60)} minutes\n`;
     summary += `• Total Downtime: ${Math.round(performanceMetrics.totalDowntime / 60)} minutes\n`;
     summary += `• Total Stops: ${performanceMetrics.totalStops}\n\n`;
@@ -116,7 +116,7 @@ class AnalyticsSummaryService {
     }
     
     if (assetMetrics.topPerformer) {
-      summary += `• Top Performer: ${assetMetrics.topPerformer.name} (${assetMetrics.topPerformer.availability.toFixed(1)}% availability)\n`;
+      summary += `• Top Performer: ${assetMetrics.topPerformer.name} (${(assetMetrics.topPerformer.availability || 0).toFixed(1)}% availability)\n`;
     }
     
     if (assetMetrics.needsAttention && assetMetrics.needsAttention.length > 0) {
@@ -351,11 +351,11 @@ class AnalyticsSummaryService {
     const { performanceMetrics, downtimeAnalysis, eventMetrics } = analytics;
     
     return {
-      overallAvailability: performanceMetrics.overallAvailability,
-      totalDowntime: performanceMetrics.totalDowntime,
-      totalEvents: eventMetrics.totalEvents,
-      criticalStops: downtimeAnalysis.longStops,
-      averageStopDuration: downtimeAnalysis.averageStopDuration
+      overallAvailability: performanceMetrics?.overallAvailability || 0,
+      totalDowntime: performanceMetrics?.totalDowntime || 0,
+      totalEvents: eventMetrics?.totalEvents || 0,
+      criticalStops: downtimeAnalysis?.longStops || 0,
+      averageStopDuration: downtimeAnalysis?.averageStopDuration || 0
     };
   }
 

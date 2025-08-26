@@ -52,7 +52,7 @@ import WarningIcon from '@mui/icons-material/Warning';
 import SaveIcon from '@mui/icons-material/Save';
 
 import { format } from 'date-fns';
-import axios from 'axios';
+import api from '../../services/api';
 
 // Context
 import AlertContext from '../../context/AlertContext';
@@ -163,7 +163,7 @@ const BackupRestore = () => {
   const fetchSettings = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('/api/settings/backup');
+      const response = await api.get('/settings/backup');
       const newSettings = response.data;
 
       setSettings(prevSettings => ({
@@ -199,7 +199,7 @@ const BackupRestore = () => {
         limit: rowsPerPage,
       };
       
-      const response = await axios.get('/api/backups', { params });
+      const response = await api.get('/backups', { params });
       
       setBackups(response.data.backups || []);
       setTotalBackups(response.data.total || 0);
@@ -214,7 +214,7 @@ const BackupRestore = () => {
   const saveSettings = async () => {
     try {
       setSaving(true);
-      await axios.put('/api/settings/backup', settings);
+      await api.put('/settings/backup', settings);
       success('Backup settings saved successfully');
     } catch (err) {
       error('Failed to save backup settings: ' + (err.response?.data?.message || err.message));
@@ -240,7 +240,7 @@ const BackupRestore = () => {
         });
       }, 500);
       
-      const response = await axios.post('/api/backups', {
+      const response = await api.post('/backups', {
         manual: true,
         includeAssetData: settings.autoBackup.includeAssetData,
         includeEventData: settings.autoBackup.includeEventData,
@@ -283,7 +283,7 @@ const BackupRestore = () => {
         });
       }, 500);
       
-      await axios.post(`/api/backups/${selectedBackup._id}/restore`);
+      await api.post(`/backups/${selectedBackup._id}/restore`);
       
       clearInterval(progressInterval);
       setRestoreProgress(100);
@@ -304,7 +304,7 @@ const BackupRestore = () => {
   // Download backup
   const downloadBackup = async (backup) => {
     try {
-      const response = await axios.get(`/api/backups/${backup._id}/download`, {
+      const response = await api.get(`/backups/${backup._id}/download`, {
         responseType: 'blob',
       });
       
@@ -323,7 +323,7 @@ const BackupRestore = () => {
   // Delete backup
   const deleteBackup = async () => {
     try {
-      await axios.delete(`/api/backups/${selectedBackup._id}`);
+      await api.delete(`/backups/${selectedBackup._id}`);
       
       success('Backup deleted successfully');
       setOpenDeleteDialog(false);
@@ -344,7 +344,7 @@ const BackupRestore = () => {
       const formData = new FormData();
       formData.append('backup', uploadFile);
       
-      await axios.post('/api/backups/upload', formData, {
+      await api.post('/backups/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },

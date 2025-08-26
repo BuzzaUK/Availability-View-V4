@@ -29,7 +29,8 @@ import {
   Notifications as NotificationsIcon,
   Logout,
   Person,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  Group as GroupIcon
 } from '@mui/icons-material';
 
 // Context

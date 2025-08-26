@@ -11,19 +11,13 @@ import MenuItem from '@mui/material/MenuItem';
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
 import DownloadIcon from '@mui/icons-material/Download';
-import CalendarViewMonthIcon from '@mui/icons-material/CalendarViewMonth';
-import BarChartIcon from '@mui/icons-material/BarChart';
-import TableChartIcon from '@mui/icons-material/TableChart';
 import StorageIcon from '@mui/icons-material/Storage';
 import ArchiveIcon from '@mui/icons-material/Archive';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import TodayIcon from '@mui/icons-material/Today';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
-import DescriptionIcon from '@mui/icons-material/Description';
-import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { format } from 'date-fns';
-import axios from 'axios';
+import api from '../../services/api';
 
 // Add missing MUI imports for pagination controls
 import FormControl from '@mui/material/FormControl';
@@ -42,6 +36,7 @@ import DailyReportTable from './DailyReportTable';
 import MonthlyReportTable from './MonthlyReportTable';
 import CsvManagement from './CsvManagement';
 import EventArchiveTable from './EventArchiveTable';
+import { SettingsProvider } from '../../context/SettingsContext';
 
 // Styled components
 const TabPanel = styled(Box)(({ theme }) => ({
@@ -49,15 +44,19 @@ const TabPanel = styled(Box)(({ theme }) => ({
 }));
 
 const ArchivesPage = () => {
+  return (
+    <SettingsProvider>
+      <ArchivesPageContent />
+    </SettingsProvider>
+  );
+};
+
+const ArchivesPageContent = () => {
   const { assets, registerArchiveRefreshCallback } = useContext(SocketContext);
   const { error, success } = useContext(AlertContext);
   const { isAuthenticated, token, user } = useContext(AuthContext);
-  
-  // State for tab selection - Updated to include Event Archives
-  const [tabValue, setTabValue] = useState(0);
-  
-  // State for filters
-  const [filters, setFilters] = useState({
+  const [tabValue, setTabValue] = React.useState(0);
+  const [filters, setFilters] = React.useState({
     asset: '',
     startDate: new Date(new Date().setDate(new Date().getDate() - 30)), // Default to last 30 days
     endDate: new Date(),
@@ -96,11 +95,6 @@ const ArchivesPage = () => {
     setFilters(prev => ({ ...prev, [name]: value }));
   };
 
-  // Handle date filter change
-  const handleDateChange = (name, date) => {
-    setFilters(prev => ({ ...prev, [name]: date }));
-  };
-
   // Fetch shift reports (server-side pagination)
   const fetchShiftReports = useCallback(async () => {
     try {
@@ -114,7 +108,7 @@ const ArchivesPage = () => {
         limit: shiftLimit,
       };
       
-      const response = await axios.get('/api/reports/shifts', { params });
+      const response = await api.get('/reports/shifts', { params });
       const respData = response.data || {};
       const reportsData = Array.isArray(respData?.data) ? respData.data : (Array.isArray(respData) ? respData : []);
       setShiftReports(reportsData);
@@ -149,7 +143,7 @@ const ArchivesPage = () => {
         ...(filters.endDate && { endDate: filters.endDate.toISOString() }),
       };
       
-      const response = await axios.get('/api/reports/daily', { params });
+      const response = await api.get('/reports/daily', { params });
       // Handle API response structure {success: true, data: [...]}
       const reportsData = response.data?.data || response.data;
       setDailyReports(Array.isArray(reportsData) ? reportsData : []);
@@ -172,7 +166,7 @@ const ArchivesPage = () => {
         ...(filters.endDate && { endDate: filters.endDate.toISOString() }),
       };
       
-      const response = await axios.get('/api/reports/monthly', { params });
+      const response = await api.get('/reports/monthly', { params });
       // Handle API response structure {success: true, data: [...]}
       const reportsData = response.data?.data || response.data;
       setMonthlyReports(Array.isArray(reportsData) ? reportsData : []);
@@ -190,9 +184,9 @@ const ArchivesPage = () => {
       setLoading(true);
       console.log('Fetching event archives...');
       console.log('Authentication status:', { isAuthenticated, token: token ? 'present' : 'missing', user });
-      console.log('Axios default headers:', axios.defaults.headers.common);
+      console.log('API client configured for authenticated requests');
       
-      const response = await axios.get('/api/events/archives');
+      const response = await api.get('/events/archives');
       console.log('Event archives response:', response.data);
       setEventArchives(Array.isArray(response.data.data) ? response.data.data : []);
     } catch (err) {
@@ -262,7 +256,7 @@ const ArchivesPage = () => {
         ...(filters.endDate && { endDate: filters.endDate.toISOString() }),
       };
       
-      const response = await axios.get(endpoint, { 
+      const response = await api.get(endpoint, { 
         params,
         responseType: 'blob',
       });

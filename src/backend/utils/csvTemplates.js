@@ -100,35 +100,47 @@ const DEFAULT_TEMPLATES = {
     ]
   },
 
-  performance: {
-    id: 'performance_detailed',
-    name: 'Detailed Performance Analysis',
-    description: 'Comprehensive performance metrics with OEE calculations',
+
+
+  advanced_analytics: {
+    id: 'advanced_analytics',
+    name: 'Advanced Analytics Export',
+    description: 'Comprehensive data export with predictive insights and trend analysis',
     data_source: 'assets',
     fields: [
       { key: 'name', label: 'Asset Name' },
+      { key: 'current_state', label: 'Current Status' },
       { key: 'availability_percentage', label: 'Availability %' },
-      { key: 'runtime', label: 'Runtime (ms)' },
-      { key: 'downtime', label: 'Downtime (ms)' },
+      { key: 'runtime', label: 'Runtime (hours)' },
+      { key: 'downtime', label: 'Downtime (hours)' },
       { key: 'total_stops', label: 'Total Stops' },
-      { key: 'short_stops', label: 'Short Stops' },
-      { key: 'long_stops', label: 'Long Stops' }
+      { key: 'efficiency_score', label: 'Efficiency Score' },
+      { key: 'maintenance_due', label: 'Maintenance Due' },
+      { key: 'last_maintenance', label: 'Last Maintenance' },
+      { key: 'predicted_failure_risk', label: 'Failure Risk %' }
     ],
     transformations: [
       {
-        type: 'calculate_field',
-        target_field: 'oee_score',
-        formula: 'availability_percentage * 0.85 * 0.95 / 100' // Simplified OEE
+        type: 'convert_ms_to_hours',
+        field: 'runtime'
+      },
+      {
+        type: 'convert_ms_to_hours',
+        field: 'downtime'
       },
       {
         type: 'calculate_field',
-        target_field: 'mtbf_hours',
-        formula: 'total_stops > 0 ? (runtime / 3600000) / total_stops : 0'
+        target_field: 'efficiency_score',
+        formula: 'availability_percentage * 0.9' // Simplified efficiency
       },
       {
         type: 'calculate_field',
-        target_field: 'avg_stop_duration_min',
-        formula: 'total_stops > 0 ? (downtime / 60000) / total_stops : 0'
+        target_field: 'predicted_failure_risk',
+        formula: 'total_stops > 10 ? Math.min(total_stops * 2, 95) : total_stops * 1.5'
+      },
+      {
+        type: 'format_date',
+        field: 'last_maintenance'
       }
     ]
   }

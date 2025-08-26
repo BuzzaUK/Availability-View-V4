@@ -23,15 +23,15 @@ router.get('/', (req, res, next) => {
 router.get('/:id', getArchiveById);
 
 // Create archive
-router.post('/', authorizeRoles('admin', 'manager', 'operator'), createArchive);
+router.post('/', authorizeRoles('super_admin', 'admin', 'manager', 'operator'), createArchive);
 
 // Download archive
 router.get('/:id/download', downloadArchive);
 
 // Delete archive
-router.delete('/:id', authorizeRoles('admin', 'manager'), deleteArchive);
+router.delete('/:id', authorizeRoles('super_admin', 'admin', 'manager'), deleteArchive);
 
 // Send email with archive details
-router.post('/send-email', authorizeRoles('admin', 'manager', 'operator'), sendArchiveEmail);
+router.post('/send-email', authorizeRoles('super_admin', 'admin', 'manager', 'operator'), sendArchiveEmail);
 
 module.exports = router;

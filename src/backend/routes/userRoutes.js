@@ -1,24 +1,62 @@
 const express = require('express');
 const router = express.Router();
 const { authenticateJWT, authorizeRoles } = require('../middleware/authMiddleware');
+const { 
+  authenticateWithPermissions, 
+  requirePermission,
+  validatePermissionUpdate,
+  logPermissionAction
+} = require('../middleware/enhancedAuthMiddleware');
 
-// Import controllers (using development version for in-memory storage)
+// Import controllers
 const {
   getUsers,
   getUserById,
   createUser,
   updateUser,
-  deleteUser
+  deleteUser,
+  getCurrentUser,
+  updateCurrentUser
 } = require('../controllers/userController');
 
-// All routes require authentication
-router.use(authenticateJWT);
+// All routes require enhanced authentication
+router.use(authenticateWithPermissions);
 
-// Routes
-router.get('/', authorizeRoles('admin', 'manager'), getUsers);
-router.get('/:id', authorizeRoles('admin', 'manager'), getUserById);
-router.post('/', authorizeRoles('admin'), createUser);
-router.put('/:id', authorizeRoles('admin'), updateUser);
-router.delete('/:id', authorizeRoles('admin'), deleteUser);
+// Current user routes (no additional permissions needed)
+router.get('/me', getCurrentUser);
+router.put('/me', updateCurrentUser);
+
+// Admin routes with permission checks
+router.get('/', 
+  requirePermission('system', 'manage_users'),
+  logPermissionAction('view_users'),
+  getUsers
+);
+
+router.get('/:id', 
+  requirePermission('system', 'manage_users'),
+  logPermissionAction('view_user'),
+  getUserById
+);
+
+router.post('/', 
+  requirePermission('system', 'manage_users'),
+  validatePermissionUpdate(),
+  logPermissionAction('create_user'),
+  createUser
+);
+
+router.put('/:id', 
+  requirePermission('system', 'manage_users'),
+  validatePermissionUpdate(),
+  logPermissionAction('update_user'),
+  updateUser
+);
+
+router.delete('/:id', 
+  requirePermission('system', 'manage_users'),
+  logPermissionAction('delete_user'),
+  deleteUser
+);
 
 module.exports = router;

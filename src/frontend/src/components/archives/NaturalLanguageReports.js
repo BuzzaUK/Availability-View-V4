@@ -41,7 +41,7 @@ import {
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
-import axios from 'axios';
+import api from '../../services/api';
 import { format } from 'date-fns';
 
 const NaturalLanguageReports = () => {
@@ -67,19 +67,21 @@ const NaturalLanguageReports = () => {
     setLoadingShifts(true);
     try {
       // First get all archived shift reports
-      const archivedReportsResponse = await axios.get('/api/reports/shifts');
+      const archivedReportsResponse = await api.get('/reports/shifts');
       const archivedReports = archivedReportsResponse.data?.data || [];
       
       // Extract shift IDs that have archived reports
       const shiftIdsWithReports = new Set();
       archivedReports.forEach(report => {
-        if (report.shift_id) {
-          shiftIdsWithReports.add(report.shift_id);
+        // Check for shift_id in archived_data.shift_id (where it's actually stored)
+        const shiftId = report.archived_data?.shift_id || report.archived_data?.shift_info?.id || report.shift_id;
+        if (shiftId) {
+          shiftIdsWithReports.add(shiftId);
         }
       });
       
       // Get all shifts
-      const shiftsResponse = await axios.get('/api/shifts');
+      const shiftsResponse = await api.get('/shifts');
       const allShifts = shiftsResponse.data?.data || [];
       
       // Filter shifts to only include those with archived reports
@@ -103,7 +105,7 @@ const NaturalLanguageReports = () => {
   const fetchAvailableReportTypes = useCallback(async () => {
     setLoadingReportTypes(true);
     try {
-      const response = await axios.get('/api/reports/natural-language');
+      const response = await api.get('/reports/natural-language');
       setAvailableReportTypes(response.data);
     } catch (err) {
       console.error('Failed to fetch report types:', err);
@@ -129,18 +131,18 @@ const NaturalLanguageReports = () => {
       let reportDescription;
       
       if (reportType === 'shift') {
-        endpoint = `/api/reports/natural-language/shift/${selectedShift}?includeRawData=true`;
+        endpoint = `/reports/natural-language/shift/${selectedShift}?includeRawData=true&useAI=true`;
         const selectedShiftData = shifts.find(s => s.id.toString() === selectedShift.toString());
         reportDescription = selectedShiftData ? 
-          `${selectedShiftData.name} - ${format(new Date(selectedShiftData.start_time), 'MMM dd, yyyy HH:mm')}` : 
+          `${selectedShiftData.shift_name} - ${format(new Date(selectedShiftData.start_time), 'MMM dd, yyyy HH:mm')}` : 
           `Shift ${selectedShift}`;
       } else if (reportType === 'daily') {
         const dateStr = format(selectedDate, 'yyyy-MM-dd');
-        endpoint = `/api/reports/natural-language/daily/${dateStr}`;
+        endpoint = `/reports/natural-language/daily/${dateStr}?useAI=true`;
         reportDescription = `Daily Summary for ${format(selectedDate, 'MMM dd, yyyy')}`;
       }
 
-      const response = await axios.get(endpoint);
+      const response = await api.get(endpoint);
       setReport(response.data);
       setSuccessMessage(`Successfully generated ${reportType} report for ${reportDescription}`);
     } catch (err) {
@@ -159,7 +161,7 @@ const NaturalLanguageReports = () => {
     setReport(null);
 
     try {
-      const response = await axios.get('/api/reports/natural-language/sample');
+      const response = await api.get('/reports/natural-language/sample?useAI=true');
       setReport(response.data);
       setSuccessMessage('Successfully generated sample report for demonstration purposes');
     } catch (err) {
@@ -219,18 +221,27 @@ const NaturalLanguageReports = () => {
     return (
       <Card 
         sx={{ 
-          mb: 2, 
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
           transition: 'all 0.3s ease-in-out',
           '&:hover': {
             transform: 'translateY(-2px)',
-            boxShadow: 3
+            boxShadow: 4
           },
           border: '1px solid',
           borderColor: 'grey.200',
-          backgroundColor: 'background.paper'
+          backgroundColor: 'background.paper',
+          borderRadius: 2
         }}
       >
-        <CardContent>
+        <CardContent sx={{ 
+          height: '100%', 
+          display: 'flex', 
+          flexDirection: 'column',
+          p: 3,
+          '&:last-child': { pb: 3 }
+        }}>
           <Typography 
             variant="h6" 
             sx={{ 
@@ -242,24 +253,32 @@ const NaturalLanguageReports = () => {
               fontWeight: 600,
               borderBottom: '2px solid',
               borderColor: 'primary.light',
-              pb: 1
+              pb: 1,
+              flexShrink: 0
             }}
           >
             {icon}
             {title}
           </Typography>
-          <Typography 
-            variant="body1" 
-            sx={{ 
-              whiteSpace: 'pre-line', 
-              lineHeight: 1.7,
-              color: 'text.primary',
-              fontSize: '0.95rem',
-              textAlign: 'justify'
-            }}
-          >
-            {content}
-          </Typography>
+          <Box sx={{ 
+            flex: 1, 
+            overflow: 'auto',
+            pr: 1
+          }}>
+            <Typography 
+              variant="body1" 
+              sx={{ 
+                whiteSpace: 'pre-line', 
+                lineHeight: 1.7,
+                color: 'text.primary',
+                fontSize: '0.95rem',
+                textAlign: 'justify',
+                wordBreak: 'break-word'
+              }}
+            >
+              {content}
+            </Typography>
+          </Box>
         </CardContent>
       </Card>
     );
@@ -348,7 +367,7 @@ const NaturalLanguageReports = () => {
                           <MenuItem key={shift.id} value={shift.id}>
                             <Box>
                               <Typography variant="body2" fontWeight="medium">
-                                {shift.name}
+                                {shift.shift_name}
                               </Typography>
                               <Typography variant="caption" color="text.secondary">
                                 {format(new Date(shift.start_time), 'MMM dd, yyyy HH:mm')}
@@ -620,59 +639,78 @@ const NaturalLanguageReports = () => {
               {report.narrative && (
                 <Box sx={{ mt: 3 }}>
                   <Divider sx={{ mb: 3, borderColor: 'primary.light' }} />
-                  <Grid container spacing={3}>
+                  <Grid container spacing={3} sx={{ alignItems: 'stretch' }}>
+                    {/* Executive Summary - Full Width */}
                     {report.narrative.executive_summary && (
                       <Grid item xs={12}>
-                        {renderNarrativeSection(
-                          'Executive Summary', 
-                          report.narrative.executive_summary,
-                          <TrendingUpIcon color="primary" />
-                        )}
+                        <Box sx={{ height: '100%' }}>
+                          {renderNarrativeSection(
+                            'Executive Summary', 
+                            report.narrative.executive_summary,
+                            <TrendingUpIcon color="primary" />
+                          )}
+                        </Box>
                       </Grid>
                     )}
+                    
+                    {/* First Row - Shift Overview and Asset Performance */}
                     {report.narrative.shift_overview && (
-                      <Grid item xs={12} md={6}>
-                        {renderNarrativeSection(
-                          'Shift Overview', 
-                          report.narrative.shift_overview,
-                          <ScheduleIcon color="info" />
-                        )}
+                      <Grid item xs={12} lg={6}>
+                        <Box sx={{ height: '100%', minHeight: '300px' }}>
+                          {renderNarrativeSection(
+                            'Shift Overview', 
+                            report.narrative.shift_overview,
+                            <ScheduleIcon color="info" />
+                          )}
+                        </Box>
                       </Grid>
                     )}
                     {report.narrative.asset_performance && (
-                      <Grid item xs={12} md={6}>
-                        {renderNarrativeSection(
-                          'Asset Performance', 
-                          report.narrative.asset_performance,
-                          <AssessmentIcon color="success" />
-                        )}
+                      <Grid item xs={12} lg={6}>
+                        <Box sx={{ height: '100%', minHeight: '300px' }}>
+                          {renderNarrativeSection(
+                            'Asset Performance', 
+                            report.narrative.asset_performance,
+                            <AssessmentIcon color="success" />
+                          )}
+                        </Box>
                       </Grid>
                     )}
+                    
+                    {/* Key Events - Full Width */}
                     {report.narrative.key_events && (
                       <Grid item xs={12}>
-                        {renderNarrativeSection(
-                          'Key Events', 
-                          report.narrative.key_events,
-                          <DescriptionIcon color="warning" />
-                        )}
+                        <Box sx={{ height: '100%' }}>
+                          {renderNarrativeSection(
+                            'Key Events', 
+                            report.narrative.key_events,
+                            <DescriptionIcon color="warning" />
+                          )}
+                        </Box>
                       </Grid>
                     )}
+                    
+                    {/* Second Row - Recommendations and Conclusion */}
                     {report.narrative.recommendations && (
-                      <Grid item xs={12} md={6}>
-                        {renderNarrativeSection(
-                          'Recommendations', 
-                          report.narrative.recommendations,
-                          <TrendingUpIcon color="secondary" />
-                        )}
+                      <Grid item xs={12} lg={6}>
+                        <Box sx={{ height: '100%', minHeight: '250px' }}>
+                          {renderNarrativeSection(
+                            'Recommendations', 
+                            report.narrative.recommendations,
+                            <CheckCircleIcon color="primary" />
+                          )}
+                        </Box>
                       </Grid>
                     )}
                     {report.narrative.conclusion && (
-                      <Grid item xs={12} md={6}>
-                        {renderNarrativeSection(
-                          'Conclusion', 
-                          report.narrative.conclusion,
-                          <AssessmentIcon color="primary" />
-                        )}
+                      <Grid item xs={12} lg={6}>
+                        <Box sx={{ height: '100%', minHeight: '250px' }}>
+                          {renderNarrativeSection(
+                            'Conclusion', 
+                            report.narrative.conclusion,
+                            <TrendingUpIcon color="success" />
+                          )}
+                        </Box>
                       </Grid>
                     )}
                   </Grid>

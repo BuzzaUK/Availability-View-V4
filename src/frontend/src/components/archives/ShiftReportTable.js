@@ -23,10 +23,11 @@ import VisibilityIcon from '@mui/icons-material/Visibility';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { format } from 'date-fns';
-import axios from 'axios';
+import api from '../../services/api';
 
 // Context
-import SocketContext from '../../context/SocketContext';
+import SettingsContext from '../../context/SettingsContext';
+
 
 // Styled components
 const StyledTableRow = styled(TableRow)(({ theme }) => ({
@@ -40,7 +41,9 @@ const StyledTableRow = styled(TableRow)(({ theme }) => ({
 }));
 
 const ShiftReportTable = ({ reports, onRefresh }) => {
-  const { assets } = useContext(SocketContext);
+  const { settings } = useContext(SettingsContext);
+  const { dateFormat } = settings;
+  const correctedDateFormat = dateFormat.replace('DD', 'dd').replace('YYYY', 'yyyy');
   const [selectedReport, setSelectedReport] = React.useState(null);
   const [viewModalOpen, setViewModalOpen] = React.useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false);
@@ -68,16 +71,14 @@ const ShiftReportTable = ({ reports, onRefresh }) => {
 Shift Report: ${report.title}
 
 Report Details:
-- Start Time: ${format(new Date(report.start_time), 'PPpp')}
-- End Time: ${format(new Date(report.end_time), 'PPpp')}
+- Start Time: ${format(new Date(report.start_time), `${correctedDateFormat} p`)}
+- End Time: ${format(new Date(report.end_time), `${correctedDateFormat} p`)}
 - Duration: ${Math.round(report.duration / 60000)} minutes
 - Status: ${report.status}
 
 Metrics:
 - Availability: ${(report.availability * 100).toFixed(1)}%
 - Performance: ${(report.performance * 100).toFixed(1)}%
-- Quality: ${(report.quality * 100).toFixed(1)}%
-- OEE: ${(report.oee * 100).toFixed(1)}%
 - Runtime: ${report.runtime} minutes
 - Downtime: ${report.downtime} minutes
 - Total Stops: ${report.stops}
@@ -86,7 +87,7 @@ Data Summary:
 - Events Processed: ${report.events_processed}
 - Assets Analyzed: ${report.assets_analyzed}
 
-Generated on: ${format(new Date(), 'PPpp')}
+Generated on: ${format(new Date(), `${correctedDateFormat} p`)}
     `;
 
     // Create and download the file
@@ -112,7 +113,7 @@ Generated on: ${format(new Date(), 'PPpp')}
     if (!reportToDelete) return;
 
     try {
-      const response = await axios.delete(`/api/archives/${reportToDelete.id}`);
+      const response = await api.delete(`/archives/${reportToDelete.id}`);
       
       if (response.data.success) {
         // Close confirmation dialog
@@ -142,22 +143,33 @@ Generated on: ${format(new Date(), 'PPpp')}
 
   // Format duration helper
   const formatDuration = (milliseconds) => {
-    const minutes = Math.round(milliseconds / 60000);
-    const hours = Math.floor(minutes / 60);
-    const remainingMinutes = minutes % 60;
-    return hours > 0 ? `${hours}h ${remainingMinutes}m` : `${minutes}m`;
+    if (milliseconds === undefined || milliseconds === null) return 'N/A';
+    const totalMinutes = Math.round(milliseconds / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${hours}h ${minutes}m`;
   };
 
-  // Helper function to get asset name by ID
-  const getAssetName = (assetId) => {
-    const asset = assets.find(a => a.id === assetId);
-    return asset ? asset.name : 'All Assets';
+  const formatMinutes = (minutes) => {
+    if (minutes === undefined || minutes === null) return 'N/A';
+    const totalMinutes = Math.round(minutes);
+    const hours = Math.floor(totalMinutes / 60);
+    const mins = totalMinutes % 60;
+    return `${hours}h ${mins}m`;
   };
 
   // Helper function to format percentage
   const formatPercentage = (value) => {
     if (value === undefined || value === null) return 'N/A';
     return `${(value * 100).toFixed(2)}%`;
+  };
+
+  const formatShiftTitle = (report) => {
+    const startTimeFormatted = report.start_time
+      ? `${format(new Date(report.start_time), correctedDateFormat)}, ${format(new Date(report.start_time), 'p')}`
+      : 'N/A';
+    const endTimeFormatted = report.end_time ? format(new Date(report.end_time), 'p') : 'Ongoing';
+    return `Shift Report - Shift ${report.id} - ${startTimeFormatted} - ${endTimeFormatted}`;
   };
 
   // Render empty state
@@ -179,11 +191,10 @@ Generated on: ${format(new Date(), 'PPpp')}
               <TableCell>Asset</TableCell>
               <TableCell>Start Time</TableCell>
               <TableCell>End Time</TableCell>
-              <TableCell>Duration</TableCell>
+              <TableCell>Run Time</TableCell>
+              <TableCell>Downtime</TableCell>
               <TableCell>Availability</TableCell>
               <TableCell>Performance</TableCell>
-              <TableCell>Quality</TableCell>
-              <TableCell>OEE</TableCell>
               <TableCell align="center">Actions</TableCell>
             </TableRow>
           </TableHead>
@@ -191,22 +202,21 @@ Generated on: ${format(new Date(), 'PPpp')}
             {safeReports.map((report) => (
               <StyledTableRow key={report.id || report._id}>
                 <TableCell component="th" scope="row">
-                  {report.name || report.title || 'Unnamed Shift'}
+                  {formatShiftTitle(report)}
                 </TableCell>
                 <TableCell>All Assets</TableCell>
                 <TableCell>
-                  {report.start_time ? format(new Date(report.start_time), 'yyyy-MM-dd HH:mm') : 'N/A'}
+                  {report.start_time ? format(new Date(report.start_time), correctedDateFormat) : 'N/A'}
                 </TableCell>
                 <TableCell>
                   {report.end_time 
-                    ? format(new Date(report.end_time), 'yyyy-MM-dd HH:mm')
+                    ? format(new Date(report.end_time), correctedDateFormat)
                     : 'Ongoing'}
                 </TableCell>
-                <TableCell>{formatDuration(report.duration)}</TableCell>
+                <TableCell>{formatMinutes(report.run_time)}</TableCell>
+                <TableCell>{formatMinutes(report.downtime)}</TableCell>
                 <TableCell>{formatPercentage(report.availability)}</TableCell>
                 <TableCell>{formatPercentage(report.performance)}</TableCell>
-                <TableCell>{formatPercentage(report.quality)}</TableCell>
-                <TableCell>{formatPercentage(report.oee)}</TableCell>
                 <TableCell align="center">
                   <Tooltip title="View Details">
                     <IconButton 
@@ -252,7 +262,7 @@ Generated on: ${format(new Date(), 'PPpp')}
                   Start Time
                 </Typography>
                 <Typography variant="body1">
-                  {format(new Date(selectedReport.start_time), 'PPpp')}
+                  {format(new Date(selectedReport.start_time), `${correctedDateFormat} p`)}
                 </Typography>
               </Box>
               <Box sx={{ mb: 2 }}>
@@ -260,7 +270,7 @@ Generated on: ${format(new Date(), 'PPpp')}
                   End Time
                 </Typography>
                 <Typography variant="body1">
-                  {format(new Date(selectedReport.end_time), 'PPpp')}
+                  {format(new Date(selectedReport.end_time), `${correctedDateFormat} p`)}
                 </Typography>
               </Box>
               <Box sx={{ mb: 2 }}>
@@ -304,18 +314,18 @@ Generated on: ${format(new Date(), 'PPpp')}
               </Box>
               <Box sx={{ mb: 2 }}>
                 <Typography variant="body2" color="text.secondary">
-                  Quality
+                  Runtime
                 </Typography>
                 <Typography variant="body1">
-                  {(selectedReport.quality * 100).toFixed(1)}%
+                  {formatMinutes(selectedReport.run_time)}
                 </Typography>
               </Box>
               <Box sx={{ mb: 2 }}>
                 <Typography variant="body2" color="text.secondary">
-                  Overall Equipment Effectiveness (OEE)
+                  Downtime
                 </Typography>
-                <Typography variant="body1" sx={{ fontWeight: 'bold' }}>
-                  {(selectedReport.oee * 100).toFixed(1)}%
+                <Typography variant="body1">
+                  {formatMinutes(selectedReport.downtime)}
                 </Typography>
               </Box>
             </Grid>
@@ -327,7 +337,7 @@ Generated on: ${format(new Date(), 'PPpp')}
                 <Grid item xs={6} sm={3}>
                   <Box sx={{ textAlign: 'center', p: 2, bgcolor: 'success.light', borderRadius: 1 }}>
                     <Typography variant="h6" color="success.contrastText">
-                      {selectedReport.runtime}m
+                      {formatMinutes(selectedReport.run_time)}
                     </Typography>
                     <Typography variant="body2" color="success.contrastText">
                       Runtime
@@ -337,7 +347,7 @@ Generated on: ${format(new Date(), 'PPpp')}
                 <Grid item xs={6} sm={3}>
                   <Box sx={{ textAlign: 'center', p: 2, bgcolor: 'error.light', borderRadius: 1 }}>
                     <Typography variant="h6" color="error.contrastText">
-                      {selectedReport.downtime}m
+                      {formatMinutes(selectedReport.downtime)}
                     </Typography>
                     <Typography variant="body2" color="error.contrastText">
                       Downtime
@@ -398,7 +408,7 @@ Generated on: ${format(new Date(), 'PPpp')}
                   <strong>Report:</strong> {reportToDelete.title}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  <strong>Date:</strong> {format(new Date(reportToDelete.start_time), 'PPpp')}
+                  <strong>Date:</strong> {format(new Date(reportToDelete.start_time), `${correctedDateFormat} p`)}
                 </Typography>
               </Box>
             )}

@@ -34,7 +34,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import SettingsIcon from '@mui/icons-material/Settings';
 import InputAdornment from '@mui/material/InputAdornment';
 import { format } from 'date-fns';
-import axios from 'axios';
+import api from '../../services/api';
 
 // Context
 import AlertContext from '../../context/AlertContext';
@@ -108,16 +108,11 @@ const AssetManagement = () => {
     microstop_threshold: 180,
     downtime_reasons: 'Maintenance,Breakdown,Setup,Material shortage,Quality issue',
     thresholds: {
-      availability: 85,
-      performance: 85,
-      quality: 95,
-      oee: 75
+      availability: 85
     },
     settings: {
       idleTimeThreshold: 5, // minutes
-      warningTimeThreshold: 10, // minutes
-      collectQualityData: true,
-      collectPerformanceData: true
+      warningTimeThreshold: 10 // minutes
     }
   });
   
@@ -147,12 +142,7 @@ const AssetManagement = () => {
         ...(searchQuery && { search: searchQuery }),
       };
       
-      const headers = {};
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-      }
-      
-      const response = await axios.get('/api/assets', { params, headers });
+      const response = await api.get('/assets', { params });
       
       setAssets(response.data.assets);
       setTotalAssets(response.data.total);
@@ -170,7 +160,7 @@ const AssetManagement = () => {
       if (token) {
         headers.Authorization = `Bearer ${token}`;
       }
-      const response = await axios.get('/api/loggers', { headers });
+      const response = await api.get('/loggers');
       setLoggers(response.data);
     } catch (err) {
       error('Failed to fetch loggers: ' + (err.response?.data?.message || err.message));
@@ -180,11 +170,7 @@ const AssetManagement = () => {
   // Add asset
   const addAsset = async () => {
     try {
-      const headers = {};
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-      }
-      await axios.post('/api/assets', assetForm, { headers });
+      await api.post('/assets', assetForm);
       
       success('Asset added successfully');
       handleCloseDialog();
@@ -197,11 +183,7 @@ const AssetManagement = () => {
   // Update asset
   const updateAsset = async () => {
     try {
-      const headers = {};
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-      }
-      await axios.put(`/api/assets/${selectedAsset.id}`, assetForm, { headers });
+      await api.put(`/assets/${selectedAsset.id}`, assetForm);
       
       success('Asset updated successfully');
       handleCloseDialog();
@@ -214,13 +196,9 @@ const AssetManagement = () => {
   // Delete asset
   const deleteAsset = async () => {
     try {
-      const headers = {};
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-      }
       // Use selectedAsset.id instead of selectedAsset._id for database mode
       const assetId = selectedAsset.id || selectedAsset._id;
-      await axios.delete(`/api/assets/${assetId}`, { headers });
+      await api.delete(`/assets/${assetId}`);
       
       success('Asset deleted successfully');
       setOpenDeleteDialog(false);
@@ -278,16 +256,11 @@ const AssetManagement = () => {
       microstop_threshold: 180,
       downtime_reasons: 'Maintenance,Breakdown,Setup,Material shortage,Quality issue',
       thresholds: {
-        availability: 85,
-        performance: 85,
-        quality: 95,
-        oee: 75
+        availability: 85
       },
       settings: {
         idleTimeThreshold: 5, // minutes
-        warningTimeThreshold: 10, // minutes
-        collectQualityData: true,
-        collectPerformanceData: true
+        warningTimeThreshold: 10 // minutes
       }
     });
     setOpenDialog(true);
@@ -308,16 +281,11 @@ const AssetManagement = () => {
       microstop_threshold: asset.microstop_threshold || 180,
       downtime_reasons: asset.downtime_reasons || 'Maintenance,Breakdown,Setup,Material shortage,Quality issue',
       thresholds: {
-        availability: asset.thresholds?.availability || 85,
-        performance: asset.thresholds?.performance || 85,
-        quality: asset.thresholds?.quality || 95,
-        oee: asset.thresholds?.oee || 75
+        availability: asset.thresholds?.availability || 85
       },
       settings: {
         idleTimeThreshold: asset.settings?.idleTimeThreshold || 5,
-        warningTimeThreshold: asset.settings?.warningTimeThreshold || 10,
-        collectQualityData: asset.settings?.collectQualityData !== false,
-        collectPerformanceData: asset.settings?.collectPerformanceData !== false
+        warningTimeThreshold: asset.settings?.warningTimeThreshold || 10
       }
     });
     setOpenDialog(true);
@@ -723,45 +691,7 @@ const AssetManagement = () => {
                   helperText="Target availability percentage"
                 />
               </Grid>
-              <Grid item xs={6}>
-                <TextField
-                  name="thresholds.performance"
-                  label="Performance Threshold"
-                  type="number"
-                  fullWidth
-                  variant="outlined"
-                  value={assetForm.thresholds.performance}
-                  onChange={handleFormChange}
-                  InputProps={{ inputProps: { min: 0, max: 100 } }}
-                  helperText="Target performance percentage"
-                />
-              </Grid>
-              <Grid item xs={6}>
-                <TextField
-                  name="thresholds.quality"
-                  label="Quality Threshold"
-                  type="number"
-                  fullWidth
-                  variant="outlined"
-                  value={assetForm.thresholds.quality}
-                  onChange={handleFormChange}
-                  InputProps={{ inputProps: { min: 0, max: 100 } }}
-                  helperText="Target quality percentage"
-                />
-              </Grid>
-              <Grid item xs={6}>
-                <TextField
-                  name="thresholds.oee"
-                  label="OEE Threshold"
-                  type="number"
-                  fullWidth
-                  variant="outlined"
-                  value={assetForm.thresholds.oee}
-                  onChange={handleFormChange}
-                  InputProps={{ inputProps: { min: 0, max: 100 } }}
-                  helperText="Target overall OEE percentage"
-                />
-              </Grid>
+
             </Grid>
           </TabPanel>
           
@@ -796,32 +726,7 @@ const AssetManagement = () => {
                   helperText="Minutes before asset triggers warning"
                 />
               </Grid>
-              <Grid item xs={6}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={assetForm.settings.collectQualityData}
-                      onChange={handleFormChange}
-                      name="settings.collectQualityData"
-                      color="primary"
-                    />
-                  }
-                  label="Collect Quality Data"
-                />
-              </Grid>
-              <Grid item xs={6}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={assetForm.settings.collectPerformanceData}
-                      onChange={handleFormChange}
-                      name="settings.collectPerformanceData"
-                      color="primary"
-                    />
-                  }
-                  label="Collect Performance Data"
-                />
-              </Grid>
+
             </Grid>
           </TabPanel>
         </DialogContent>

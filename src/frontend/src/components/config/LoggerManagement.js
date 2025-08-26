@@ -30,7 +30,7 @@ import SignalWifiStatusbar4BarIcon from '@mui/icons-material/SignalWifiStatusbar
 import SignalWifiOffIcon from '@mui/icons-material/SignalWifiOff';
 import DevicesIcon from '@mui/icons-material/Devices';
 import { format } from 'date-fns';
-import axios from 'axios';
+import api from '../../services/api';
 
 // Context
 import AlertContext from '../../context/AlertContext';
@@ -92,9 +92,7 @@ const LoggerManagement = () => {
       // Try authenticated endpoint first (for logged-in users)
       if (token) {
         try {
-          const response = await axios.get('/api/loggers', {
-            headers: { Authorization: `Bearer ${token}` }
-          });
+          const response = await api.get('/loggers');
           setLoggers(response.data);
           return;
         } catch (authErr) {
@@ -103,7 +101,7 @@ const LoggerManagement = () => {
       }
       
       // Fallback to public endpoint for device management
-      const response = await axios.get('/api/device/list');
+      const response = await api.get('/device/list');
       setLoggers(response.data);
       
     } catch (err) {
@@ -117,7 +115,7 @@ const LoggerManagement = () => {
   const addLogger = async () => {
     try {
       // Use the unauthenticated device registration endpoint
-      await axios.post('/api/device/register', {
+      await api.post('/device/register', {
         logger_id: loggerForm.logger_id,
         logger_name: loggerForm.name,
         description: loggerForm.description,
@@ -143,9 +141,7 @@ const LoggerManagement = () => {
       // Try authenticated endpoint first (for logged-in users)
       if (token) {
         try {
-          await axios.put(`/api/loggers/${selectedLogger._id}`, loggerForm, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
+          await api.put(`/loggers/${selectedLogger._id}`, loggerForm);
           success('Logger updated successfully');
           handleCloseDialog();
           fetchLoggers();
@@ -156,7 +152,7 @@ const LoggerManagement = () => {
       }
       
       // Fallback to public endpoint for device management
-      await axios.put(`/api/device/update/${selectedLogger._id}`, loggerForm);
+      await api.put(`/device/update/${selectedLogger._id}`, loggerForm);
       success('Logger updated successfully');
       handleCloseDialog();
       fetchLoggers();
@@ -171,9 +167,7 @@ const LoggerManagement = () => {
       // Try authenticated endpoint first (for logged-in users)
       if (token) {
         try {
-          await axios.delete(`/api/loggers/${selectedLogger._id}`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
+          await api.delete(`/loggers/${selectedLogger._id}`);
           success('Logger deleted successfully');
           setOpenDeleteDialog(false);
           fetchLoggers();
@@ -184,7 +178,7 @@ const LoggerManagement = () => {
       }
       
       // Fallback to public endpoint for device management
-      await axios.delete(`/api/device/delete/${selectedLogger._id}`);
+      await api.delete(`/device/delete/${selectedLogger._id}`);
       success('Logger deleted successfully');
       setOpenDeleteDialog(false);
       fetchLoggers();

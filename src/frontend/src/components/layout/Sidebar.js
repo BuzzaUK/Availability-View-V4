@@ -20,17 +20,20 @@ import DashboardIcon from '@mui/icons-material/Dashboard';
 import EventNoteIcon from '@mui/icons-material/EventNote';
 import ArchiveIcon from '@mui/icons-material/Archive';
 import InsightsIcon from '@mui/icons-material/Insights';
+import PsychologyIcon from '@mui/icons-material/Psychology';
+import NotificationsIcon from '@mui/icons-material/Notifications';
 import SettingsIcon from '@mui/icons-material/Settings';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
 import WifiIcon from '@mui/icons-material/Wifi';
 import WifiOffIcon from '@mui/icons-material/WifiOff';
+import GroupIcon from '@mui/icons-material/Group';
 
 // Context
 import AuthContext from '../../context/AuthContext';
 import SocketContext from '../../context/SocketContext';
 import AlertContext from '../../context/AlertContext';
-import axios from 'axios';
+import api from '../../services/api';
 
 // Styled drawer header
 const DrawerHeader = styled('div')(({ theme }) => ({
@@ -56,11 +59,14 @@ const Sidebar = ({ open, sidebarWidth, handleDrawerToggle }) => {
     { text: 'Events', icon: <EventNoteIcon />, path: '/events' },
     { text: 'Archives', icon: <ArchiveIcon />, path: '/archives' },
     { text: 'Analytics', icon: <InsightsIcon />, path: '/analytics' },
+    { text: 'Advanced Analytics', icon: <PsychologyIcon />, path: '/advanced-analytics' },
+    { text: 'Alerts', icon: <NotificationsIcon />, path: '/alerts' },
   ];
   
   // Admin navigation items
   const adminNavItems = [
     { text: 'Configuration', icon: <SettingsIcon />, path: '/config' },
+    { text: 'Teams', icon: <GroupIcon />, path: '/teams' },
   ];
   
   // Handle navigation
@@ -83,10 +89,10 @@ const Sidebar = ({ open, sidebarWidth, handleDrawerToggle }) => {
     setShiftLoading(true);
     try {
       if (currentShift) {
-        await axios.post('/api/shifts/end', { notes: '' });
+        await api.post('/shifts/end', { notes: '' });
         success('Shift ended successfully');
       } else {
-        await axios.post('/api/shifts/start', {});
+        await api.post('/shifts/start', {});
         success('Shift started successfully');
       }
       // currentShift state will be updated via socket 'shift_update' event

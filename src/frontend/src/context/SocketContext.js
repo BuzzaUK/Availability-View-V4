@@ -1,6 +1,6 @@
 import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
 import io from 'socket.io-client';
-import axios from 'axios';
+import api from '../services/api';
 import AuthContext from './AuthContext';
 
 const SocketContext = createContext();
@@ -19,13 +19,8 @@ export const SocketProvider = ({ children }) => {
     console.log('🔄 SocketContext: fetchAllData called at:', new Date().toISOString());
     
     try {
-      const headers = {};
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-      }
-      
       // Only fetch assets - events are managed by EventsPage with pagination
-      const assetsResponse = await axios.get('/api/assets', { headers });
+      const assetsResponse = await api.get('/assets');
       
       // Update assets
       if (assetsResponse.data.success) {
@@ -51,12 +46,7 @@ export const SocketProvider = ({ children }) => {
   // Fetch assets via HTTP API as fallback
   const fetchAssets = useCallback(async () => {
     try {
-      const headers = {};
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-      }
-      
-      const response = await axios.get('/api/assets', { headers });
+      const response = await api.get('/assets');
       if (response.data.success) {
         setAssets(response.data.assets || []);
         console.log('Assets fetched via HTTP API:', response.data.assets);
@@ -75,7 +65,7 @@ export const SocketProvider = ({ children }) => {
         headers.Authorization = `Bearer ${token}`;
       }
       
-      const response = await axios.get('/api/events', { headers });
+      const response = await api.get('/events');
       if (response.data.success) {
         setEvents(response.data.events || []);
         console.log('Events fetched via HTTP API:', response.data.events);

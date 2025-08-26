@@ -21,11 +21,11 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import ClearIcon from '@mui/icons-material/Clear';
 // Date utilities
 import { format } from 'date-fns';
-import axios from 'axios';
+import api from '../../services/api';
 
 // Components
 import DowntimePareto from './DowntimePareto';
-import StateDistribution from './StateDistribution';
+
 import PerformanceMetrics from './PerformanceMetrics';
 import AvailabilityKPIs from './AvailabilityKPIs';
 import MicroStopsChart from './MicroStopsChart';
@@ -93,7 +93,7 @@ const AnalyticsPage = () => {
   const tabs = [
     { label: 'Availability KPIs', icon: <AvailabilityIcon /> },
     { label: 'Downtime Analysis', icon: <BarChartIcon /> },
-    { label: 'State Distribution', icon: <PieChartIcon /> },
+    { label: 'CHARTS', icon: <PieChartIcon /> },
     { label: 'Natural Language Reports', icon: <DescriptionIcon /> },
   ];
 
@@ -143,10 +143,10 @@ const AnalyticsPage = () => {
         stateResponse,
         metricsResponse
       ] = await Promise.all([
-        axios.get('/api/analytics/availability', { params }),
-        axios.get('/api/analytics/downtime', { params }),
-        axios.get('/api/analytics/state-distribution', { params }),
-        axios.get('/api/analytics/performance-metrics', { params })
+        api.get('/analytics/availability', { params }),
+        api.get('/analytics/downtime', { params }),
+        api.get('/analytics/state-distribution', { params }),
+        api.get('/analytics/performance-metrics', { params })
       ]);
       
       setAnalyticsData({
@@ -188,19 +188,20 @@ const AnalyticsPage = () => {
               loading={loading} 
               selectedAsset={selectedAssetObj}
             />
-            <Box sx={{ mt: 4 }}>
-              <MicroStopsChart 
-                data={analyticsData.availabilityData} 
-                loading={loading} 
-                selectedAsset={selectedAssetObj}
-              />
-            </Box>
           </Box>
         );
       case 1:
         return <DowntimePareto data={analyticsData.downtimeData} loading={loading} />;
       case 2:
-        return <StateDistribution data={analyticsData.stateDistribution} loading={loading} />;
+        return (
+          <Box>
+            <MicroStopsChart 
+              data={analyticsData.availabilityData} 
+              loading={loading} 
+              selectedAsset={selectedAssetObj}
+            />
+          </Box>
+        );
       case 3:
         return <NaturalLanguageReports />;
       default:

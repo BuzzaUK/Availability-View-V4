@@ -13,7 +13,8 @@ const {
   getMonthlyReports,
   exportShiftReports,
   exportDailyReports,
-  exportMonthlyReports
+  exportMonthlyReports,
+  generateAndArchiveShiftReport
 } = require('../controllers/reportController');
 
 // Available reports
@@ -24,6 +25,9 @@ router.get('/asset/:id', generateAssetReport);
 
 // Shift reports
 router.get('/shift/:id', generateShiftReport);
+
+// Generate and archive shift report
+router.post('/shift/:id/archive', authenticateJWT, authorizeRoles('super_admin', 'admin', 'manager', 'operator'), generateAndArchiveShiftReport);
 
 // System reports
 router.get('/system', generateSystemReport);

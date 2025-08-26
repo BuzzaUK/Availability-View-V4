@@ -37,7 +37,7 @@ import {
   Edit as EditIcon,
   Visibility as ViewIcon,
 } from '@mui/icons-material';
-import axios from 'axios';
+import api from '../../services/api';
 import AlertContext from '../../context/AlertContext.js';
 
 const CsvManagement = () => {
@@ -49,6 +49,14 @@ const CsvManagement = () => {
     format: 'standard',
     fields: [],
     filters: {},
+    dateRange: {
+      startDate: '',
+      endDate: ''
+    },
+    customFields: [],
+    exportFormat: 'csv',
+    includeHeaders: true,
+    delimiter: ','
   });
   
   // State for CSV Import
@@ -90,7 +98,7 @@ const CsvManagement = () => {
 
   const fetchTemplates = async () => {
     try {
-      const response = await axios.get('/api/csv/templates');
+      const response = await api.get('/csv/templates');
       // Ensure response.data is an array
       setTemplates(Array.isArray(response.data) ? response.data : []);
     } catch (err) {
@@ -102,7 +110,7 @@ const CsvManagement = () => {
 
   const fetchSchedules = async () => {
     try {
-      const response = await axios.get('/api/csv/schedules');
+      const response = await api.get('/csv/schedules');
       // Ensure response.data is an array
       setSchedules(Array.isArray(response.data) ? response.data : []);
     } catch (err) {
@@ -114,7 +122,7 @@ const CsvManagement = () => {
 
   const fetchAnalytics = async () => {
     try {
-      const response = await axios.get('/api/csv/analytics');
+      const response = await api.get('/csv/analytics');
       // Ensure response.data has the expected structure
       setAnalytics({
         totalExports: response.data?.totalExports || 0,
@@ -139,15 +147,20 @@ const CsvManagement = () => {
   const handleExport = async () => {
     try {
       setLoading(true);
-      const response = await axios.post('/api/csv/export', exportConfig, {
+      const response = await api.post('/csv/export', exportConfig, {
         responseType: 'blob',
       });
+      
+      // Determine file extension based on export format
+      const fileExtension = exportConfig.exportFormat === 'json' ? 'json' : 
+                           exportConfig.exportFormat === 'xml' ? 'xml' :
+                           exportConfig.exportFormat === 'excel' ? 'xlsx' : 'csv';
       
       // Create download link
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `${exportConfig.type}_export_${new Date().toISOString().slice(0, 10)}.csv`);
+      link.setAttribute('download', `${exportConfig.type}_export_${new Date().toISOString().slice(0, 10)}.${fileExtension}`);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -175,7 +188,7 @@ const CsvManagement = () => {
       formData.append('file', importFile);
       formData.append('type', importType);
       
-      const response = await axios.post('/api/csv/import', formData, {
+      const response = await api.post('/csv/import', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -199,7 +212,7 @@ const CsvManagement = () => {
   const handleCreateSchedule = async () => {
     try {
       setLoading(true);
-      await axios.post('/api/csv/schedules', newSchedule);
+      await api.post('/csv/schedules', newSchedule);
       success('Scheduled export created successfully');
       setScheduleDialog(false);
       setNewSchedule({
@@ -221,7 +234,7 @@ const CsvManagement = () => {
   // Handle Schedule Deletion
   const handleDeleteSchedule = async (scheduleId) => {
     try {
-      await axios.delete(`/api/csv/schedules/${scheduleId}`);
+      await api.delete(`/csv/schedules/${scheduleId}`);
       success('Scheduled export deleted successfully');
       fetchSchedules();
     } catch (err) {
@@ -267,8 +280,51 @@ const CsvManagement = () => {
                   <MenuItem value="standard">Standard</MenuItem>
                   <MenuItem value="detailed">Detailed</MenuItem>
                   <MenuItem value="summary">Summary</MenuItem>
+                  <MenuItem value="advanced_analytics">Advanced Analytics</MenuItem>
                 </Select>
               </FormControl>
+              
+              <FormControl fullWidth sx={{ mb: 2 }}>
+                <InputLabel>Export Format</InputLabel>
+                <Select
+                  value={exportConfig.exportFormat}
+                  onChange={(e) => setExportConfig({ ...exportConfig, exportFormat: e.target.value })}
+                >
+                  <MenuItem value="csv">CSV</MenuItem>
+                  <MenuItem value="json">JSON</MenuItem>
+                  <MenuItem value="xml">XML</MenuItem>
+                  <MenuItem value="excel">Excel</MenuItem>
+                </Select>
+              </FormControl>
+              
+              <Grid container spacing={2} sx={{ mb: 2 }}>
+                <Grid item xs={6}>
+                  <TextField
+                    fullWidth
+                    label="Start Date"
+                    type="date"
+                    value={exportConfig.dateRange.startDate}
+                    onChange={(e) => setExportConfig({
+                      ...exportConfig,
+                      dateRange: { ...exportConfig.dateRange, startDate: e.target.value }
+                    })}
+                    InputLabelProps={{ shrink: true }}
+                  />
+                </Grid>
+                <Grid item xs={6}>
+                  <TextField
+                    fullWidth
+                    label="End Date"
+                    type="date"
+                    value={exportConfig.dateRange.endDate}
+                    onChange={(e) => setExportConfig({
+                      ...exportConfig,
+                      dateRange: { ...exportConfig.dateRange, endDate: e.target.value }
+                    })}
+                    InputLabelProps={{ shrink: true }}
+                  />
+                </Grid>
+              </Grid>
               
               <Button
                 variant="contained"
@@ -277,7 +333,7 @@ const CsvManagement = () => {
                 disabled={loading}
                 fullWidth
               >
-                Export CSV
+                Export Data
               </Button>
             </CardContent>
           </Card>

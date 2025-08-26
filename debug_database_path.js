@@ -23,7 +23,7 @@ const possiblePaths = [
   './database.sqlite',
   './src/backend/database.sqlite',
   path.join(__dirname, 'database.sqlite'),
-  path.join(__dirname, 'src', 'backend', 'database.sqlite')
+  path.join(__dirname, 'database.sqlite')
 ];
 
 console.log('\n=== Checking possible database locations ===');

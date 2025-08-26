@@ -7,63 +7,9 @@ const sendEmail = require('../utils/sendEmail');
 const { sequelize } = require('../config/database');
 const { Event } = require('../models/database');
 const WebSocket = require('ws');
+const logger = require('../utils/logger');
 
-// Enhanced debugging utility
-class ShiftDebugger {
-  static log(level, message, data = null) {
-    const timestamp = new Date().toISOString();
-    const logEntry = {
-      timestamp,
-      level,
-      message,
-      data,
-      source: 'ShiftScheduler'
-    };
-    
-    // Console logging with emojis
-    const emoji = {
-      'INFO': '📋',
-      'SUCCESS': '✅',
-      'WARNING': '⚠️',
-      'ERROR': '❌',
-      'DEBUG': '🔍',
-      'PROCESS': '🔄'
-    };
-    
-    console.log(`${emoji[level] || '📋'} [${timestamp}] ${message}`);
-    if (data) {
-      console.log('   Data:', JSON.stringify(data, null, 2));
-    }
-    
-    // Broadcast to frontend via WebSocket if available
-    this.broadcastToFrontend(logEntry);
-  }
-  
-  static broadcastToFrontend(logEntry) {
-    try {
-      // Access the global shiftScheduler instance
-      if (global.shiftSchedulerInstance && global.shiftSchedulerInstance.io) {
-        // Emit shift debug event to all connected clients
-        global.shiftSchedulerInstance.io.emit('shift_debug', {
-          timestamp: logEntry.timestamp,
-          level: logEntry.level,
-          message: logEntry.message,
-          context: logEntry.context,
-          emoji: logEntry.emoji
-        });
-      }
-    } catch (error) {
-      // Silently fail if Socket.IO is not available
-    }
-  }
-  
-  static info(message, data) { this.log('INFO', message, data); }
-  static success(message, data) { this.log('SUCCESS', message, data); }
-  static warning(message, data) { this.log('WARNING', message, data); }
-  static error(message, data) { this.log('ERROR', message, data); }
-  static debug(message, data) { this.log('DEBUG', message, data); }
-  static process(message, data) { this.log('PROCESS', message, data); }
-}
+// Enhanced debugging utility has been replaced with logger from ../utils/logger
 
 class ShiftScheduler {
   constructor() {
@@ -80,7 +26,7 @@ class ShiftScheduler {
       this.io = io;
     }
     
-    // Set global reference for ShiftDebugger
+    // Set global reference for shift scheduler
     global.shiftSchedulerInstance = this;
     
     try {
@@ -214,26 +160,26 @@ class ShiftScheduler {
     };
     
     try {
-      ShiftDebugger.process(`🔄 AUTOMATIC SHIFT CHANGE INITIATED`, debugContext);
+      logger.info(`🔄 AUTOMATIC SHIFT CHANGE INITIATED`, debugContext);
       
       // Check if there's a current active shift
       if (this.currentShift && this.currentShift.status === 'active') {
-        ShiftDebugger.info(`Ending current active shift: ${this.currentShift.shift_name}`, {
+        logger.info(`Ending current active shift: ${this.currentShift.shift_name || this.currentShift.name || 'Unknown Shift'}`, {
           currentShiftId: this.currentShift.id,
           currentShiftStartTime: this.currentShift.start_time
         });
         
         await this.endCurrentShift(true); // true = automatic
-        ShiftDebugger.success('Current shift ended successfully');
+        logger.info('Current shift ended successfully');
       } else {
-        ShiftDebugger.info('No active shift to end - proceeding to start new shift');
+        logger.info('No active shift to end - proceeding to start new shift');
       }
 
       // Start new shift
-      ShiftDebugger.process(`Starting new automatic shift: Shift ${shiftNumber}`);
+      logger.info(`Starting new automatic shift: Shift ${shiftNumber}`);
       await this.startNewShift(shiftNumber, shiftTime, true); // true = automatic
       
-      ShiftDebugger.success(`🎯 AUTOMATIC SHIFT CHANGE COMPLETED SUCCESSFULLY`, {
+      logger.info(`🎯 AUTOMATIC SHIFT CHANGE COMPLETED SUCCESSFULLY`, {
         newShiftId: this.currentShift?.id,
         newShiftName: this.currentShift?.shift_name,
         completedAt: new Date().toISOString()
@@ -255,7 +201,7 @@ class ShiftScheduler {
       }
 
     } catch (error) {
-      ShiftDebugger.error('❌ AUTOMATIC SHIFT CHANGE FAILED', {
+      logger.error('❌ AUTOMATIC SHIFT CHANGE FAILED', {
         error: error.message,
         stack: error.stack,
         context: debugContext
@@ -293,7 +239,9 @@ class ShiftScheduler {
         throw new Error('No active shift to end');
       }
 
-      console.log(`🔄 Ending shift manually: ${this.currentShift.shift_name || this.currentShift.name}`);
+      // Safe access to shift name after null check
+      const shiftName = this.currentShift.shift_name || this.currentShift.name || 'Unknown Shift';
+      console.log(`🔄 Ending shift manually: ${shiftName}`);
       
       await this.endCurrentShift(false, notes); // false = manual
       
@@ -327,7 +275,7 @@ class ShiftScheduler {
 
   async endCurrentShift(isAutomatic = false, notes = '') {
     if (!this.currentShift) {
-      ShiftDebugger.warning('No current shift to end');
+      logger.info('No current shift to end');
       return;
     }
 
@@ -335,7 +283,7 @@ class ShiftScheduler {
     const shiftId = this.currentShift.id || this.currentShift._id;
     const debugContext = {
       shiftId,
-      shiftName: this.currentShift.shift_name,
+      shiftName: this.currentShift.shift_name || this.currentShift.name || 'Unknown Shift',
       isAutomatic,
       notes,
       startTime: this.currentShift.start_time,
@@ -343,12 +291,12 @@ class ShiftScheduler {
     };
 
     try {
-      ShiftDebugger.process('🔄 COMPREHENSIVE END-OF-SHIFT PROCESSING INITIATED', debugContext);
+      logger.info('🔄 COMPREHENSIVE END-OF-SHIFT PROCESSING INITIATED', debugContext);
       
       // Step 1: Add SHIFT_END event for all active assets
-      ShiftDebugger.process('📝 STEP 1: Adding SHIFT_END events for all assets');
+      logger.info('📝 STEP 1: Adding SHIFT_END events for all assets');
       const assets = await databaseService.getAllAssets();
-      ShiftDebugger.debug(`Found ${assets.length} assets to process`, { assetCount: assets.length });
+      logger.info(`Found ${assets.length} assets to process`, { assetCount: assets.length });
       for (const asset of assets) {
         await databaseService.createEvent({
           asset_id: asset.id,
@@ -366,10 +314,10 @@ class ShiftScheduler {
         });
       }
 
-      ShiftDebugger.success(`Created SHIFT_END events for ${assets.length} assets`);
+      logger.info(`Created SHIFT_END events for ${assets.length} assets`);
 
       // Step 2: Calculate enhanced analytics and update shift record
-      ShiftDebugger.process('📝 STEP 2: Calculating enhanced analytics and updating shift record');
+      logger.info('📝 STEP 2: Calculating enhanced analytics and updating shift record');
       
       // Get all events for this shift to calculate enhanced analytics
       const allShiftEvents = await databaseService.getAllEvents({ where: { shift_id: shiftId } });
@@ -383,7 +331,7 @@ class ShiftScheduler {
         assets
       );
       
-      ShiftDebugger.debug('Enhanced analytics calculated', enhancedAnalytics);
+      logger.info('Enhanced analytics calculated', enhancedAnalytics);
       
       const updatedShift = await databaseService.updateShift(shiftId, {
         status: 'completed',
@@ -392,14 +340,14 @@ class ShiftScheduler {
         ...enhancedAnalytics
       });
       
-      ShiftDebugger.success('Shift record updated with enhanced analytics', {
+      logger.info('Shift record updated with enhanced analytics', {
         shiftId,
         status: 'completed',
         endTime: endTime.toISOString(),
         enhancedAnalytics
       });
       
-      ShiftDebugger.success('Enhanced analytics stored in shift record', {
+      logger.info('Enhanced analytics stored in shift record', {
         mtbf_minutes: enhancedAnalytics.mtbf_minutes,
         mttr_minutes: enhancedAnalytics.mttr_minutes,
         stop_frequency: enhancedAnalytics.stop_frequency,
@@ -407,11 +355,11 @@ class ShiftScheduler {
       });
 
       // Step 3: Archive all events from this shift
-      ShiftDebugger.process('📦 STEP 3: Archiving shift events');
+      logger.info('📦 STEP 3: Archiving shift events');
       const archiveResult = await this.archiveShiftEvents(shiftId, isAutomatic);
       
       if (archiveResult) {
-        ShiftDebugger.success('Events archived successfully', {
+        logger.info('Events archived successfully', {
           archiveId: archiveResult.id,
           eventCount: archiveResult.archived_data?.event_count || 'unknown'
         });
@@ -431,20 +379,20 @@ class ShiftScheduler {
           // Silently fail if Socket.IO is not available
         }
       } else {
-        ShiftDebugger.warning('No archive result returned - events may not have been archived');
+        logger.info('No archive result returned - events may not have been archived');
       }
 
       // Step 4: Generate and archive shift reports if enabled
-      ShiftDebugger.process('📧 STEP 4: Checking shift report settings');
+      logger.info('📧 STEP 4: Checking shift report settings');
       const settings = await databaseService.getNotificationSettings();
       
-      ShiftDebugger.debug('Notification settings retrieved', {
+      logger.info('Notification settings retrieved', {
         shiftSettingsEnabled: settings?.shiftSettings?.enabled,
         autoSendEnabled: settings?.shiftSettings?.autoSend
       });
       
       if (settings?.shiftSettings?.enabled && settings?.shiftSettings?.autoSend) {
-        ShiftDebugger.process('📧 Generating and archiving shift reports (auto-send enabled)');
+        logger.info('📧 Generating and archiving shift reports (auto-send enabled)');
         try {
           const reportOptions = {
             includeCsv: true,
@@ -453,13 +401,13 @@ class ShiftScheduler {
             sendEmail: true
           };
           
-          ShiftDebugger.debug('Report generation options', reportOptions);
+          logger.info('Report generation options', reportOptions);
           
           // Generate report from the shift data and store in Shift Reports Archive
           const reportResult = await reportService.generateAndArchiveShiftReportFromShift(shiftId, reportOptions);
           
           if (reportResult && reportResult.reportArchive) {
-            ShiftDebugger.success('📧 Shift reports generated and archived successfully', {
+            logger.info('📧 Shift reports generated and archived successfully', {
               reportArchiveId: reportResult.reportArchive.id,
               reportsGenerated: Object.keys(reportResult.reports || {}).length
             });
@@ -481,7 +429,7 @@ class ShiftScheduler {
             
             // Send email notifications if configured and reports were generated
             if (reportOptions.sendEmail && reportResult.reports) {
-              ShiftDebugger.process('📧 Generating analytics summary for email notifications');
+              logger.info('📧 Generating analytics summary for email notifications');
               
               // Generate analytics summary from archived data
               let analyticsSummary = null;
@@ -499,24 +447,24 @@ class ShiftScheduler {
                     shiftInfo
                   );
                   
-                  ShiftDebugger.success('Analytics summary generated successfully', {
+                  logger.info('Analytics summary generated successfully', {
                     executiveSummaryLength: analyticsSummary.executive_summary?.length || 0,
                     keyMetricsCount: Object.keys(analyticsSummary.key_metrics || {}).length,
                     insightsCount: analyticsSummary.performance_insights?.length || 0,
                     recommendationsCount: analyticsSummary.recommendations?.length || 0
                   });
                 } else {
-                  ShiftDebugger.warning('No archived data available for analytics summary generation');
+                  logger.info('No archived data available for analytics summary generation');
                 }
               } catch (analyticsError) {
-                ShiftDebugger.error('Failed to generate analytics summary', {
+                logger.error('Failed to generate analytics summary', {
                   error: analyticsError.message,
                   stack: analyticsError.stack
                 });
                 // Continue without analytics summary
               }
               
-              ShiftDebugger.process('📧 Sending enhanced shift report email notifications');
+              logger.info('📧 Sending enhanced shift report email notifications');
               
               // Add timeout protection to prevent hanging during shift transition
               try {
@@ -526,9 +474,9 @@ class ShiftScheduler {
                     setTimeout(() => reject(new Error('Email notifications timeout during shift transition')), 150000) // 2.5 minutes
                   )
                 ]);
-                ShiftDebugger.success('Enhanced email notifications sent successfully');
+                logger.info('Enhanced email notifications sent successfully');
               } catch (emailTimeoutError) {
-                ShiftDebugger.warning('Email notifications timed out during shift transition', {
+                logger.info('Email notifications timed out during shift transition', {
                   error: emailTimeoutError.message,
                   note: 'Continuing with shift transition to prevent hanging'
                 });
@@ -536,24 +484,24 @@ class ShiftScheduler {
               }
             }
           } else {
-            ShiftDebugger.warning('Report generation completed but no result returned', reportResult);
+            logger.info('Report generation completed but no result returned', reportResult);
           }
         } catch (reportError) {
-          ShiftDebugger.error('❌ Failed to generate and archive shift reports', {
+          logger.error('❌ Failed to generate and archive shift reports', {
             error: reportError.message,
             stack: reportError.stack
           });
           // Continue with the process even if reporting fails
         }
       } else {
-        ShiftDebugger.info('📧 Shift report auto-send is disabled - skipping report generation', {
+        logger.info('📧 Shift report auto-send is disabled - skipping report generation', {
           shiftSettingsEnabled: settings?.shiftSettings?.enabled,
           autoSendEnabled: settings?.shiftSettings?.autoSend
         });
       }
 
       // Step 5: Reset Events table
-      ShiftDebugger.process('🔄 STEP 5: Resetting Events table');
+      logger.info('🔄 STEP 5: Resetting Events table');
       
       // Emit data processing status - starting reset
       try {
@@ -577,9 +525,9 @@ class ShiftScheduler {
             setTimeout(() => reject(new Error('Events table reset timeout after 45 seconds')), 45000)
           )
         ]);
-        ShiftDebugger.success('Events table reset completed');
+        logger.info('Events table reset completed');
       } catch (resetError) {
-        ShiftDebugger.warning('Events table reset timed out during shift transition', {
+        logger.info('Events table reset timed out during shift transition', {
           error: resetError.message,
           note: 'Continuing with shift transition to prevent hanging'
         });
@@ -601,9 +549,9 @@ class ShiftScheduler {
       }
 
       // Step 6: Trigger dashboard reset via WebSocket
-       ShiftDebugger.process('📊 STEP 6: Triggering dashboard reset via WebSocket');
+       logger.info('📊 STEP 6: Triggering dashboard reset via WebSocket');
        await this.triggerDashboardReset();
-       ShiftDebugger.success('Dashboard reset triggered successfully');
+       logger.info('Dashboard reset triggered successfully');
        
        const completionSummary = {
         shiftId,
@@ -614,11 +562,11 @@ class ShiftScheduler {
         reportsGenerated: settings?.shiftSettings?.enabled && settings?.shiftSettings?.autoSend
       };
       
-      ShiftDebugger.success(`✅ COMPREHENSIVE END-OF-SHIFT PROCESSING COMPLETED`, completionSummary);
+      logger.info(`✅ COMPREHENSIVE END-OF-SHIFT PROCESSING COMPLETED`, completionSummary);
       this.currentShift = null;
       
     } catch (error) {
-      ShiftDebugger.error('❌ FAILED TO COMPLETE END-OF-SHIFT PROCESSING', {
+      logger.error('❌ FAILED TO COMPLETE END-OF-SHIFT PROCESSING', {
         error: error.message,
         stack: error.stack,
         context: debugContext
@@ -727,18 +675,18 @@ class ShiftScheduler {
     };
     
     try {
-      ShiftDebugger.process('📦 ARCHIVING SHIFT EVENTS INITIATED', debugContext);
+      logger.info('📦 ARCHIVING SHIFT EVENTS INITIATED', debugContext);
       
       // Get shift information
-      ShiftDebugger.debug('Retrieving shift information from database');
+      logger.info('Retrieving shift information from database');
       const shift = await databaseService.findShiftById(shiftId);
       
       if (!shift) {
-        ShiftDebugger.warning('⚠️ Shift not found for archiving events', { shiftId });
+        logger.info('⚠️ Shift not found for archiving events', { shiftId });
         return null;
       }
       
-      ShiftDebugger.success('Shift information retrieved', {
+      logger.info('Shift information retrieved', {
         shiftName: shift.shift_name,
         startTime: shift.start_time,
         endTime: shift.end_time,
@@ -746,26 +694,26 @@ class ShiftScheduler {
       });
 
       // Get all events from the shift using enhanced archiving method
-      ShiftDebugger.process('Retrieving events for archiving');
+      logger.info('Retrieving events for archiving');
       const archiveQuery = {
         startDate: shift.start_time,
         endDate: shift.end_time || new Date(),
         shift_id: shiftId
       };
       
-      ShiftDebugger.debug('Archive query parameters', archiveQuery);
+      logger.info('Archive query parameters', archiveQuery);
       const archiveResult = await databaseService.getEventsForArchiving(archiveQuery);
 
       const eventsToArchive = archiveResult.events || [];
       const archiveMetadata = archiveResult.metadata || {};
       
-      ShiftDebugger.debug('Events retrieval completed', {
+      logger.info('Events retrieval completed', {
         eventCount: eventsToArchive.length,
         hasMetadata: !!archiveMetadata
       });
 
       if (eventsToArchive.length === 0) {
-        ShiftDebugger.warning('📦 No events found to archive for this shift', {
+        logger.info('📦 No events found to archive for this shift', {
           shiftId,
           shiftName: shift.shift_name,
           queryPeriod: `${shift.start_time} to ${shift.end_time || new Date()}`
@@ -775,10 +723,10 @@ class ShiftScheduler {
 
       // Create archive name
       const archiveName = `${shift.shift_name || `Shift ${shift.shift_number}`} - ${new Date(shift.start_time).toLocaleDateString()}`;
-      ShiftDebugger.debug('Generated archive name', { archiveName });
+      logger.info('Generated archive name', { archiveName });
       
       // Create archive with events data and enhanced metadata
-      ShiftDebugger.process('Preparing archive data structure');
+      logger.info('Preparing archive data structure');
       const archiveData = {
         title: archiveName,
         description: `Automatic archive created at shift end - ${eventsToArchive.length} events`,
@@ -824,7 +772,7 @@ class ShiftScheduler {
         }
       };
 
-      ShiftDebugger.debug('Archive data prepared', {
+      logger.info('Archive data prepared', {
         title: archiveData.title,
         eventCount: eventsToArchive.length,
         shiftId: shiftId,
@@ -832,7 +780,7 @@ class ShiftScheduler {
         dateRange: `${archiveData.date_range_start} to ${archiveData.date_range_end}`
       });
       
-      ShiftDebugger.process('Creating archive in database');
+      logger.info('Creating archive in database');
       
       // Emit data processing status - starting archive creation
       try {
@@ -861,17 +809,17 @@ class ShiftScheduler {
       ]);
       
       if (archive && archive.id) {
-        ShiftDebugger.success('Archive created successfully', {
+        logger.info('Archive created successfully', {
           archiveId: archive.id,
           title: archive.title
         });
       } else {
-        ShiftDebugger.warning('Archive creation returned null or invalid result', archive);
+        logger.info('Archive creation returned null or invalid result', archive);
       }
       
       // Verify archive integrity with timeout protection
       if (archive && archive.id) {
-        ShiftDebugger.process('Verifying archive integrity');
+        logger.info('Verifying archive integrity');
         try {
           const verification = await Promise.race([
             databaseService.verifyArchiveIntegrity(archive.id),
@@ -880,15 +828,15 @@ class ShiftScheduler {
             )
           ]);
           if (verification.valid) {
-            ShiftDebugger.success('✅ Archive integrity verified successfully');
+            logger.info('✅ Archive integrity verified successfully');
           } else {
-            ShiftDebugger.warning('⚠️ Archive integrity verification failed', {
+            logger.info('⚠️ Archive integrity verification failed', {
               error: verification.error || 'Unknown error',
               archiveId: archive.id
             });
           }
         } catch (verificationError) {
-          ShiftDebugger.warning('⚠️ Archive integrity verification timed out', {
+          logger.info('⚠️ Archive integrity verification timed out', {
             error: verificationError.message,
             archiveId: archive.id,
             note: 'Continuing with shift transition'
@@ -905,12 +853,12 @@ class ShiftScheduler {
         completedAt: new Date().toISOString()
       };
       
-      ShiftDebugger.success(`✅ SHIFT EVENTS ARCHIVING COMPLETED SUCCESSFULLY`, archiveSummary);
+      logger.info(`✅ SHIFT EVENTS ARCHIVING COMPLETED SUCCESSFULLY`, archiveSummary);
       
       return archive;
 
     } catch (error) {
-      ShiftDebugger.error('❌ SHIFT EVENTS ARCHIVING FAILED', {
+      logger.error('❌ SHIFT EVENTS ARCHIVING FAILED', {
         error: error.message,
         stack: error.stack,
         context: debugContext
@@ -1168,97 +1116,195 @@ class ShiftScheduler {
                                 analyticsSummary.key_metrics.overallAvailability >= 75 ? '#ffc107' : '#dc3545';
         
         emailBody += `
-          <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; background: #f8f9fa; padding: 20px; border-radius: 8px;">
-            <!-- Analytics Summary Header -->
-            <div style="background: linear-gradient(135deg, #007bff, #0056b3); color: white; padding: 25px; border-radius: 8px; margin-bottom: 25px; text-align: center;">
-              <h1 style="margin: 0 0 15px 0; font-size: 28px;">📊 Shift Analytics Summary</h1>
-              <h2 style="margin: 0 0 20px 0; font-size: 22px;">${shiftName} - ${shiftDate}</h2>
-              <div style="font-size: 18px; line-height: 1.6; background: rgba(255,255,255,0.1); padding: 15px; border-radius: 6px;">
+          <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 800px; margin: 0 auto; background: #f8f9fa; padding: 20px; border-radius: 12px;">
+            <!-- Mobile-First Responsive Styles -->
+            <style>
+              @media only screen and (max-width: 600px) {
+                .container { padding: 10px !important; }
+                .header { padding: 20px 15px !important; }
+                .metrics-grid { grid-template-columns: 1fr 1fr !important; gap: 10px !important; }
+                .metric-card { padding: 15px !important; }
+                .metric-value { font-size: 24px !important; }
+                .section-card { padding: 15px !important; }
+              }
+            </style>
+            
+            <!-- Enhanced Analytics Summary Header -->
+            <div class="header" style="background: linear-gradient(135deg, #007bff, #0056b3); color: white; padding: 30px; border-radius: 12px; margin-bottom: 25px; text-align: center; box-shadow: 0 4px 12px rgba(0,123,255,0.3);">
+              <div style="font-size: 48px; margin-bottom: 10px;">📊</div>
+              <h1 style="margin: 0 0 15px 0; font-size: 28px; font-weight: 700;">Shift Analytics Summary</h1>
+              <h2 style="margin: 0 0 20px 0; font-size: 22px; font-weight: 500; opacity: 0.9;">${shiftName} - ${shiftDate}</h2>
+              <div style="font-size: 16px; line-height: 1.6; background: rgba(255,255,255,0.15); padding: 18px; border-radius: 8px; border-left: 4px solid #ffc107;">
+                <div style="font-size: 20px; margin-bottom: 8px;">📋</div>
                 ${analyticsSummary.executive_summary}
               </div>
             </div>
             
-            <!-- Key Metrics Grid -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 25px;">
-              <div style="background: white; padding: 20px; border-radius: 8px; text-align: center; border: 2px solid ${performanceColor}; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                <div style="font-size: 32px; font-weight: bold; color: ${performanceColor}; margin-bottom: 5px;">
-                  ${analyticsSummary.key_metrics.overallAvailability.toFixed(1)}%
+            <!-- Enhanced Key Metrics Grid with Icons and Status Indicators -->
+            <div class="metrics-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 18px; margin-bottom: 30px;">
+              <!-- Overall Availability Card -->
+              <div class="metric-card" style="background: white; padding: 24px; border-radius: 12px; text-align: center; border: 3px solid ${performanceColor}; box-shadow: 0 4px 12px rgba(0,0,0,0.1); position: relative; overflow: hidden;">
+                <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: ${performanceColor};"></div>
+                <div style="font-size: 36px; margin-bottom: 8px;">${(analyticsSummary.key_metrics?.overallAvailability || 0) >= 90 ? '🟢' : (analyticsSummary.key_metrics?.overallAvailability || 0) >= 75 ? '🟡' : '🔴'}</div>
+                <div class="metric-value" style="font-size: 36px; font-weight: 700; color: ${performanceColor}; margin-bottom: 8px; line-height: 1;">
+                  ${(analyticsSummary.key_metrics?.overallAvailability || 0).toFixed(1)}%
                 </div>
-                <div style="color: #666; font-size: 14px;">Overall Availability</div>
+                <div style="color: #495057; font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Overall Availability</div>
+                <div style="margin-top: 8px; font-size: 12px; color: #6c757d;">${(analyticsSummary.key_metrics?.overallAvailability || 0) >= 90 ? 'Excellent Performance' : (analyticsSummary.key_metrics?.overallAvailability || 0) >= 75 ? 'Good Performance' : 'Needs Attention'}</div>
               </div>
-              <div style="background: white; padding: 20px; border-radius: 8px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                <div style="font-size: 32px; font-weight: bold; color: #dc3545; margin-bottom: 5px;">
+              
+              <!-- Total Downtime Card -->
+              <div class="metric-card" style="background: white; padding: 24px; border-radius: 12px; text-align: center; border: 3px solid #dc3545; box-shadow: 0 4px 12px rgba(0,0,0,0.1); position: relative; overflow: hidden;">
+                <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: #dc3545;"></div>
+                <div style="font-size: 36px; margin-bottom: 8px;">⏱️</div>
+                <div class="metric-value" style="font-size: 36px; font-weight: 700; color: #dc3545; margin-bottom: 8px; line-height: 1;">
                   ${Math.round(analyticsSummary.key_metrics.totalDowntime)}
                 </div>
-                <div style="color: #666; font-size: 14px;">Total Downtime (min)</div>
+                <div style="color: #495057; font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Total Downtime (min)</div>
+                <div style="margin-top: 8px; font-size: 12px; color: #6c757d;">${Math.round(analyticsSummary.key_metrics.totalDowntime / 60 * 10) / 10} hours</div>
               </div>
-              <div style="background: white; padding: 20px; border-radius: 8px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                <div style="font-size: 32px; font-weight: bold; color: #007bff; margin-bottom: 5px;">
+              
+              <!-- Total Events Card -->
+              <div class="metric-card" style="background: white; padding: 24px; border-radius: 12px; text-align: center; border: 3px solid #007bff; box-shadow: 0 4px 12px rgba(0,0,0,0.1); position: relative; overflow: hidden;">
+                <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: #007bff;"></div>
+                <div style="font-size: 36px; margin-bottom: 8px;">📈</div>
+                <div class="metric-value" style="font-size: 36px; font-weight: 700; color: #007bff; margin-bottom: 8px; line-height: 1;">
                   ${analyticsSummary.key_metrics.totalEvents}
                 </div>
-                <div style="color: #666; font-size: 14px;">Total Events</div>
+                <div style="color: #495057; font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Total Events</div>
+                <div style="margin-top: 8px; font-size: 12px; color: #6c757d;">Activity Level: ${analyticsSummary.key_metrics.totalEvents > 50 ? 'High' : analyticsSummary.key_metrics.totalEvents > 20 ? 'Medium' : 'Low'}</div>
               </div>
-              <div style="background: white; padding: 20px; border-radius: 8px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                <div style="font-size: 32px; font-weight: bold; color: #ffc107; margin-bottom: 5px;">
+              
+              <!-- Critical Stops Card -->
+              <div class="metric-card" style="background: white; padding: 24px; border-radius: 12px; text-align: center; border: 3px solid #ffc107; box-shadow: 0 4px 12px rgba(0,0,0,0.1); position: relative; overflow: hidden;">
+                <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: #ffc107;"></div>
+                <div style="font-size: 36px; margin-bottom: 8px;">⚠️</div>
+                <div class="metric-value" style="font-size: 36px; font-weight: 700; color: #ffc107; margin-bottom: 8px; line-height: 1;">
                   ${analyticsSummary.key_metrics.criticalStops}
                 </div>
-                <div style="color: #666; font-size: 14px;">Critical Stops</div>
+                <div style="color: #495057; font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Critical Stops</div>
+                <div style="margin-top: 8px; font-size: 12px; color: #6c757d;">${analyticsSummary.key_metrics.criticalStops === 0 ? 'No Issues' : 'Requires Review'}</div>
               </div>
             </div>`;
         
-        // Performance Insights
+        // Enhanced Performance Insights with Better Visual Hierarchy
         if (analyticsSummary.performance_insights && analyticsSummary.performance_insights.length > 0) {
           emailBody += `
-            <div style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-              <h3 style="color: #495057; margin-top: 0; font-size: 20px;">🔍 Key Performance Insights</h3>`;
-          analyticsSummary.performance_insights.forEach(insight => {
-            emailBody += `<div style="background: #e8f5e8; padding: 12px; margin: 8px 0; border-left: 4px solid #28a745; border-radius: 4px;">${insight}</div>`;
+            <div class="section-card" style="background: white; padding: 25px; border-radius: 12px; margin-bottom: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); border-top: 4px solid #28a745;">
+              <div style="display: flex; align-items: center; margin-bottom: 20px;">
+                <div style="font-size: 32px; margin-right: 12px;">🔍</div>
+                <h3 style="color: #495057; margin: 0; font-size: 22px; font-weight: 600;">Key Performance Insights</h3>
+              </div>`;
+          analyticsSummary.performance_insights.forEach((insight, index) => {
+            emailBody += `
+              <div style="background: linear-gradient(135deg, #e8f5e8, #f0f9f0); padding: 16px; margin: 12px 0; border-left: 5px solid #28a745; border-radius: 8px; box-shadow: 0 2px 4px rgba(40,167,69,0.1);">
+                <div style="display: flex; align-items: flex-start;">
+                  <div style="background: #28a745; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; margin-right: 12px; flex-shrink: 0;">${index + 1}</div>
+                  <div style="color: #155724; line-height: 1.5; font-size: 15px;">${insight}</div>
+                </div>
+              </div>`;
           });
           emailBody += `</div>`;
         }
         
-        // Recommendations
+        // Enhanced Recommendations with Priority Indicators
         if (analyticsSummary.recommendations && analyticsSummary.recommendations.length > 0) {
           emailBody += `
-            <div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin-bottom: 25px; border: 1px solid #ffeaa7; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-              <h3 style="color: #856404; margin-top: 0; font-size: 20px;">💡 Actionable Recommendations</h3>`;
-          analyticsSummary.recommendations.forEach(recommendation => {
-            emailBody += `<div style="background: white; padding: 12px; margin: 8px 0; border-left: 4px solid #ffc107; border-radius: 4px;">${recommendation}</div>`;
+            <div class="section-card" style="background: linear-gradient(135deg, #fff3cd, #fef9e7); padding: 25px; border-radius: 12px; margin-bottom: 30px; border: 2px solid #ffeaa7; box-shadow: 0 4px 12px rgba(255,193,7,0.2); border-top: 4px solid #ffc107;">
+              <div style="display: flex; align-items: center; margin-bottom: 20px;">
+                <div style="font-size: 32px; margin-right: 12px;">💡</div>
+                <h3 style="color: #856404; margin: 0; font-size: 22px; font-weight: 600;">Actionable Recommendations</h3>
+              </div>`;
+          analyticsSummary.recommendations.forEach((recommendation, index) => {
+            const priorityIcon = index === 0 ? '🔥' : index === 1 ? '⭐' : '📌';
+            const priorityLabel = index === 0 ? 'High Priority' : index === 1 ? 'Medium Priority' : 'Standard';
+            const priorityColor = index === 0 ? '#dc3545' : index === 1 ? '#ffc107' : '#6c757d';
+            emailBody += `
+              <div style="background: white; padding: 18px; margin: 12px 0; border-left: 5px solid #ffc107; border-radius: 8px; box-shadow: 0 2px 6px rgba(255,193,7,0.15);">
+                <div style="display: flex; align-items: flex-start; margin-bottom: 8px;">
+                  <div style="font-size: 20px; margin-right: 8px;">${priorityIcon}</div>
+                  <div style="background: ${priorityColor}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; text-transform: uppercase;">${priorityLabel}</div>
+                </div>
+                <div style="color: #856404; line-height: 1.6; font-size: 15px; margin-left: 28px;">${recommendation}</div>
+              </div>`;
           });
           emailBody += `</div>`;
         }
       }
       
-      // Traditional shift report information
+      // Enhanced Standardized Summary Section
+      const shiftDuration = Math.round((new Date(shiftInfo.end_time) - new Date(shiftInfo.start_time)) / (1000 * 60 * 60 * 10)) / 10;
       emailBody += `
-            <!-- Traditional Shift Information -->
-            <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-              <h3 style="color: #495057; margin-top: 0; font-size: 20px;">📋 Shift Details</h3>
-              <table style="width: 100%; border-collapse: collapse;">
-                <tr>
-                  <td style="padding: 8px 0; font-weight: bold; color: #495057;">Shift Name:</td>
-                  <td style="padding: 8px 0;">${shiftName}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px 0; font-weight: bold; color: #495057;">Date:</td>
-                  <td style="padding: 8px 0;">${shiftDate}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px 0; font-weight: bold; color: #495057;">Start Time:</td>
-                  <td style="padding: 8px 0;">${new Date(shiftInfo.start_time).toLocaleString()}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px 0; font-weight: bold; color: #495057;">End Time:</td>
-                  <td style="padding: 8px 0;">${new Date(shiftInfo.end_time).toLocaleString()}</td>
-                </tr>
-              </table>
-              
-              <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 6px;">
-                <p style="margin: 0; color: #495057;">📎 <strong>Attachments:</strong> Detailed shift reports are attached to this email in both CSV and HTML formats for your review and analysis.</p>
+            <!-- Standardized Shift Summary Section -->
+            <div class="section-card" style="background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); border-top: 4px solid #6c757d; margin-bottom: 25px;">
+              <div style="display: flex; align-items: center; margin-bottom: 20px;">
+                <div style="font-size: 32px; margin-right: 12px;">📋</div>
+                <h3 style="color: #495057; margin: 0; font-size: 22px; font-weight: 600;">Shift Summary Details</h3>
               </div>
               
-              <div style="margin-top: 15px; padding: 10px; background: #e9ecef; border-radius: 6px; font-size: 12px; color: #6c757d; text-align: center;">
-                This is an automated notification from the Manufacturing Dashboard System.
+              <!-- Enhanced Shift Information Grid -->
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 25px;">
+                <div style="background: #f8f9fa; padding: 18px; border-radius: 8px; border-left: 4px solid #007bff;">
+                  <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                    <span style="font-size: 20px; margin-right: 8px;">🏷️</span>
+                    <span style="font-weight: 600; color: #495057; font-size: 14px; text-transform: uppercase;">Shift Name</span>
+                  </div>
+                  <div style="font-size: 18px; font-weight: 700; color: #007bff;">${shiftName}</div>
+                </div>
+                
+                <div style="background: #f8f9fa; padding: 18px; border-radius: 8px; border-left: 4px solid #28a745;">
+                  <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                    <span style="font-size: 20px; margin-right: 8px;">📅</span>
+                    <span style="font-weight: 600; color: #495057; font-size: 14px; text-transform: uppercase;">Date</span>
+                  </div>
+                  <div style="font-size: 18px; font-weight: 700; color: #28a745;">${shiftDate}</div>
+                </div>
+                
+                <div style="background: #f8f9fa; padding: 18px; border-radius: 8px; border-left: 4px solid #ffc107;">
+                  <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                    <span style="font-size: 20px; margin-right: 8px;">⏰</span>
+                    <span style="font-weight: 600; color: #495057; font-size: 14px; text-transform: uppercase;">Duration</span>
+                  </div>
+                  <div style="font-size: 18px; font-weight: 700; color: #ffc107;">${shiftDuration} hours</div>
+                </div>
+                
+                <div style="background: #f8f9fa; padding: 18px; border-radius: 8px; border-left: 4px solid #dc3545;">
+                  <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                    <span style="font-size: 20px; margin-right: 8px;">🕐</span>
+                    <span style="font-weight: 600; color: #495057; font-size: 14px; text-transform: uppercase;">Time Range</span>
+                  </div>
+                  <div style="font-size: 14px; color: #dc3545; line-height: 1.4;">
+                    <div><strong>Start:</strong> ${new Date(shiftInfo.start_time).toLocaleString()}</div>
+                    <div><strong>End:</strong> ${new Date(shiftInfo.end_time).toLocaleString()}</div>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Enhanced Attachments Section -->
+              <div style="background: linear-gradient(135deg, #e3f2fd, #f3e5f5); padding: 20px; border-radius: 10px; border: 2px solid #e1f5fe; margin-bottom: 20px;">
+                <div style="display: flex; align-items: center; margin-bottom: 12px;">
+                  <span style="font-size: 24px; margin-right: 10px;">📎</span>
+                  <h4 style="margin: 0; color: #1565c0; font-size: 18px; font-weight: 600;">Report Attachments</h4>
+                </div>
+                <p style="margin: 0; color: #1565c0; line-height: 1.5; font-size: 15px;">
+                  Comprehensive shift reports are attached in multiple formats:
+                </p>
+                <div style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 10px;">
+                  <span style="background: #1976d2; color: white; padding: 4px 12px; border-radius: 16px; font-size: 12px; font-weight: bold;">📊 CSV Data</span>
+                  <span style="background: #7b1fa2; color: white; padding: 4px 12px; border-radius: 16px; font-size: 12px; font-weight: bold;">📄 HTML Report</span>
+                  <span style="background: #388e3c; color: white; padding: 4px 12px; border-radius: 16px; font-size: 12px; font-weight: bold;">📈 Analytics</span>
+                </div>
+              </div>
+              
+              <!-- System Footer -->
+              <div style="text-align: center; padding: 15px; background: #f8f9fa; border-radius: 8px; border: 1px solid #dee2e6;">
+                <div style="font-size: 16px; margin-bottom: 5px;">🏭</div>
+                <div style="font-size: 12px; color: #6c757d; font-weight: 500;">
+                  Automated notification from Manufacturing Dashboard System
+                </div>
+                <div style="font-size: 11px; color: #adb5bd; margin-top: 4px;">
+                  Generated on ${new Date().toLocaleString()}
+                </div>
               </div>
             </div>
           </div>
@@ -1364,26 +1410,26 @@ class ShiftScheduler {
       if (elapsedMinutes >= shiftDurationMinutes) {
         const debugContext = {
           shiftId: this.currentShift.id,
-          shiftName: this.currentShift.shift_name,
+          shiftName: this.currentShift.shift_name || this.currentShift.name || 'Unknown Shift',
           startTime: this.currentShift.start_time,
           elapsedMinutes,
           configuredDurationMinutes: shiftDurationMinutes,
           exceedByMinutes: elapsedMinutes - shiftDurationMinutes
         };
         
-        ShiftDebugger.warning(`⏰ SHIFT DURATION EXCEEDED - Triggering automatic end-of-shift archiving`, debugContext);
+        logger.info(`⏰ SHIFT DURATION EXCEEDED - Triggering automatic end-of-shift archiving`, debugContext);
         
         // Trigger automatic shift end and archiving
         await this.endCurrentShift(true, `Automatic end due to shift duration exceeded (${elapsedMinutes}/${shiftDurationMinutes} minutes)`);
         
-        ShiftDebugger.success(`✅ Automatic end-of-shift archiving completed for exceeded duration`, {
+        logger.info(`✅ Automatic end-of-shift archiving completed for exceeded duration`, {
           completedAt: new Date().toISOString(),
           totalDurationMinutes: elapsedMinutes
         });
       }
       
     } catch (error) {
-      ShiftDebugger.error('❌ Shift duration monitoring failed', {
+      logger.error('❌ Shift duration monitoring failed', {
         error: error.message,
         stack: error.stack
       });
@@ -1396,13 +1442,13 @@ class ShiftScheduler {
    */
   async validateShiftStateOnStartup() {
     try {
-      ShiftDebugger.process('🔍 VALIDATING SHIFT STATE ON STARTUP');
+      logger.info('🔍 VALIDATING SHIFT STATE ON STARTUP');
       
       // Get notification settings to check shift times
       const notificationSettings = await databaseService.getNotificationSettings();
       
       if (!notificationSettings?.shiftSettings?.enabled) {
-        ShiftDebugger.info('Automatic shift detection disabled - skipping startup validation');
+        logger.info('Automatic shift detection disabled - skipping startup validation');
         return;
       }
       
@@ -1411,7 +1457,7 @@ class ShiftScheduler {
         : [];
       
       if (!shiftTimes.length) {
-        ShiftDebugger.warning('No shift times configured - skipping startup validation');
+        logger.info('No shift times configured - skipping startup validation');
         return;
       }
       
@@ -1440,7 +1486,7 @@ class ShiftScheduler {
       const expectedShiftNumber = expectedShiftIndex + 1;
       const expectedShiftTime = shiftTimes[expectedShiftIndex];
       
-      ShiftDebugger.info('Startup shift validation', {
+      logger.info('Startup shift validation', {
         currentTime: `${Math.floor(currentTime / 100).toString().padStart(2, '0')}:${(currentTime % 100).toString().padStart(2, '0')}`,
         expectedShiftNumber,
         expectedShiftTime,
@@ -1473,7 +1519,7 @@ class ShiftScheduler {
       }
       
       if (needsShiftChange) {
-        ShiftDebugger.warning(`🔄 MISSED SHIFT DETECTED - Triggering recovery shift change`, {
+        logger.info(`🔄 MISSED SHIFT DETECTED - Triggering recovery shift change`, {
           reason: changeReason,
           expectedShiftNumber,
           expectedShiftTime
@@ -1490,17 +1536,17 @@ class ShiftScheduler {
         // Trigger dashboard reset to ensure frontend is synchronized
         await this.triggerDashboardReset('System startup shift recovery');
         
-        ShiftDebugger.success('✅ STARTUP SHIFT RECOVERY COMPLETED', {
+        logger.info('✅ STARTUP SHIFT RECOVERY COMPLETED', {
           newShiftId: this.currentShift?.id,
           newShiftName: this.currentShift?.shift_name,
           recoveryTime: new Date().toISOString()
         });
       } else {
-        ShiftDebugger.success('✅ Shift state validation passed - no recovery needed');
+        logger.info('✅ Shift state validation passed - no recovery needed');
       }
       
     } catch (error) {
-      ShiftDebugger.error('❌ Startup shift validation failed', {
+      logger.error('❌ Startup shift validation failed', {
         error: error.message,
         stack: error.stack
       });

@@ -18,9 +18,9 @@ router.get('/', getAssets);
 router.get('/:id', getAssetById);
 
 // Protected routes - require authentication
-router.post('/', authenticateJWT, authorizeRoles('admin', 'manager'), createAsset);
-router.put('/:id', authenticateJWT, authorizeRoles('admin', 'manager'), updateAsset);
-router.delete('/:id', authenticateJWT, authorizeRoles('admin'), deleteAsset);
+router.post('/', authenticateJWT, authorizeRoles('super_admin', 'admin', 'manager'), createAsset);
+router.put('/:id', authenticateJWT, authorizeRoles('super_admin', 'admin', 'manager'), updateAsset);
+router.delete('/:id', authenticateJWT, authorizeRoles('super_admin', 'admin'), deleteAsset);
 
 // Asset events and statistics
 router.get('/:id/events', authenticateJWT, getAssetEvents);

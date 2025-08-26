@@ -1,4 +1,4 @@
-import React, { useContext } from 'react';
+import React from 'react';
 import { styled } from '@mui/material/styles';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
@@ -17,7 +17,6 @@ import BarChartIcon from '@mui/icons-material/BarChart';
 import { format } from 'date-fns';
 
 // Context
-import SocketContext from '../../context/SocketContext';
 
 // Styled components
 const StyledTableRow = styled(TableRow)(({ theme }) => ({
@@ -31,15 +30,13 @@ const StyledTableRow = styled(TableRow)(({ theme }) => ({
 }));
 
 const DailyReportTable = ({ reports }) => {
-  const { assets } = useContext(SocketContext);
 
   // Ensure reports is always an array
   const safeReports = Array.isArray(reports) ? reports : [];
 
   // Helper function to get asset name by ID
   const getAssetName = (assetId) => {
-    const asset = assets.find(a => a.id === assetId);
-    return asset ? asset.name : 'All Assets';
+    return 'All Assets';
   };
 
   // Helper function to format duration
@@ -80,8 +77,6 @@ const DailyReportTable = ({ reports }) => {
             <TableCell>Stops</TableCell>
             <TableCell>Availability</TableCell>
             <TableCell>Performance</TableCell>
-            <TableCell>Quality</TableCell>
-            <TableCell>OEE</TableCell>
             <TableCell align="center">Actions</TableCell>
           </TableRow>
         </TableHead>
@@ -89,7 +84,7 @@ const DailyReportTable = ({ reports }) => {
           {safeReports.map((report) => (
             <StyledTableRow key={report._id}>
               <TableCell component="th" scope="row">
-                {format(new Date(report.date), 'yyyy-MM-dd')}
+                {format(new Date(report.date), 'dd/MM/yyyy')}
               </TableCell>
               <TableCell>{getAssetName(report.assetId)}</TableCell>
               <TableCell>{formatDuration(report.runtime)}</TableCell>
@@ -97,8 +92,6 @@ const DailyReportTable = ({ reports }) => {
               <TableCell>{report.stops}</TableCell>
               <TableCell>{formatPercentage(report.availability)}</TableCell>
               <TableCell>{formatPercentage(report.performance)}</TableCell>
-              <TableCell>{formatPercentage(report.quality)}</TableCell>
-              <TableCell>{formatPercentage(report.oee)}</TableCell>
               <TableCell align="center">
                 <Tooltip title="View Details">
                   <IconButton size="small" sx={{ mr: 1 }}>

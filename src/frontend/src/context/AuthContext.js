@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 
 const AuthContext = createContext();
 
@@ -10,14 +10,7 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Set auth token in axios headers
-  useEffect(() => {
-    if (token) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    } else {
-      delete axios.defaults.headers.common['Authorization'];
-    }
-  }, [token]);
+  // Token is automatically handled by the API service interceptor
 
   // Load user data if token exists
   useEffect(() => {
@@ -31,7 +24,7 @@ export const AuthProvider = ({ children }) => {
 
       try {
         console.log('🔐 AuthContext: Attempting to load user with token');
-        const res = await axios.get('/api/auth/me');
+        const res = await api.get('/auth/me');
         console.log('🔐 AuthContext: User loaded successfully:', res.data.data.name, '(' + res.data.data.role + ')');
         setUser(res.data.data);
         setIsAuthenticated(true);
@@ -56,7 +49,7 @@ export const AuthProvider = ({ children }) => {
   const register = async (formData) => {
     try {
       setLoading(true);
-      const res = await axios.post('/api/auth/register', formData);
+      const res = await api.post('/auth/register', formData);
       localStorage.setItem('token', res.data.token);
       setToken(res.data.token);
       return { success: true };
@@ -73,7 +66,7 @@ export const AuthProvider = ({ children }) => {
     try {
       console.log('🔐 AuthContext: Attempting login for:', email);
       setLoading(true);
-      const res = await axios.post('/api/auth/login', { email, password });
+      const res = await api.post('/auth/login', { email, password });
       console.log('🔐 AuthContext: Login successful, storing token');
       localStorage.setItem('token', res.data.token);
       setToken(res.data.token);
@@ -100,7 +93,7 @@ export const AuthProvider = ({ children }) => {
   const updateProfile = async (userData) => {
     try {
       setLoading(true);
-      const res = await axios.put('/api/auth/update-details', userData);
+      const res = await api.put('/auth/update-details', userData);
       setUser(res.data.data);
       return { success: true, data: res.data.data };
     } catch (err) {
@@ -115,7 +108,7 @@ export const AuthProvider = ({ children }) => {
   const changePassword = async (currentPassword, newPassword) => {
     try {
       setLoading(true);
-      await axios.put('/api/auth/update-password', { currentPassword, newPassword });
+      await api.put('/auth/update-password', { currentPassword, newPassword });
       return { success: true };
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to change password');
@@ -129,7 +122,7 @@ export const AuthProvider = ({ children }) => {
   const requestPasswordReset = async (email) => {
     try {
       setLoading(true);
-      await axios.post('/api/auth/forgot-password', { email });
+      await api.post('/auth/forgot-password', { email });
       return { success: true };
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to request password reset');
@@ -143,7 +136,7 @@ export const AuthProvider = ({ children }) => {
   const resetPassword = async (token, newPassword) => {
     try {
       setLoading(true);
-      await axios.post(`/api/auth/reset-password/${token}`, { password: newPassword });
+      await api.post(`/auth/reset-password/${token}`, { password: newPassword });
       return { success: true };
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to reset password');
@@ -162,9 +155,7 @@ export const AuthProvider = ({ children }) => {
     setToken(jwtToken);
     setIsAuthenticated(true);
     try {
-      const res = await axios.get('/api/auth/me', {
-        headers: { Authorization: `Bearer ${jwtToken}` }
-      });
+      const res = await api.get('/auth/me');
       setUser(res.data.data);
     } catch (err) {
       console.error('Failed to load user after token login:', err);

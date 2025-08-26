@@ -18,13 +18,17 @@ import Dashboard from './components/dashboard/Dashboard';
 import EventsPage from './components/events/EventsPage';
 import ArchivesPage from './components/archives/ArchivesPage';
 import AnalyticsPage from './components/analytics/AnalyticsPage';
+import AdvancedAnalyticsPage from './components/analytics/AdvancedAnalyticsPage';
+import AlertManagementPage from './components/alerts/AlertManagementPage';
 import ConfigPage from './components/config/ConfigPage';
 import UserManagement from './components/config/UserManagement';
+import TeamManagement from './components/TeamManagement';
 
 // Context
 import { AuthProvider } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
 import { AlertProvider } from './context/AlertContext';
+import { NotificationProvider } from './context/NotificationContext';
 import { SettingsProvider } from './context/SettingsContext';
 
 // Debug Components
@@ -125,8 +129,9 @@ function App() {
       <CssBaseline />
       <AlertProvider>
         <AuthProvider>
-          <SettingsProvider>
-            <SocketProvider>
+          <NotificationProvider>
+            <SettingsProvider>
+              <SocketProvider>
               <ShiftDebugLogger />
               <Router>
               <Routes>
@@ -143,19 +148,23 @@ function App() {
                   <Route path="events" element={<EventsPage />} />
                   <Route path="archives" element={<ArchivesPage />} />
                   <Route path="analytics" element={<AnalyticsPage />} />
+                  <Route path="advanced-analytics" element={<AdvancedAnalyticsPage />} />
+                  <Route path="alerts" element={<AlertManagementPage />} />
                   <Route path="config" element={<ConfigPage />} />
                   <Route path="users" element={<UserManagement />} />
+                  <Route path="teams" element={<Navigate to="/config" replace />} />
                   <Route path="system" element={<div>System Page</div>} />
                 </Route>
                 
                 {/* Redirect any unknown routes to dashboard */}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
-            </Router>
-          </SocketProvider>
-        </SettingsProvider>
-      </AuthProvider>
-    </AlertProvider>
+              </Router>
+              </SocketProvider>
+            </SettingsProvider>
+          </NotificationProvider>
+        </AuthProvider>
+      </AlertProvider>
   </ThemeProvider>
   );
 }

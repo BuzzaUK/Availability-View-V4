@@ -5,7 +5,7 @@ const fs = require('fs');
 // Database configuration with minimal logging
 const sequelize = new Sequelize({
   dialect: 'sqlite',
-  storage: path.join(__dirname, 'src/backend/database.sqlite'),
+  storage: path.join(__dirname, 'database.sqlite'),
   logging: false
 });
 

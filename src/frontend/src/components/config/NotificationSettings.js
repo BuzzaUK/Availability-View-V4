@@ -33,11 +33,12 @@ import ErrorIcon from '@mui/icons-material/Error';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ScheduleIcon from '@mui/icons-material/Schedule';
-import axios from 'axios';
+import api from '../../services/api';
 
 // Context
 import AlertContext from '../../context/AlertContext';
 import SocketContext from '../../context/SocketContext';
+import AuthContext from '../../context/AuthContext';
 
 // Styled components
 const StyledPaper = styled(Paper)(({ theme }) => ({
@@ -48,6 +49,7 @@ const StyledPaper = styled(Paper)(({ theme }) => ({
 const NotificationSettings = () => {
   const { error, success } = useContext(AlertContext);
   const { socket } = useContext(SocketContext);
+  const { isAuthenticated, token } = useContext(AuthContext);
   
   // State for notification settings
   const [settings, setSettings] = useState({
@@ -99,11 +101,7 @@ const NotificationSettings = () => {
         channels: ['inApp', 'email'],
         recipients: []
       },
-      oeeThresholdAlert: {
-        enabled: true,
-        channels: ['inApp', 'email'],
-        recipients: []
-      }
+
     }
   });
   
@@ -155,9 +153,19 @@ const NotificationSettings = () => {
   // Fetch notification settings
   const fetchSettings = async () => {
     console.log('🔍 FRONTEND fetchSettings called, making request to /api/settings/notifications');
+    
+    if (!isAuthenticated || !token) {
+      console.log('🔍 FRONTEND: User not authenticated, skipping settings fetch');
+      setLoading(false);
+      return;
+    }
+    
     try {
       setLoading(true);
-      const response = await axios.get('/api/settings/notifications');
+      const headers = {
+        Authorization: `Bearer ${token}`
+      };
+      const response = await api.get('/settings/notifications');
       const newSettings = response.data;
 
       // Debug: Log what we received from backend
@@ -219,8 +227,15 @@ const NotificationSettings = () => {
 
   // Fetch users for recipient selection
   const fetchUsers = async () => {
+    if (!isAuthenticated || !token) {
+      return;
+    }
+    
     try {
-      const response = await axios.get('/api/users', { params: { limit: 100 } });
+      const headers = {
+        Authorization: `Bearer ${token}`
+      };
+      const response = await api.get('/users', { params: { limit: 100 } });
       setUsers(response.data.users || []);
     } catch (err) {
       error('Failed to fetch users: ' + (err.response?.data?.message || err.message));
@@ -229,12 +244,20 @@ const NotificationSettings = () => {
 
   // Save notification settings
   const saveSettings = async () => {
+    if (!isAuthenticated || !token) {
+      error('You must be logged in to save settings');
+      return;
+    }
+    
     try {
       setSaving(true);
       console.log('🔍 FRONTEND - Saving notification settings:', JSON.stringify(settings, null, 2));
       console.log('🔍 FRONTEND - Shift settings enabled:', settings.shiftSettings?.enabled);
       console.log('🔍 FRONTEND - Shift times:', settings.shiftSettings?.shiftTimes);
-      await axios.put('/api/settings/notifications', settings);
+      const headers = {
+        Authorization: `Bearer ${token}`
+      };
+      await api.put('/settings/notifications', settings);
       success('Notification settings saved successfully');
     } catch (err) {
       console.error('🔍 FRONTEND - Save error:', err);
@@ -247,7 +270,7 @@ const NotificationSettings = () => {
   // Test email configuration
   const testEmailConfig = async () => {
     try {
-      await axios.post('/api/settings/notifications/test-email', settings.emailSettings);
+      await api.post('/settings/notifications/test-email', settings.emailSettings);
       success('Test email sent successfully. Please check your inbox.');
     } catch (err) {
       error('Failed to send test email: ' + (err.response?.data?.message || err.message));
@@ -257,7 +280,7 @@ const NotificationSettings = () => {
   // Test SMS configuration
   const testSmsConfig = async () => {
     try {
-      await axios.post('/api/settings/notifications/test-sms', settings.smsSettings);
+      await api.post('/settings/notifications/test-sms', settings.smsSettings);
       success('Test SMS sent successfully. Please check your phone.');
     } catch (err) {
       error('Failed to send test SMS: ' + (err.response?.data?.message || err.message));
@@ -268,7 +291,7 @@ const NotificationSettings = () => {
   const testShiftReport = async () => {
     try {
       // Get the most recent completed shift for testing
-      const shiftsResponse = await axios.get('/api/shifts?limit=5&sort_by=start_time&sort_order=desc');
+      const shiftsResponse = await api.get('/shifts?limit=5&sort_by=start_time&sort_order=desc');
       let shiftId = null;
       
       if (shiftsResponse.data.success && shiftsResponse.data.data.length > 0) {
@@ -286,7 +309,7 @@ const NotificationSettings = () => {
       }
 
       // Send test shift report
-      const response = await axios.post(`/api/shifts/${shiftId}/report`, {
+      const response = await api.post(`/shifts/${shiftId}/report`, {
         format: 'all'
       });
 
@@ -352,9 +375,11 @@ const NotificationSettings = () => {
 
   useEffect(() => {
     console.log('🔍 FRONTEND NotificationSettings component mounted, calling fetchSettings...');
-    fetchSettings();
-    fetchUsers();
-  }, []);
+    if (isAuthenticated && token) {
+      fetchSettings();
+      fetchUsers();
+    }
+  }, [isAuthenticated, token]);
 
   if (loading) {
     return (

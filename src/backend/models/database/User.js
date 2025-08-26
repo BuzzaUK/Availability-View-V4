@@ -32,12 +32,58 @@ const User = sequelize.define('User', {
     }
   },
   role: {
-    type: DataTypes.ENUM('admin', 'manager', 'operator', 'viewer'),
+    type: DataTypes.ENUM('super_admin', 'admin', 'manager', 'operator', 'viewer'),
     defaultValue: 'viewer'
   },
   isActive: {
     type: DataTypes.BOOLEAN,
     defaultValue: true
+  },
+  permissions: {
+    type: DataTypes.JSON,
+    defaultValue: {
+      system: {
+        manageUsers: false,
+        manageTeams: false,
+        systemSettings: false
+      },
+      data: {
+        viewAll: false,
+        exportAll: false,
+        deleteAll: false
+      },
+      teams: {
+        create: false,
+        join: true,
+        invite: false
+      }
+    }
+  },
+  preferences: {
+    type: DataTypes.JSON,
+    defaultValue: {
+      theme: 'light',
+      language: 'en',
+      timezone: 'UTC',
+      notifications: {
+        email: true,
+        browser: true,
+        teamInvites: true,
+        dataSharing: true
+      },
+      dashboard: {
+        defaultView: 'overview',
+        refreshInterval: 30
+      }
+    }
+  },
+  current_team_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'teams',
+      key: 'id'
+    }
   },
   receive_reports: {
     type: DataTypes.BOOLEAN,
@@ -54,6 +100,17 @@ const User = sequelize.define('User', {
   last_login: {
     type: DataTypes.DATE,
     allowNull: true
+  },
+  profile: {
+    type: DataTypes.JSON,
+    defaultValue: {
+      avatar: null,
+      bio: '',
+      department: '',
+      position: '',
+      phone: '',
+      location: ''
+    }
   }
 }, {
   tableName: 'users',

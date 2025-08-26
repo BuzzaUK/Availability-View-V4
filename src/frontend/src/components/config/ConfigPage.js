@@ -7,6 +7,7 @@ import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import SettingsIcon from '@mui/icons-material/Settings';
 import PeopleIcon from '@mui/icons-material/People';
+import GroupIcon from '@mui/icons-material/Group';
 import DevicesIcon from '@mui/icons-material/Devices';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import BackupIcon from '@mui/icons-material/Backup';
@@ -15,6 +16,7 @@ import RouterIcon from '@mui/icons-material/Router';
 // Components
 import GeneralSettings from './GeneralSettings';
 import UserManagement from './UserManagement';
+import TeamManagement from '../TeamManagement';
 import AssetManagement from './AssetManagement';
 import LoggerManagement from './LoggerManagement';
 import NotificationSettings from './NotificationSettings';
@@ -38,6 +40,7 @@ const ConfigPage = () => {
   const tabs = [
     { label: 'General Settings', icon: <SettingsIcon /> },
     { label: 'User Management', icon: <PeopleIcon /> },
+    { label: 'Team Management', icon: <GroupIcon /> },
     { label: 'Asset Management', icon: <DevicesIcon /> },
     { label: 'Logger Management', icon: <RouterIcon /> },
     { label: 'Notifications', icon: <NotificationsIcon /> },
@@ -94,29 +97,36 @@ const ConfigPage = () => {
         </TabPanel>
       )}
       
-      {/* Asset Management Tab */}
+      {/* Team Management Tab */}
       {tabValue === 2 && (
+        <TabPanel>
+          <TeamManagement />
+        </TabPanel>
+      )}
+      
+      {/* Asset Management Tab */}
+      {tabValue === 3 && (
         <TabPanel>
           <AssetManagement />
         </TabPanel>
       )}
       
       {/* Logger Management Tab */}
-      {tabValue === 3 && (
+      {tabValue === 4 && (
         <TabPanel>
           <LoggerManagement />
         </TabPanel>
       )}
       
       {/* Notification Settings Tab */}
-      {tabValue === 4 && (
+      {tabValue === 5 && (
         <TabPanel>
           <NotificationSettings />
         </TabPanel>
       )}
       
       {/* Backup & Restore Tab */}
-      {tabValue === 5 && (
+      {tabValue === 6 && (
         <TabPanel>
           <BackupRestore />
         </TabPanel>
