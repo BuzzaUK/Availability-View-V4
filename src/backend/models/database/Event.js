@@ -27,7 +27,8 @@ const Event = sequelize.define('Event', {
     type: DataTypes.ENUM(
       'STATE_CHANGE', 
       'STOP_START', 
-      'STOP_END', 
+      'STOP_END',
+      'RUN_END', 
       'MICRO_STOP', 
       'SHIFT_START', 
       'SHIFT_END',
@@ -75,6 +76,11 @@ const Event = sequelize.define('Event', {
       model: 'shifts',
       key: 'id'
     }
+  },
+  notes: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    comment: 'Additional notes and tags for the event'
   }
 }, {
   tableName: 'events',

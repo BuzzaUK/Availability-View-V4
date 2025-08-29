@@ -73,6 +73,10 @@ const EventsTable = ({
     switch (eventType) {
       case 'STATE_CHANGE':
         return 'primary';
+      case 'RUN_END':
+        return 'success';
+      case 'STOP_END':
+        return 'error';
       case 'SHIFT':
       case 'SHIFT_START':
       case 'SHIFT_END':
@@ -106,10 +110,23 @@ const EventsTable = ({
   const formatEventType = (eventType) => {
     if (!eventType) return 'N/A';
     
-    return eventType
-      .split('_')
-      .map(word => word.charAt(0) + word.slice(1).toLowerCase())
-      .join(' ');
+    // Special handling for timing-corrected event types
+    switch (eventType) {
+      case 'RUN_END':
+        return 'Run Ended';
+      case 'STOP_END':
+        return 'Stop Ended';
+      default:
+        return eventType
+          .split('_')
+          .map(word => word.charAt(0) + word.slice(1).toLowerCase())
+          .join(' ');
+    }
+  };
+  
+  // Helper function to check if event is a micro stop
+  const isMicroStop = (event) => {
+    return event.stop_reason && event.stop_reason.includes('Short');
   };
 
   // Helper function to safely format timestamp
@@ -194,17 +211,29 @@ const EventsTable = ({
                   </Typography>
                 </TableCell>
                 <TableCell>
-                  <Typography 
-                    variant="body2" 
-                    sx={{
-                      maxWidth: 200,
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis'
-                    }}
-                  >
-                    {event.notes || 'N/A'}
-                  </Typography>
+                  <Box>
+                    <Typography 
+                      variant="body2" 
+                      sx={{
+                        maxWidth: 200,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        color: isMicroStop(event) ? 'warning.main' : 'text.primary',
+                        fontWeight: isMicroStop(event) ? 'bold' : 'normal'
+                      }}
+                    >
+                      {event.stop_reason || event.notes || 'N/A'}
+                    </Typography>
+                    {isMicroStop(event) && (
+                      <Chip 
+                        label="Micro Stop" 
+                        color="warning" 
+                        size="small" 
+                        sx={{ mt: 0.5, fontSize: '0.7rem', height: '20px' }}
+                      />
+                    )}
+                  </Box>
                 </TableCell>
                 <TableCell align="center">
                   <Tooltip title="View Details">

@@ -375,6 +375,11 @@ class NaturalLanguageReportService {
           narrative += `   *${event.description}*\n`;
         }
         
+        // Include notes/tags for events (especially micro stops)
+        if (event.notes) {
+          narrative += `   📝 *${event.notes}*\n`;
+        }
+        
         // Add impact assessment
         if (event.duration > 600000) { // > 10 minutes
           narrative += `   ⚠️ *Significant downtime impact*\n`;

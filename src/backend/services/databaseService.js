@@ -391,7 +391,61 @@ class DatabaseService {
       }
     }
     
-    return await Event.create(eventData);
+    // Auto-tag MICRO_STOP events with "Micro Stop" tag
+    if (eventData.event_type === 'MICRO_STOP') {
+      const microStopTag = 'Micro Stop';
+      eventData.notes = eventData.notes ? `${eventData.notes}; ${microStopTag}` : microStopTag;
+    }
+    
+    // Create the main event
+    const createdEvent = await Event.create(eventData);
+    
+    // Auto-create MICRO_STOP event for short stops
+    if (eventData.event_type === 'STATE_CHANGE' && 
+        eventData.new_state === 'STOPPED' && 
+        eventData.previous_state === 'RUNNING' &&
+        eventData.duration !== undefined && eventData.duration !== null) {
+      
+      // Get asset to check micro stop threshold
+      let microStopThreshold = 180; // Default 3 minutes
+      if (eventData.asset_id) {
+        try {
+          const asset = await this.getAssetById(eventData.asset_id);
+          if (asset && asset.short_stop_threshold) {
+            microStopThreshold = asset.short_stop_threshold;
+          }
+        } catch (error) {
+          console.warn('⚠️ Could not get asset for micro stop threshold:', error.message);
+        }
+      }
+      
+      // Create MICRO_STOP event if duration is less than threshold
+      if (eventData.duration < microStopThreshold) {
+        const microStopEventData = {
+          asset_id: eventData.asset_id,
+          logger_id: eventData.logger_id,
+          shift_id: eventData.shift_id,
+          event_type: 'MICRO_STOP',
+          duration: eventData.duration,
+          timestamp: eventData.timestamp,
+          stop_reason: eventData.stop_reason || 'Short stop',
+          metadata: {
+            ...eventData.metadata,
+            auto_generated: true,
+            source_event_id: createdEvent.id
+          }
+        };
+        
+        // Add micro stop tag
+        const microStopTag = 'Micro Stop';
+        microStopEventData.notes = microStopTag;
+        
+        await Event.create(microStopEventData);
+        console.log(`✅ Auto-created MICRO_STOP event for ${eventData.duration}s stop (threshold: ${microStopThreshold}s)`);
+      }
+    }
+    
+    return createdEvent;
   }
 
   async deleteEventsByIds(eventIds) {

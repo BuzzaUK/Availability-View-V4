@@ -300,6 +300,67 @@ app.post('/api/asset-state', async (req, res) => {
       // Calculate duration since last state change (in seconds)
       const durationSeconds = Math.floor((currentTime - lastStateChange) / 1000);
       
+      // TIMING CORRECTION: Log the END of the previous state with its actual duration
+      // This ensures event durations are recorded at the end of a state change
+      // and accurately reflect the duration of the *previous* state
+      
+      let eventType, eventState, eventDuration = 0;
+      let microStopNote = null;
+      
+      // Only create an event if we have a valid previous state and duration
+      if (previousState && durationSeconds > 0) {
+        if (previousState === 'RUNNING') {
+          // Log END of RUN period (STOP event with run duration)
+          eventType = 'RUN_END';
+          eventState = 'STOPPED';
+          eventDuration = durationSeconds;
+          
+          // Check for micro stop (run duration <= 5 minutes)
+          if (durationSeconds <= 300) {
+            microStopNote = `Short run - ${durationSeconds} sec`;
+          }
+          
+          console.log(`📊 Logging END of RUN period: ${durationSeconds}s`);
+        } else if (previousState === 'STOPPED') {
+          // Log END of STOP period (START event with stop duration)
+          eventType = 'STOP_END';
+          eventState = 'RUNNING';
+          eventDuration = durationSeconds;
+          
+          // Check for micro stop (stop duration <= 5 minutes)
+          if (durationSeconds <= 300) {
+            microStopNote = `Short stop - ${durationSeconds} sec`;
+          }
+          
+          console.log(`📊 Logging END of STOP period: ${durationSeconds}s`);
+        }
+        
+        // Create event record for the END of the previous state
+        const eventData = {
+          asset_id: asset.id,
+          logger_id: logger.id,
+          event_type: eventType,
+          previous_state: previousState,
+          new_state: eventState,
+          duration: eventDuration,
+          timestamp: currentTime,
+          stop_reason: microStopNote,
+          metadata: { 
+            source: 'esp32', 
+            pin_number,
+            timing_corrected: true,
+            micro_stop: eventDuration <= 300
+          }
+        };
+
+        await databaseService.createEvent(eventData);
+        
+        // Log micro stop detection
+        if (microStopNote) {
+          console.log(`🔍 MICRO STOP DETECTED - ${asset.name}: ${microStopNote}`);
+        }
+      }
+      
       // Update runtime/downtime statistics
       let updateData = {
         current_state: assetState,
@@ -337,20 +398,6 @@ app.post('/api/asset-state', async (req, res) => {
       // Update asset with accumulated statistics
       await databaseService.updateAsset(asset.id, updateData);
 
-      // Create event record in SQL database with duration
-      const eventData = {
-        asset_id: asset.id,
-        logger_id: logger.id,
-        event_type: 'STATE_CHANGE',
-        previous_state: previousState,
-        new_state: assetState,
-        duration: durationSeconds,
-        timestamp: currentTime,
-        metadata: { source: 'esp32', pin_number }
-      };
-
-      await databaseService.createEvent(eventData);
-
       // Emit real-time update via WebSocket
       io.emit('assetStateChange', {
         assetId: asset.id,
@@ -359,8 +406,10 @@ app.post('/api/asset-state', async (req, res) => {
         pinNumber: pin_number,
         previousState,
         newState: assetState,
-        duration: durationSeconds,
-        timestamp: eventData.timestamp,
+        duration: eventDuration,
+        timestamp: currentTime,
+        microStop: eventDuration <= 300 && eventDuration > 0,
+        microStopNote,
         statistics: {
           runtime: totalRuntime,
           downtime: totalDowntime,
@@ -369,7 +418,7 @@ app.post('/api/asset-state', async (req, res) => {
         }
       });
 
-      console.log(`✅ ASSET STATE UPDATE - Asset ${asset.name} changed from ${previousState} to ${assetState} (duration: ${durationSeconds}s)`);
+      console.log(`✅ ASSET STATE UPDATE - Asset ${asset.name} changed from ${previousState} to ${assetState} (previous duration: ${eventDuration}s${microStopNote ? ', ' + microStopNote : ''})`);
     } else {
       console.log(`🔍 ASSET STATE UPDATE - Asset ${asset.name} state unchanged (${assetState})`);
     }

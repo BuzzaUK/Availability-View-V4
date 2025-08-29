@@ -44,6 +44,10 @@ const getEventTypeChip = (eventType) => {
   switch (eventType) {
     case 'STATE_CHANGE':
       return { label: 'State Change', color: 'primary' };
+    case 'RUN_END':
+      return { label: 'Run Ended', color: 'success' };
+    case 'STOP_END':
+      return { label: 'Stop Ended', color: 'error' };
     case 'SHIFT':
       return { label: 'Shift', color: 'secondary' };
     case 'SHIFT_START':
@@ -57,6 +61,11 @@ const getEventTypeChip = (eventType) => {
     default:
       return { label: eventType, color: 'default' };
   }
+};
+
+// Helper function to check if event is a micro stop
+const isMicroStop = (event) => {
+  return event.stop_reason && event.stop_reason.includes('Short');
 };
 
 // Get state chip style
@@ -132,11 +141,39 @@ const RecentEventsTable = ({ events, loading }) => {
                     />
                   )}
                 </TableCell>
-                <TableCell>{formatDuration(event.duration)}</TableCell>
                 <TableCell>
-                  <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
-                    {event.notes || '-'}
+                  <Typography 
+                    variant="body2" 
+                    sx={{
+                      color: isMicroStop(event) ? 'warning.main' : 'text.primary',
+                      fontWeight: isMicroStop(event) ? 'bold' : 'normal'
+                    }}
+                  >
+                    {formatDuration(event.duration)}
                   </Typography>
+                </TableCell>
+                <TableCell>
+                  <Box>
+                    <Typography 
+                      variant="body2" 
+                      noWrap 
+                      sx={{ 
+                        maxWidth: 200,
+                        color: isMicroStop(event) ? 'warning.main' : 'text.primary',
+                        fontWeight: isMicroStop(event) ? 'bold' : 'normal'
+                      }}
+                    >
+                      {event.stop_reason || event.notes || '-'}
+                    </Typography>
+                    {isMicroStop(event) && (
+                      <Chip 
+                        label="Micro Stop" 
+                        color="warning" 
+                        size="small" 
+                        sx={{ mt: 0.5, fontSize: '0.7rem', height: '18px' }}
+                      />
+                    )}
+                  </Box>
                 </TableCell>
               </StyledTableRow>
             );

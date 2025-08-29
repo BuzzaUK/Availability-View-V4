@@ -777,10 +777,12 @@ exports.getAvailabilityAnalytics = async (req, res) => {
     let microStops = 0;
     let microStopTime = 0;
 
-    const stopEvents = events.filter(event => 
-      (event.event_type === 'STATE_CHANGE' && event.new_state === 'STOPPED') &&
-      (!asset_id || event.asset_id == asset_id)
-    );
+    const stopEvents = events.filter(event => {
+      const isStopEvent = (event.event_type === 'STATE_CHANGE' && event.new_state === 'STOPPED') ||
+                         (event.event_type === 'STOP_END') ||
+                         (event.event_type === 'RUN_END');
+      return isStopEvent && (!asset_id || event.asset_id == asset_id);
+    });
 
     stopEvents.forEach(event => {
       const duration = event.duration || 0;
@@ -806,13 +808,16 @@ exports.getAvailabilityAnalytics = async (req, res) => {
       
       const dayEvents = events.filter(event => {
         const eventDate = new Date(event.timestamp);
-        if (eventDate >= dayStart && eventDate < dayEnd && 
-            (event.event_type === 'STATE_CHANGE' && event.new_state === 'STOPPED') &&
-            (!asset_id || event.asset_id == asset_id)) {
-          // Get the asset's microstop threshold, default to 180 seconds if not found
-          const asset = assets.find(a => a.id == event.asset_id || a._id == event.asset_id);
-          const microstopThreshold = asset?.microstop_threshold || 180;
-          return (event.duration || 0) < microstopThreshold;
+        if (eventDate >= dayStart && eventDate < dayEnd && (!asset_id || event.asset_id == asset_id)) {
+          const isStopEvent = (event.event_type === 'STATE_CHANGE' && event.new_state === 'STOPPED') ||
+                             (event.event_type === 'STOP_END') ||
+                             (event.event_type === 'RUN_END');
+          if (isStopEvent) {
+            // Get the asset's microstop threshold, default to 180 seconds if not found
+            const asset = assets.find(a => a.id == event.asset_id || a._id == event.asset_id);
+            const microstopThreshold = asset?.microstop_threshold || 180;
+            return (event.duration || 0) < microstopThreshold;
+          }
         }
         return false;
       });

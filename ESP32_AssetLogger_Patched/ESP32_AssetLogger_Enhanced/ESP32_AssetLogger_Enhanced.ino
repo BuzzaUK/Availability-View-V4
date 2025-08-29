@@ -31,7 +31,7 @@
 #define LOGGER_ID "ESP32_001" 
 #define LOGGER_NAME "Production Floor Logger" 
 #define FIRMWARE_VERSION "2.0.0" 
-#define WEB_APP_URL "https://availability-view-4ba51fc27277.herokuapp.com"  // Replace with your actual IP   
+#define WEB_APP_URL "http://192.168.0.63:5000"  // Replace with your actual IP   
 
 // OLED Configuration
 #define SCREEN_WIDTH 128
@@ -40,17 +40,18 @@
 #define SCREEN_ADDRESS 0x3C
 
 // Asset Configuration
-#define MAX_ASSETS 8
-const int ASSET_PINS[MAX_ASSETS] = {2, 4, 5, 18, 19, 21, 22, 23};
+#define MAX_INPUTS 8  // Hardcoded input limit variable
+#define MAX_ASSETS MAX_INPUTS
+const int ASSET_PINS[MAX_ASSETS] = {15, 2, 4, 16, 17, 5, 18, 19};  // GPIO pins for I/P 1-8
 const char* ASSET_NAMES[MAX_ASSETS] = {
-  "Production Line A",
-  "Production Line B", 
-  "Packaging Unit",
-  "Quality Control",
-  "Conveyor Belt 1",
-  "Conveyor Belt 2",
-  "Robotic Arm",
-  "Inspection Station"
+  "I/P 1",
+  "I/P 2", 
+  "I/P 3",
+  "I/P 4",
+  "I/P 5",
+  "I/P 6",
+  "I/P 7",
+  "I/P 8"
 };
 
 // Timing Configuration
@@ -59,6 +60,8 @@ const char* ASSET_NAMES[MAX_ASSETS] = {
 #define DISPLAY_UPDATE_INTERVAL 2000  // 2 seconds
 #define SHORT_STOP_THRESHOLD 300      // 5 minutes in seconds
 #define LONG_STOP_THRESHOLD 1800      // 30 minutes in seconds
+#define NETWORK_TIMEOUT 120000        // 2 minutes network timeout
+#define WIFI_RETRY_INTERVAL 10000     // 10 seconds between WiFi retry attempts
 
 // ===== GLOBAL OBJECTS =====
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
@@ -97,11 +100,15 @@ unsigned long lastDisplayUpdate = 0;
 unsigned long lastStateCheck = 0;
 int currentDisplayAsset = 0;
 bool displayInitialized = false;
+unsigned long lastNetworkCheck = 0;
+unsigned long networkFailureStart = 0;
+bool networkFailureDetected = false;
+int wifiRetryCount = 0;
 
 // ===== SETUP FUNCTIONS =====
 void setup() {
   Serial.begin(115200);
-  Serial.println("\n=== Enhanced ESP32 Asset Logger Starting ===");
+  Serial.println("\n=== Enhanced Asset Logger Starting ===");
   
   // Initialize SPIFFS
   if (!SPIFFS.begin(true)) {
@@ -152,7 +159,14 @@ void initializeDisplay() {
 }
 
 void initializeAssets() {
-  for (int i = 0; i < MAX_ASSETS; i++) {
+  // Validate input limit
+  if (MAX_INPUTS > 8) {
+    Serial.println("ERROR: Maximum inputs exceeded! Limited to 8 inputs.");
+    updateDisplay("Input Error", "Max 8 inputs only");
+    delay(5000);
+  }
+  
+  for (int i = 0; i < MAX_ASSETS && i < MAX_INPUTS; i++) {
     pinMode(ASSET_PINS[i], INPUT_PULLUP);
     
     assets[i].name = ASSET_NAMES[i];
@@ -167,20 +181,30 @@ void initializeAssets() {
     assets[i].availabilityPercentage = 0.0;
   }
   
-  Serial.println("Assets initialized");
+  Serial.printf("Assets initialized: %d inputs configured\n", MAX_INPUTS);
 }
 
 void setupWiFi() {
   updateDisplay("WiFi Setup", "Connecting...");
   
-  // Set custom parameters for WiFiManager
-  wifiManager.setConfigPortalTimeout(300); // 5 minutes timeout
-  wifiManager.setConnectTimeout(30);       // 30 seconds connect timeout
+  // Enhanced WiFi configuration for factory floor reliability
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  WiFi.persistent(true);
   
-  // Try to connect to WiFi
-  if (!wifiManager.autoConnect("ESP32-AssetLogger")) {
-    Serial.println("Failed to connect to WiFi");
-    updateDisplay("WiFi Failed", "Check config portal");
+  // Set custom parameters for WiFiManager - optimized for factory environment
+  wifiManager.setConfigPortalTimeout(600); // 10 minutes timeout for initial setup
+  wifiManager.setConnectTimeout(60);       // 60 seconds connect timeout
+  wifiManager.setAPCallback(configModeCallback);
+  wifiManager.setSaveConfigCallback(saveConfigCallback);
+  
+  // Set stronger signal requirements
+  wifiManager.setMinimumSignalQuality(20); // Minimum 20% signal quality
+  
+  // Try to connect to WiFi with enhanced error handling
+  if (!wifiManager.autoConnect("ESP32-AssetLogger-Setup")) {
+    Serial.println("Failed to connect to WiFi after timeout");
+    updateDisplay("WiFi Timeout", "Restarting...");
     delay(3000);
     ESP.restart();
   }
@@ -190,8 +214,8 @@ void setupWiFi() {
   systemState.wifiRSSI = WiFi.RSSI();
   
   Serial.println("WiFi connected!");
-  Serial.print("IP address: ");
-  Serial.println(systemState.ipAddress);
+  Serial.printf("IP address: %s\n", systemState.ipAddress.c_str());
+  Serial.printf("Signal strength: %d dBm\n", systemState.wifiRSSI);
   
   updateDisplay("WiFi Connected", systemState.ipAddress.c_str());
   delay(2000);
@@ -255,15 +279,21 @@ void loop() {
     systemState.lastHeartbeat = millis();
   }
   
-  // Check WiFi connection
+  // Enhanced network monitoring and failure detection
+  checkNetworkHealth();
+  
+  // Check WiFi connection with enhanced retry logic
   if (WiFi.status() != WL_CONNECTED) {
-    systemState.wifiConnected = false;
-    Serial.println("WiFi disconnected, attempting reconnection...");
-    WiFi.reconnect();
+    handleWiFiDisconnection();
   } else if (!systemState.wifiConnected) {
     systemState.wifiConnected = true;
     systemState.ipAddress = WiFi.localIP().toString();
-    Serial.println("WiFi reconnected");
+    systemState.wifiRSSI = WiFi.RSSI();
+    networkFailureDetected = false;
+    networkFailureStart = 0;
+    wifiRetryCount = 0;
+    Serial.println("WiFi reconnected successfully");
+    updateDisplay("WiFi Restored", systemState.ipAddress.c_str());
   }
   
   delay(100); // Small delay to prevent watchdog issues
@@ -366,7 +396,7 @@ void registerWithServer() {
   doc["logger_name"] = LOGGER_NAME;
   doc["firmware_version"] = FIRMWARE_VERSION;
   doc["ip_address"] = systemState.ipAddress;
-  doc["description"] = "Enhanced ESP32 Asset Logger with real-time monitoring";
+  doc["description"] = "Enhanced Asset Logger with real-time monitoring";
   doc["location"] = "Production Floor";
   doc["heartbeat_interval"] = HEARTBEAT_INTERVAL / 1000;
   
@@ -559,14 +589,27 @@ void handleAssets() {
 void handleConfig() {
   String html = "<!DOCTYPE html><html><head><title>Configuration</title>";
   html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<style>body{font-family:Arial;margin:20px;} .config-item{margin:10px 0;padding:5px;background:#f5f5f5;}</style>";
   html += "</head><body>";
-  html += "<h1>Configuration</h1>";
-  html += "<p>Logger ID: " + String(LOGGER_ID) + "</p>";
-  html += "<p>Logger Name: " + String(LOGGER_NAME) + "</p>";
-  html += "<p>Firmware Version: " + String(FIRMWARE_VERSION) + "</p>";
-  html += "<p>Server URL: " + String(WEB_APP_URL) + "</p>";
+  html += "<h1>ESP32 Asset Logger Configuration</h1>";
+  html += "<div class='config-item'><strong>Logger ID:</strong> " + String(LOGGER_ID) + "</div>";
+  html += "<div class='config-item'><strong>Logger Name:</strong> " + String(LOGGER_NAME) + "</div>";
+  html += "<div class='config-item'><strong>Firmware Version:</strong> " + String(FIRMWARE_VERSION) + "</div>";
+  html += "<div class='config-item'><strong>Server URL:</strong> " + String(WEB_APP_URL) + "</div>";
+  html += "<div class='config-item'><strong>Max Inputs:</strong> " + String(MAX_INPUTS) + " (Hardcoded)</div>";
+  html += "<div class='config-item'><strong>Network Timeout:</strong> " + String(NETWORK_TIMEOUT/1000) + " seconds</div>";
+  html += "<div class='config-item'><strong>WiFi Retry Interval:</strong> " + String(WIFI_RETRY_INTERVAL/1000) + " seconds</div>";
+  html += "<h2>Network Status</h2>";
+  html += "<div class='config-item'><strong>WiFi Status:</strong> " + String(systemState.wifiConnected ? "Connected" : "Disconnected") + "</div>";
+  html += "<div class='config-item'><strong>Network Failure Detected:</strong> " + String(networkFailureDetected ? "Yes" : "No") + "</div>";
+  html += "<div class='config-item'><strong>WiFi Retry Count:</strong> " + String(wifiRetryCount) + "</div>";
+  html += "<h2>Input Pin Configuration</h2>";
+  for (int i = 0; i < MAX_ASSETS; i++) {
+    html += "<div class='config-item'><strong>" + assets[i].name + ":</strong> GPIO " + String(assets[i].pin) + "</div>";
+  }
+  html += "<h2>Actions</h2>";
   html += "<form action='/reset' method='post'>";
-  html += "<button type='submit'>Reset WiFi Settings</button>";
+  html += "<button type='submit' style='background:#dc3545;color:white;padding:10px;border:none;cursor:pointer;'>Reset WiFi Settings</button>";
   html += "</form>";
   html += "<p><a href='/'>Back to Home</a></p>";
   html += "</body></html>";
@@ -579,6 +622,82 @@ void handleReset() {
   server.send(200, "text/html", "WiFi settings reset. Device will restart.");
   delay(1000);
   ESP.restart();
+}
+
+// ===== NETWORK RELIABILITY FUNCTIONS =====
+void checkNetworkHealth() {
+  unsigned long now = millis();
+  
+  // Check network health every 30 seconds
+  if (now - lastNetworkCheck >= 30000) {
+    lastNetworkCheck = now;
+    
+    if (WiFi.status() != WL_CONNECTED || !systemState.serverConnected) {
+      if (!networkFailureDetected) {
+        networkFailureDetected = true;
+        networkFailureStart = now;
+        Serial.println("Network failure detected");
+        updateDisplay("Network Issue", "Monitoring...");
+      } else {
+        // Check if network has been down for more than 2 minutes
+        if (now - networkFailureStart >= NETWORK_TIMEOUT) {
+          Serial.println("Network timeout exceeded - restarting device");
+          updateDisplay("Network Timeout", "Restarting...");
+          delay(3000);
+          ESP.restart();
+        }
+      }
+    } else {
+      if (networkFailureDetected) {
+        networkFailureDetected = false;
+        networkFailureStart = 0;
+        Serial.println("Network health restored");
+      }
+    }
+  }
+}
+
+void handleWiFiDisconnection() {
+  systemState.wifiConnected = false;
+  unsigned long now = millis();
+  
+  // Display network failure warning
+  updateDisplay("WiFi Lost", "Reconnecting...");
+  
+  // Attempt reconnection with retry logic
+  if (now - lastNetworkCheck >= WIFI_RETRY_INTERVAL) {
+    wifiRetryCount++;
+    Serial.printf("WiFi disconnected, retry attempt %d\n", wifiRetryCount);
+    
+    // Try different reconnection strategies
+    if (wifiRetryCount <= 3) {
+      WiFi.reconnect();
+    } else if (wifiRetryCount <= 6) {
+      WiFi.disconnect();
+      delay(1000);
+      WiFi.begin();
+    } else {
+      // Reset WiFi and restart if too many failures
+      Serial.println("Too many WiFi failures - restarting");
+      updateDisplay("WiFi Failed", "Restarting...");
+      delay(3000);
+      ESP.restart();
+    }
+    
+    lastNetworkCheck = now;
+  }
+}
+
+void configModeCallback(WiFiManager *myWiFiManager) {
+  Serial.println("Entered config mode");
+  Serial.println(WiFi.softAPIP());
+  Serial.println(myWiFiManager->getConfigPortalSSID());
+  updateDisplay("Config Mode", "Connect to setup");
+}
+
+void saveConfigCallback() {
+  Serial.println("Should save config");
+  updateDisplay("Config Saved", "Restarting...");
 }
 
 // ===== UTILITY FUNCTIONS =====

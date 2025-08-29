@@ -294,7 +294,7 @@ class ReportService {
         eventDuration = Math.max(0, end - start);
       }
 
-      // Normalize event types/states
+      // Normalize event types/states - Updated for corrected timing logic
       let isStop = false;
       let isRun = false;
       // Normalize strings to uppercase for robust comparisons
@@ -302,7 +302,12 @@ class ReportService {
       const stateValRaw = (event.new_state || event.newState || event.state || '').toString();
       const stateVal = stateValRaw.toUpperCase();
 
-      if (typeVal === 'STATE_CHANGE' || typeVal === 'STATE' || typeVal === 'STATECHANGE') {
+      // Handle new timing-corrected event types
+      if (typeVal === 'RUN_END') {
+        isRun = true; // RUN_END events contain the duration of the run that just ended
+      } else if (typeVal === 'STOP_END') {
+        isStop = true; // STOP_END events contain the duration of the stop that just ended
+      } else if (typeVal === 'STATE_CHANGE' || typeVal === 'STATE' || typeVal === 'STATECHANGE') {
         if (stateVal === 'STOPPED' || stateVal === 'STOP') isStop = true;
         if (stateVal === 'RUNNING' || stateVal === 'START') isRun = true;
       } else if (typeVal === 'STOP' || stateVal === 'STOPPED' || stateVal === 'STOP') {
@@ -317,7 +322,11 @@ class ReportService {
         totalStopDuration += eventDuration;
         if (eventDuration > longestStop) longestStop = eventDuration;
         if (eventDuration < shortestStop) shortestStop = eventDuration;
-        if (event.is_short_stop || eventDuration < microStopThresholdMs) {
+        // Check for micro stops using both the stop_reason field and duration threshold
+        const isMicroStop = (event.stop_reason && event.stop_reason.includes('Short')) || 
+                           event.is_short_stop || 
+                           eventDuration <= 300000; // 300 seconds = 5 minutes
+        if (isMicroStop) {
           shortStops++;
         }
       } else if (isRun) {
